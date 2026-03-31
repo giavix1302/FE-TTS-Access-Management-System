@@ -1,52 +1,125 @@
-import { Bell, LogOut } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, matchPath } from "react-router-dom";
+import { Bell, ChevronDown, KeyRound, LogOut } from "lucide-react";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useAuthStore } from "@/stores/authStore";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { generateInitials } from "@/utils/helpers";
+import { logout } from "@/api/auth.api";
+
+const ROUTE_TITLES: { pattern: string; title: string }[] = [
+  { pattern: "/", title: "Dashboard" },
+  { pattern: "/vehicles", title: "Quản lý xe nâng" },
+  { pattern: "/vehicles/:id", title: "Chi tiết xe nâng" },
+  { pattern: "/contracts", title: "Hợp đồng" },
+  { pattern: "/contracts/:id", title: "Chi tiết hợp đồng" },
+  { pattern: "/customers", title: "Khách hàng" },
+  { pattern: "/users", title: "Người dùng & Phân quyền" },
+  { pattern: "/notifications", title: "Thông báo" },
+  { pattern: "/settings", title: "Cài đặt công ty" },
+];
+
+function usePageTitle(): string {
+  const { pathname } = useLocation();
+
+  // Thử khớp exact trước (để "/" không nuốt route khác)
+  for (const { pattern, title } of ROUTE_TITLES) {
+    const match = matchPath({ path: pattern, end: true }, pathname);
+    if (match) return title;
+  }
+  return "";
+}
 
 export default function Topbar() {
   const navigate = useNavigate();
-  const { user, clearAuth } = useAuthStore();
+  const { user, clearAuth, refreshToken } = useAuthStore();
   const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const pageTitle = usePageTitle();
 
-  const handleLogout = () => {
-    clearAuth();
-    navigate("/login", { replace: true });
+  const handleLogout = async () => {
+    try {
+      if (refreshToken) {
+        await logout(refreshToken);
+      }
+    } catch {
+      // bỏ qua lỗi, vẫn clear local
+    } finally {
+      clearAuth();
+      navigate("/login", { replace: true });
+    }
   };
 
   return (
-    <header className="flex h-16 items-center justify-between border-b border-border bg-bg-card px-6 shadow-topbar">
-      <div />
+    <header
+      className="flex h-16 shrink-0 items-center justify-between border-b border-[#E2E8F0] bg-white px-6"
+      style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}
+    >
+      {/* Bên trái: tên trang */}
+      <h1 className="text-[18px] font-medium text-[#1A202C]">{pageTitle}</h1>
+
+      {/* Bên phải */}
       <div className="flex items-center gap-4">
-        {/* Notifications */}
+        {/* Icon chuông */}
         <button
           onClick={() => navigate("/notifications")}
-          className="relative p-2 text-text-secondary hover:text-text-primary"
+          className="relative rounded p-1 text-[#718096] transition-colors hover:text-[#1A5FAB]"
+          title="Thông báo"
         >
           <Bell size={20} />
           {unreadCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-error text-[10px] font-bold text-white">
+            <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[11px] font-semibold text-white">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
         </button>
 
-        {/* User avatar */}
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-xs font-semibold text-white">
-            {user ? generateInitials(user.full_name) : "?"}
-          </div>
-          <span className="text-sm font-medium text-text-primary">{user?.full_name}</span>
-        </div>
+        {/* Avatar + Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[#F4F6F8]">
+              <Avatar className="h-9 w-9 shrink-0">
+                {user?.avatar_url ? (
+                  <AvatarImage src={user.avatar_url} alt={user.full_name} />
+                ) : null}
+                <AvatarFallback className="bg-[#1A5FAB] text-xs font-semibold text-white">
+                  {user ? generateInitials(user.full_name) : "?"}
+                </AvatarFallback>
+              </Avatar>
+              <span className="max-w-[140px] truncate text-sm font-normal text-[#1A202C]">
+                {user?.full_name ?? "---"}
+              </span>
+              <ChevronDown size={14} className="text-[#718096]" />
+            </button>
+          </DropdownMenuTrigger>
 
-        {/* Logout */}
-        <button
-          onClick={handleLogout}
-          className="p-2 text-text-secondary hover:text-error"
-          title="Đăng xuất"
-        >
-          <LogOut size={18} />
-        </button>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem
+              className="cursor-pointer gap-2"
+              onClick={() => {
+                // TODO: mở modal đổi mật khẩu
+              }}
+            >
+              <KeyRound size={15} className="text-[#718096]" />
+              Đổi mật khẩu
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem
+              className="cursor-pointer gap-2 text-[#E74C3C] focus:text-[#E74C3C]"
+              onClick={handleLogout}
+            >
+              <LogOut size={15} className="text-[#E74C3C]" />
+              Đăng xuất
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

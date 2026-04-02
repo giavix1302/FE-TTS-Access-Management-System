@@ -212,12 +212,14 @@ export default function VehicleDetailPage() {
   const [insDocId, setInsDocId] = useState<number | null>(null)
   const [insUploading, setInsUploading] = useState(false)
   const [deleteInsId, setDeleteInsId] = useState<number | null>(null)
+  const [viewIns, setViewIns] = useState<InsuranceRecord | null>(null)
   // Inspection modal
   const [inspecOpen, setInspecOpen] = useState(false)
   const [inspecFile, setInspecFile] = useState<File | null>(null)
   const [inspecDocId, setInspecDocId] = useState<number | null>(null)
   const [inspecUploading, setInspecUploading] = useState(false)
   const [deleteInspecId, setDeleteInspecId] = useState<number | null>(null)
+  const [viewInspec, setViewInspec] = useState<InspectionRecord | null>(null)
 
   // ── Mock data ─────────────────────────────────────────────────────────────
 
@@ -572,53 +574,57 @@ export default function VehicleDetailPage() {
       {/* Back */}
       <button
         onClick={() => navigate('/vehicles')}
-        className="flex items-center gap-1.5 text-[length:var(--fs-base)] text-text-secondary hover:text-primary transition-colors w-fit"
+        className="flex items-center gap-1.5 text-[length:var(--fs-base)] text-text-secondary hover:text-primary transition-colors w-fit cursor-pointer"
       >
         <ArrowLeft className="h-4 w-4" /> Danh sách xe
       </button>
 
       {/* ── Header card ── */}
       <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-6">
-        <div className="flex flex-col sm:flex-row gap-4">
-          {/* Ảnh */}
+        {/* Row 1: ảnh + info */}
+        <div className="flex gap-3 lg:gap-5">
           {vehicle.primary_image_url ? (
             <img
               src={vehicle.primary_image_url}
               alt={vehicle.model}
-              className="h-28 w-28 lg:h-32 lg:w-32 rounded-lg object-cover border border-border shrink-0"
+              className="h-16 w-16 lg:h-24 lg:w-24 rounded-lg object-cover border border-border shrink-0"
             />
           ) : (
-            <div className="flex h-28 w-28 lg:h-32 lg:w-32 items-center justify-center rounded-lg bg-bg-page border border-border shrink-0">
-              <Truck className="h-10 w-10 text-text-secondary" />
+            <div className="flex h-16 w-16 lg:h-24 lg:w-24 items-center justify-center rounded-lg bg-bg-page border border-border shrink-0">
+              <Truck className="h-7 w-7 lg:h-10 lg:w-10 text-text-secondary" />
             </div>
           )}
 
-          {/* Info */}
           <div className="flex-1 min-w-0">
-            <div className="flex flex-wrap items-center gap-2 mb-1">
-              <h1 className="text-[length:var(--fs-heading)] font-semibold text-text-primary">
+            {/* Model + badge */}
+            <div className="flex flex-wrap items-center gap-2 mb-0.5">
+              <h1 className="text-[length:var(--fs-heading)] font-semibold text-text-primary leading-tight">
                 {vehicle.model}
               </h1>
               <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${statusClass}`}>
                 {statusLabel}
               </span>
             </div>
-            <p className="flex items-center gap-1.5 text-[length:var(--fs-base)] text-text-secondary mb-1">
-              <Barcode className="h-4 w-4 shrink-0" />
+            {/* Serial */}
+            <p className="flex items-center gap-1 text-[length:var(--fs-sm)] text-text-secondary mb-0.5">
+              <Barcode className="h-3.5 w-3.5 shrink-0" />
               {vehicle.serial_number}
             </p>
-            <p className="text-[length:var(--fs-base)] text-text-secondary">
+            {/* Hãng · năm */}
+            <p className="text-[length:var(--fs-sm)] text-text-secondary">
               {vehicle.manufacturer} · {vehicle.manufacture_year}
             </p>
           </div>
+        </div>
 
-          {/* Actions */}
-          <div className="flex flex-wrap items-start gap-2 shrink-0">
+        {/* Row 2: actions — full width, dưới ảnh+info */}
+        {(isAdmin || (canChangeStatus && validNextStatuses.length > 0)) && (
+          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border">
             {isAdmin && (
               <Button
                 size="sm"
                 variant="outline"
-                className="border-border"
+                className="border-border flex-1 sm:flex-none"
                 onClick={openEdit}
               >
                 <Pencil className="h-4 w-4 mr-1" /> Chỉnh sửa
@@ -628,7 +634,7 @@ export default function VehicleDetailPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="border-border"
+                className="border-border flex-1 sm:flex-none"
                 onClick={() => setStatusOpen(true)}
               >
                 <RefreshCw className="h-4 w-4 mr-1" /> Đổi trạng thái
@@ -638,14 +644,14 @@ export default function VehicleDetailPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="border-error text-error hover:bg-error-light"
+                className="border-error text-error hover:bg-error hover:text-white sm:ml-auto"
                 onClick={() => setDeleteOpen(true)}
               >
                 <Trash2 className="h-4 w-4 mr-1" /> Xóa
               </Button>
             )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* ── Tabs ── */}
@@ -660,7 +666,7 @@ export default function VehicleDetailPage() {
             <TabsTrigger
               key={tab.value}
               value={tab.value}
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-transparent text-text-secondary px-4 py-2.5 text-[length:var(--fs-base)] font-medium"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-white text-text-secondary px-4 py-2.5 text-[length:var(--fs-base)] font-medium"
             >
               {tab.label}
             </TabsTrigger>
@@ -747,7 +753,7 @@ export default function VehicleDetailPage() {
               insuranceQuery.data.map((ins) => {
                 const expiry = getExpiryBadge(ins.expiry_date)
                 return (
-                  <div key={ins.id} className="bg-bg-card rounded-lg border border-border p-4 flex flex-wrap gap-4 items-center">
+                  <div key={ins.id} onClick={() => setViewIns(ins)} className="bg-bg-card rounded-lg border border-border p-4 flex flex-wrap gap-4 items-center cursor-pointer hover:border-primary hover:shadow-sm transition-all">
                     {/* Trái */}
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <Shield className="h-8 w-8 text-primary shrink-0" />
@@ -772,7 +778,8 @@ export default function VehicleDetailPage() {
                           href={ins.document.sas_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
                           title={ins.document.file_name}
                         >
                           <Download className="h-4 w-4" />
@@ -780,8 +787,8 @@ export default function VehicleDetailPage() {
                       )}
                       {isAdminOrManager && (
                         <button
-                          onClick={() => setDeleteInsId(ins.id)}
-                          className="p-1.5 rounded text-text-secondary hover:text-error hover:bg-error-light transition-colors"
+                          onClick={(e) => { e.stopPropagation(); setDeleteInsId(ins.id) }}
+                          className="p-1.5 rounded text-text-secondary hover:text-white hover:bg-error transition-colors cursor-pointer"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -825,7 +832,7 @@ export default function VehicleDetailPage() {
                   ? { label: 'Đạt', className: 'bg-success-light text-success' }
                   : { label: 'Không đạt', className: 'bg-error-light text-error' }
                 return (
-                  <div key={ins.id} className="bg-bg-card rounded-lg border border-border p-4 flex flex-wrap gap-4 items-center">
+                  <div key={ins.id} onClick={() => setViewInspec(ins)} className="bg-bg-card rounded-lg border border-border p-4 flex flex-wrap gap-4 items-center cursor-pointer hover:border-primary hover:shadow-sm transition-all">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <CheckCircle2 className="h-8 w-8 text-success shrink-0" />
                       <div className="min-w-0">
@@ -851,7 +858,8 @@ export default function VehicleDetailPage() {
                           href={ins.document.sas_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
                           title={ins.document.file_name}
                         >
                           <Download className="h-4 w-4" />
@@ -859,8 +867,8 @@ export default function VehicleDetailPage() {
                       )}
                       {isAdminOrManager && (
                         <button
-                          onClick={() => setDeleteInspecId(ins.id)}
-                          className="p-1.5 rounded text-text-secondary hover:text-error hover:bg-error-light transition-colors"
+                          onClick={(e) => { e.stopPropagation(); setDeleteInspecId(ins.id) }}
+                          className="p-1.5 rounded text-text-secondary hover:text-white hover:bg-error transition-colors cursor-pointer"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -929,7 +937,7 @@ export default function VehicleDetailPage() {
                             <button
                               onClick={() => setPrimaryMutation.mutate(img.id)}
                               disabled={setPrimaryMutation.isPending}
-                              className="p-1.5 bg-white rounded-full text-primary hover:bg-primary hover:text-white transition-colors"
+                              className="p-1.5 bg-white rounded-full text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
                               title="Đặt làm ảnh chính"
                             >
                               <Star className="h-3.5 w-3.5" />
@@ -937,7 +945,7 @@ export default function VehicleDetailPage() {
                           )}
                           <button
                             onClick={() => setDeleteImgId(img.id)}
-                            className="p-1.5 bg-white rounded-full text-error hover:bg-error hover:text-white transition-colors"
+                            className="p-1.5 bg-white rounded-full text-error hover:bg-error hover:text-white transition-colors cursor-pointer"
                             title="Xóa ảnh"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -1012,7 +1020,7 @@ export default function VehicleDetailPage() {
                         href={profile.sas_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors"
+                        className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
                         title="Tải xuống"
                       >
                         <Download className="h-4 w-4" />
@@ -1033,7 +1041,7 @@ export default function VehicleDetailPage() {
                           <button
                             onClick={() => profileInputRef.current?.click()}
                             disabled={profileUploading}
-                            className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors"
+                            className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
                             title="Thay thế file"
                           >
                             {profileUploading ? (
@@ -1044,7 +1052,7 @@ export default function VehicleDetailPage() {
                           </button>
                           <button
                             onClick={() => setDeleteProfileOpen(true)}
-                            className="p-1.5 rounded text-text-secondary hover:text-error hover:bg-error-light transition-colors"
+                            className="p-1.5 rounded text-text-secondary hover:text-white hover:bg-error transition-colors cursor-pointer"
                             title="Xóa lý lịch"
                           >
                             <Trash2 className="h-4 w-4" />
@@ -1147,7 +1155,7 @@ export default function VehicleDetailPage() {
 
       {/* Modal Chỉnh sửa */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-[length:var(--fs-title)] font-semibold">Chỉnh sửa xe</DialogTitle>
           </DialogHeader>
@@ -1222,7 +1230,7 @@ export default function VehicleDetailPage() {
 
       {/* Modal Đổi trạng thái */}
       <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-[length:var(--fs-title)] font-semibold">Đổi trạng thái</DialogTitle>
           </DialogHeader>
@@ -1269,7 +1277,7 @@ export default function VehicleDetailPage() {
 
       {/* Modal Thêm bảo hiểm */}
       <Dialog open={insOpen} onOpenChange={(o) => { setInsOpen(o); if (!o) { insForm.reset(); setInsFile(null); setInsDocId(null) } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-[length:var(--fs-title)] font-semibold">Thêm bảo hiểm</DialogTitle>
           </DialogHeader>
@@ -1312,7 +1320,7 @@ export default function VehicleDetailPage() {
 
       {/* Modal Thêm đăng kiểm */}
       <Dialog open={inspecOpen} onOpenChange={(o) => { setInspecOpen(o); if (!o) { inspecForm.reset(); setInspecFile(null); setInspecDocId(null) } }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="text-[length:var(--fs-title)] font-semibold">Thêm đăng kiểm</DialogTitle>
           </DialogHeader>
@@ -1371,6 +1379,86 @@ export default function VehicleDetailPage() {
         onConfirm={() => deleteMutation.mutate()}
       />
 
+      {/* Detail bảo hiểm */}
+      <Dialog open={viewIns !== null} onOpenChange={(o) => { if (!o) setViewIns(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-[length:var(--fs-title)] font-semibold flex items-center gap-2">
+              <Shield className="h-5 w-5 text-primary" /> Chi tiết bảo hiểm
+            </DialogTitle>
+          </DialogHeader>
+          {viewIns && (
+            <div className="flex flex-col gap-0 mt-2">
+              <InfoRow label="Số bảo hiểm" value={viewIns.insurance_number || '—'} />
+              <InfoRow label="Công ty BH" value={viewIns.provider || '—'} />
+              <InfoRow label="Ngày cấp" value={viewIns.issue_date ? format(new Date(viewIns.issue_date), 'dd/MM/yyyy') : '—'} />
+              <InfoRow label="Ngày hết hạn" value={format(new Date(viewIns.expiry_date), 'dd/MM/yyyy')} />
+              <InfoRow
+                label="Trạng thái"
+                value={
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${getExpiryBadge(viewIns.expiry_date).className}`}>
+                    {getExpiryBadge(viewIns.expiry_date).label}
+                  </span>
+                }
+              />
+              <InfoRow label="Tài liệu" value={
+                viewIns.document
+                  ? <a href={viewIns.document.sas_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                      <Download className="h-3.5 w-3.5" /> {viewIns.document.file_name}
+                    </a>
+                  : '—'
+              } />
+              <InfoRow label="Ngày tạo" value={format(new Date(viewIns.created_at), 'dd/MM/yyyy')} />
+              <InfoRow label="Người tạo" value={viewIns.created_by.full_name} />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Detail đăng kiểm */}
+      <Dialog open={viewInspec !== null} onOpenChange={(o) => { if (!o) setViewInspec(null) }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-[length:var(--fs-title)] font-semibold flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-success" /> Chi tiết đăng kiểm
+            </DialogTitle>
+          </DialogHeader>
+          {viewInspec && (
+            <div className="flex flex-col gap-0 mt-2">
+              <InfoRow label="Số kiểm định" value={viewInspec.inspection_number || '—'} />
+              <InfoRow label="Ngày kiểm" value={viewInspec.inspection_date ? format(new Date(viewInspec.inspection_date), 'dd/MM/yyyy') : '—'} />
+              <InfoRow label="Ngày hết hạn" value={format(new Date(viewInspec.expiry_date), 'dd/MM/yyyy')} />
+              <InfoRow
+                label="Kết quả"
+                value={viewInspec.result
+                  ? <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${viewInspec.result === 'passed' ? 'bg-success-light text-success' : 'bg-error-light text-error'}`}>
+                      {viewInspec.result === 'passed' ? 'Đạt' : 'Không đạt'}
+                    </span>
+                  : '—'
+                }
+              />
+              <InfoRow
+                label="Trạng thái"
+                value={
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${getExpiryBadge(viewInspec.expiry_date).className}`}>
+                    {getExpiryBadge(viewInspec.expiry_date).label}
+                  </span>
+                }
+              />
+              <InfoRow label="Tài liệu" value={
+                viewInspec.document
+                  ? <a href={viewInspec.document.sas_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-primary hover:underline">
+                      <Download className="h-3.5 w-3.5" /> {viewInspec.document.file_name}
+                    </a>
+                  : '—'
+              } />
+              <InfoRow label="Ngày tạo" value={format(new Date(viewInspec.created_at), 'dd/MM/yyyy')} />
+              <InfoRow label="Người tạo" value={viewInspec.created_by.full_name} />
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Confirm xóa bảo hiểm */}
       <ConfirmModal
         open={deleteInsId !== null}
@@ -1419,7 +1507,7 @@ export default function VehicleDetailPage() {
 
       {/* Modal thêm ảnh */}
       <Dialog open={imgModalOpen} onOpenChange={(o) => { setImgModalOpen(o); if (!o) setImgFiles([]) }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-[length:var(--fs-title)] font-semibold">Thêm ảnh xe</DialogTitle>
           </DialogHeader>
@@ -1443,7 +1531,7 @@ export default function VehicleDetailPage() {
             <button
               type="button"
               onClick={() => imgInputRef.current?.click()}
-              className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-8 text-text-secondary hover:border-primary hover:text-primary transition-colors"
+              className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-8 text-text-secondary hover:border-primary hover:text-primary transition-colors cursor-pointer"
             >
               <ImagePlus className="h-8 w-8" />
               <span className="text-[length:var(--fs-base)]">Chọn ảnh (JPEG, PNG, WEBP)</span>
@@ -1462,7 +1550,7 @@ export default function VehicleDetailPage() {
                     <button
                       type="button"
                       onClick={() => setImgFiles((prev) => prev.filter((_, idx) => idx !== i))}
-                      className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute top-0.5 right-0.5 bg-black/60 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>

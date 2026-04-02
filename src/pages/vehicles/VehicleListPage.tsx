@@ -259,10 +259,10 @@ export default function VehicleListPage() {
         actions={
           isAdminOrManager ? (
             <Button
-              className="bg-primary hover:bg-primary-dark text-white"
+              className="bg-primary hover:bg-primary-dark text-white text-[length:var(--fs-sm)] sm:text-[length:var(--fs-base)] px-3 py-1.5 sm:px-4 sm:py-2 h-auto"
               onClick={() => setAddOpen(true)}
             >
-              <Plus className="h-4 w-4 mr-1" />
+              <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1" />
               Thêm xe
             </Button>
           ) : undefined
@@ -318,29 +318,126 @@ export default function VehicleListPage() {
         )}
       </div>
 
-      {/* Table */}
-      <DataTable
-        columns={columns}
-        data={vehicles}
-        loading={isLoading}
-        pagination={pagination}
-        pageCount={meta?.total_pages ?? 1}
-        onPaginationChange={setPagination}
-        emptyTitle="Không tìm thấy xe nào"
-        emptyDescription="Thử thay đổi bộ lọc hoặc thêm xe mới"
-        emptyAction={
-          isAdminOrManager ? (
-            <Button
-              size="sm"
-              className="bg-primary hover:bg-primary-dark text-white"
-              onClick={() => setAddOpen(true)}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Thêm xe
-            </Button>
-          ) : undefined
-        }
-      />
+      {/* Table — desktop */}
+      <div className="hidden sm:block">
+        <DataTable
+          columns={columns}
+          data={vehicles}
+          loading={isLoading}
+          pagination={pagination}
+          pageCount={meta?.total_pages ?? 1}
+          onPaginationChange={setPagination}
+          emptyTitle="Không tìm thấy xe nào"
+          emptyDescription="Thử thay đổi bộ lọc hoặc thêm xe mới"
+          emptyAction={
+            isAdminOrManager ? (
+              <Button
+                size="sm"
+                className="bg-primary hover:bg-primary-dark text-white"
+                onClick={() => setAddOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Thêm xe
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
+
+      {/* Card list — mobile */}
+      <div className="flex flex-col gap-3 sm:hidden">
+        {isLoading ? (
+          Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="bg-bg-card rounded-xl border border-border p-4 flex gap-3">
+              <div className="h-14 w-14 rounded-lg bg-bg-page shrink-0 animate-pulse" />
+              <div className="flex-1 flex flex-col gap-2">
+                <div className="h-4 w-2/3 bg-bg-page rounded animate-pulse" />
+                <div className="h-3 w-1/2 bg-bg-page rounded animate-pulse" />
+                <div className="h-3 w-1/3 bg-bg-page rounded animate-pulse" />
+              </div>
+            </div>
+          ))
+        ) : vehicles.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2 bg-bg-card rounded-xl border border-border">
+            <Truck className="h-8 w-8 text-text-secondary" />
+            <p className="text-[length:var(--fs-base)] text-text-secondary">Không tìm thấy xe nào</p>
+            {isAdminOrManager && (
+              <Button size="sm" className="bg-primary hover:bg-primary-dark text-white mt-1" onClick={() => setAddOpen(true)}>
+                <Plus className="h-4 w-4 mr-1" /> Thêm xe
+              </Button>
+            )}
+          </div>
+        ) : (
+          vehicles.map((v) => {
+            const { label: statusLabel, className: statusClass } = getVehicleStatusBadge(v.status)
+            const isElectric = v.engine_type === 'Electric'
+            return (
+              <div
+                key={v.id}
+                onClick={() => navigate(`/vehicles/${v.id}`)}
+                className="bg-bg-card rounded-xl border border-border p-4 flex gap-3 cursor-pointer hover:border-primary hover:shadow-sm transition-all active:bg-bg-page"
+              >
+                {/* Ảnh */}
+                {v.primary_image_url ? (
+                  <img src={v.primary_image_url} alt={v.model} className="h-14 w-14 rounded-lg object-cover border border-border shrink-0" />
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-bg-page border border-border shrink-0">
+                    <Truck className="h-6 w-6 text-text-secondary" />
+                  </div>
+                )}
+                {/* Nội dung */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-text-primary text-[length:var(--fs-base)] truncate">{v.model}</p>
+                      <p className="text-[length:var(--fs-sm)] text-text-secondary truncate">{v.serial_number}</p>
+                    </div>
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold shrink-0 ${statusClass}`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                    <span className="text-[length:var(--fs-sm)] text-text-secondary">{v.manufacturer} · {v.manufacture_year}</span>
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${isElectric ? 'bg-info-light text-info' : 'bg-warning-light text-warning'}`}>
+                      {isElectric ? 'Điện' : 'Xăng/Dầu'}
+                    </span>
+                    <span className="text-[length:var(--fs-sm)] text-text-secondary">Cao LV: {v.work_height}m</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })
+        )}
+
+        {/* Pagination mobile */}
+        {!isLoading && meta && meta.total_pages > 1 && (
+          <div className="flex items-center justify-between px-1 pt-1">
+            <p className="text-[length:var(--fs-sm)] text-text-secondary">
+              Trang {meta.page}/{meta.total_pages} · {meta.total} xe
+            </p>
+            <div className="flex gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 border-border"
+                disabled={pagination.pageIndex === 0}
+                onClick={() => setPagination((p) => ({ ...p, pageIndex: p.pageIndex - 1 }))}
+              >
+                Trước
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 border-border"
+                disabled={pagination.pageIndex + 1 >= meta.total_pages}
+                onClick={() => setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))}
+              >
+                Tiếp
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Modal Thêm xe ── */}
       <Dialog
@@ -350,7 +447,7 @@ export default function VehicleListPage() {
           if (!o) reset()
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-[length:var(--fs-title)] font-semibold text-text-primary">
               Thêm xe mới

@@ -85,11 +85,11 @@ export function DataTable<TData, TValue>({
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="bg-[#F4F6F8] hover:bg-[#F4F6F8]">
+              <TableRow key={headerGroup.id} className="bg-[#DDE4ED] hover:bg-[#DDE4ED] border-b border-[#C4CFDB]">
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className="text-[length:var(--fs-sm)] font-semibold text-[#5A5A66] uppercase tracking-wide h-11 px-[var(--sp-card)]"
+                    className="text-[length:var(--fs-sm)] font-semibold text-[#2D3748] uppercase tracking-wide h-11 px-[var(--sp-card)]"
                   >
                     {header.isPlaceholder
                       ? null

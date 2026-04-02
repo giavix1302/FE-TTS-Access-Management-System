@@ -66,6 +66,54 @@
   --color-ring: #1A5FAB;
 }
 
+/* ─── Responsive Scale Variables ────────────────────────────────────────────
+   Mobile-first: giá trị nhỏ mặc định, ghi đè lên ở lg (1024px)
+   Dùng trong component: text-[length:var(--fs-nav)], px-[var(--sp-page)]...
+   ─────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Font sizes */
+  --fs-xs:      11px;   /* badge số nhỏ, tooltip badge */
+  --fs-sm:      12px;   /* badge label, table header uppercase */
+  --fs-body:    13px;   /* tooltip text, secondary label */
+  --fs-base:    14px;   /* table cell, dropdown item */
+  --fs-nav:     15px;   /* nav item, username sidebar */
+  --fs-title:   16px;   /* topbar page title, card title */
+  --fs-logo:    17px;   /* logo text sidebar */
+  --fs-heading: 18px;   /* page heading */
+  --fs-display: 20px;   /* login title, large number */
+
+  /* Spacing — page & card */
+  --sp-page:    0.625rem; /* main content padding */
+  --sp-card:    0.625rem; /* card inner padding */
+  --sp-nav-x:   0.5rem;   /* nav item px */
+  --sp-nav-y:   0.375rem; /* nav item py */
+  --sp-topbar:  0.75rem;  /* topbar px */
+  --sp-section: 0.75rem;  /* gap giữa các section */
+}
+
+@media (min-width: 1024px) {
+  :root {
+    /* Font sizes — desktop lớn hơn mobile ~2px */
+    --fs-xs:      11px;
+    --fs-sm:      13px;
+    --fs-body:    13px;
+    --fs-base:    15px;
+    --fs-nav:     18px;
+    --fs-title:   18px;
+    --fs-logo:    20px;
+    --fs-heading: 22px;
+    --fs-display: 28px;
+
+    /* Spacing — desktop rộng hơn */
+    --sp-page:    1.5rem;
+    --sp-card:    1rem;
+    --sp-nav-x:   0.75rem;
+    --sp-nav-y:   0.625rem;
+    --sp-topbar:  1.5rem;
+    --sp-section: 1.5rem;
+  }
+}
+
 @layer base {
   * {
     font-family: "Roboto", sans-serif;

@@ -13,7 +13,12 @@ const MOCK_USER = {
   email: "admin@tts.vn",
   avatar_url: undefined as string | undefined,
   roles: ["admin"],
-  permissions: ["users:view", "vehicles:view", "contracts:view", "customers:view"],
+  permissions: [
+    "users:view",
+    "vehicles:view",
+    "contracts:view",
+    "customers:view",
+  ],
 };
 // --- END MOCK DATA ---
 
@@ -21,10 +26,11 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const { user, accessToken, setAuth } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    // Nếu đã có user trong store (persist), không cần gọi lại
-    if (user) return;
+    // Nếu đã có user và accessToken trong store (persist), không cần gọi lại
+    if (user && accessToken) return;
 
     // TODO: Bỏ mock và dùng getMe() khi backend sẵn sàng
     const fetchMe = async () => {
@@ -33,7 +39,7 @@ export default function AppLayout() {
         setAuth(
           MOCK_USER,
           accessToken ?? "mock-access-token",
-          "mock-refresh-token"
+          "mock-refresh-token",
         );
         // --- END MOCK ---
 
@@ -52,14 +58,18 @@ export default function AppLayout() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
+      <Sidebar
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((v) => !v)}
+        mobileOpen={mobileOpen}
+        onMobileClose={() => setMobileOpen(false)}
+      />
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar />
-        <main className="flex-1 overflow-y-auto bg-[#F4F6F8] p-6">
+        <Topbar onMobileMenuOpen={() => setMobileOpen(true)} />
+        <main className="flex-1 overflow-y-auto bg-[#F4F6F8] p-[var(--sp-page)]">
           <Outlet />
         </main>
       </div>
     </div>
   );
 }
-

@@ -65,9 +65,11 @@ function NavDivider() {
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, clearAuth, refreshToken } = useAuthStore();
@@ -94,6 +96,11 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
     }
   };
 
+  // Đóng sidebar mobile khi chọn menu item
+  const handleNavClick = () => {
+    if (mobileOpen) onMobileClose();
+  };
+
   const renderNavItem = (item: NavItem) => {
     if (item.guard && !item.guard(roles, permissions)) return null;
 
@@ -104,8 +111,10 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <Link
         key={item.to}
         to={item.to}
+        onClick={handleNavClick}
         className={cn(
-          "flex items-center rounded-md px-3 py-[10px] text-[18px] transition-colors",
+          "flex items-center rounded-md transition-colors",
+          "px-[var(--sp-nav-x)] py-[var(--sp-nav-y)] text-[length:var(--fs-nav)]",
           collapsed ? "justify-center px-0" : "",
           active
             ? "border-l-[3px] border-[#1A5FAB] bg-[#E8F0FB] pl-[9px] font-medium text-[#1A5FAB]"
@@ -130,7 +139,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           <>
             <span className="flex-1 truncate">{item.label}</span>
             {item.to === "/notifications" && unreadCount > 0 && (
-              <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[15px] font-semibold text-white">
+              <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[length:var(--fs-body)] font-semibold text-white">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -146,11 +155,11 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
         <TooltipContent
           side="right"
-          className="flex items-center gap-2 rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[13px] font-medium text-white shadow-lg"
+          className="flex items-center gap-2 rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
         >
           {item.label}
           {item.to === "/notifications" && unreadCount > 0 && (
-            <span className="flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[11px] font-semibold text-white">
+            <span className="flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[length:var(--fs-xs)] font-semibold text-white">
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           )}
@@ -161,15 +170,28 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   return (
     <TooltipProvider>
+      {/* Backdrop overlay — chỉ hiện trên mobile khi drawer mở */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={onMobileClose}
+        />
+      )}
+
       <aside
         className={cn(
           "flex shrink-0 flex-col border-r border-[#E2E8F0] bg-white transition-all duration-300",
-          collapsed ? "w-[72px]" : "w-72",
+          // Desktop: layout tĩnh, thu/mở theo collapsed
+          "lg:relative lg:translate-x-0",
+          collapsed ? "lg:w-[72px]" : "lg:w-[272px]",
+          // Mobile: fixed drawer, trượt vào/ra
+          "fixed inset-y-0 left-0 z-50 w-[272px] lg:static",
+          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
         )}
-        style={{ height: "100vh" }}
+        style={{ height: "100dvh" }}
       >
         {/* [1] Logo */}
-        <div className="flex items-center px-4 py-5">
+        <div className="flex items-center px-[var(--sp-nav-x)] py-5">
           {!collapsed ? (
             <>
               <img
@@ -177,13 +199,14 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 alt="TTS Logo"
                 className="h-10 w-auto shrink-0 object-contain"
               />
-              <span className="ml-2 flex-1 text-[20px] font-bold text-[#1A5FAB]">
+              <span className="ml-2 flex-1 text-[length:var(--fs-logo)] font-bold text-[#1A5FAB]">
                 TTS-AWPMS
               </span>
+              {/* Nút thu nhỏ — chỉ hiện trên desktop */}
               <button
                 onClick={onToggle}
                 title="Thu nhỏ sidebar"
-                className="ml-1 shrink-0 rounded p-1 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#5A5A66]"
+                className="ml-1 hidden shrink-0 rounded p-1 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#5A5A66] lg:flex"
               >
                 <ChevronLeft size={18} />
               </button>
@@ -191,7 +214,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           ) : (
             <button
               onClick={onToggle}
-              title="Mo rong sidebar"
+              title="Mở rộng sidebar"
               className="mx-auto flex items-center justify-center rounded-md p-2 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB]"
             >
               <ChevronRight size={20} />
@@ -200,7 +223,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         </div>
 
         {/* [2] Menu chính */}
-        <nav className={cn("flex-1 py-2", collapsed ? "px-1" : "px-2")}>
+        <nav className={cn("flex-1 py-2", collapsed ? "px-1" : "px-[var(--sp-nav-x)]")}>
           {NAV_MAIN.map(renderNavItem)}
           <NavDivider />
           {NAV_NOTIFY.map(renderNavItem)}
@@ -211,7 +234,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
         {/* [3] User section */}
         <div
           className={cn(
-            "border-t border-[#E2E8F0] px-4 py-4",
+            "border-t border-[#E2E8F0] px-[var(--sp-nav-x)] py-4",
             collapsed && "px-1",
           )}
         >
@@ -225,12 +248,12 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                   {user ? generateInitials(user.full_name) : "?"}
                 </AvatarFallback>
               </Avatar>
-              <span className="flex-1 truncate text-[18px] font-medium text-[#5A5A66]">
+              <span className="flex-1 truncate text-[length:var(--fs-nav)] font-medium text-[#5A5A66]">
                 {user?.full_name ?? "---"}
               </span>
               <button
                 onClick={handleLogout}
-                title="Dang xuat"
+                title="Đăng xuất"
                 className="shrink-0 rounded p-1 text-[#718096] transition-colors hover:text-[#E74C3C]"
               >
                 <LogOut size={18} />
@@ -251,7 +274,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 </TooltipTrigger>
                 <TooltipContent
                   side="right"
-                  className="rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[13px] font-medium text-white shadow-lg"
+                  className="rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
                 >
                   {user?.full_name ?? "---"}
                 </TooltipContent>
@@ -268,9 +291,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                 </TooltipTrigger>
                 <TooltipContent
                   side="right"
-                  className="rounded-lg border-0 bg-[#E74C3C] px-3 py-2 text-[13px] font-medium text-white shadow-lg"
+                  className="rounded-lg border-0 bg-[#E74C3C] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
                 >
-                  Dang xuat
+                  Đăng xuất
                 </TooltipContent>
               </Tooltip>
             </div>

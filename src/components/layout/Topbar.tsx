@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, matchPath } from "react-router-dom";
-import { Bell, ChevronDown, KeyRound, LogOut } from "lucide-react";
+import { Bell, ChevronDown, KeyRound, LogOut, Menu } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -36,7 +36,11 @@ function usePageTitle(): string {
   return "";
 }
 
-export default function Topbar() {
+interface TopbarProps {
+  onMobileMenuOpen: () => void;
+}
+
+export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
   const navigate = useNavigate();
   const { user, clearAuth, refreshToken } = useAuthStore();
   const unreadCount = useNotificationStore((s) => s.unreadCount);
@@ -57,11 +61,20 @@ export default function Topbar() {
 
   return (
     <header
-      className="flex h-16 shrink-0 items-center justify-between border-b border-[#E2E8F0] bg-white px-6"
+      className="flex h-16 shrink-0 items-center justify-between border-b border-[#E2E8F0] bg-white px-[var(--sp-topbar)]"
       style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}
     >
-      {/* Bên trái: tên trang */}
-      <h1 className="text-[18px] font-medium text-[#1A202C]">{pageTitle}</h1>
+      {/* Bên trái: hamburger (mobile) + tên trang */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onMobileMenuOpen}
+          className="rounded p-1.5 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB] lg:hidden"
+          title="Mở menu"
+        >
+          <Menu size={22} />
+        </button>
+        <h1 className="hidden text-[length:var(--fs-title)] font-medium text-[#1A202C] lg:block">{pageTitle}</h1>
+      </div>
 
       {/* Bên phải */}
       <div className="flex items-center gap-4">
@@ -91,7 +104,7 @@ export default function Topbar() {
                   {user ? generateInitials(user.full_name) : "?"}
                 </AvatarFallback>
               </Avatar>
-              <span className="max-w-[140px] truncate text-sm font-normal text-[#1A202C]">
+              <span className="hidden max-w-[140px] truncate text-[length:var(--fs-base)] font-normal text-[#1A202C] lg:block">
                 {user?.full_name ?? "---"}
               </span>
               <ChevronDown size={14} className="text-[#718096]" />

@@ -77,7 +77,7 @@ function RightPanel() {
   };
 
   return (
-    <div className="flex w-[60%] items-center justify-center">
+    <div className="hidden lg:flex w-[60%] items-center justify-center">
       {/* Floating card — gradient cố định theo slide, không fade */}
       <div
         className="relative flex h-full w-full flex-col overflow-hidden p-20"
@@ -218,25 +218,25 @@ function LeftPanel() {
   };
 
   return (
-    <div className="flex w-[40%] flex-col items-center justify-center bg-[#F4F6F8] px-12">
-      <div className="w-full max-w-[500px] bg-white rounded-3xl p-8 shadow-md">
+    <div className="flex w-full lg:w-[40%] flex-col items-center justify-center bg-[#F4F6F8] lg:px-12">
+      <div className="w-full h-screen lg:h-auto max-w-[500px] bg-white lg:rounded-3xl p-5 lg:p-8 shadow-md overflow-y-auto flex flex-col justify-center">
         {/* Logo */}
         <img
           src="/LOGOTTS.png"
           alt="TTS Logo"
-          className="mb-4 h-20 w-auto object-contain"
+          className="mb-3 h-14 lg:h-20 w-auto object-contain lg:object-left block mx-auto lg:mx-0"
         />
 
         {/* Tiêu đề */}
-        <h1 className="text-[32px] font-bold text-[#1A202C]">Đăng nhập</h1>
-        <p className="mt-1.5 text-[18px] leading-relaxed text-[#718096]">
+        <h1 className="text-[32px] font-bold text-[#1A202C] text-center lg:text-left">Đăng nhập</h1>
+        <p className="mt-1.5 text-[18px] leading-relaxed text-[#718096] text-center lg:text-left">
           Chào mừng bạn đến công ty TTS
         </p>
 
         {/* Form */}
         <form
           onSubmit={handleSubmit(onSubmit)}
-          className="mt-8 flex flex-col gap-5"
+          className="mt-4 lg:mt-8 flex flex-col gap-3 lg:gap-5"
           noValidate
         >
           {/* Số điện thoại */}
@@ -267,7 +267,7 @@ function LeftPanel() {
 
           {/* Mật khẩu */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[13px] font-medium text-[#1A202C]">
+            <label className="text-[17px] font-medium text-[#1A202C]">
               Mật khẩu
             </label>
             <div className="relative">
@@ -317,7 +317,7 @@ function LeftPanel() {
         </form>
 
         {/* Footer */}
-        <p className="mt-8 text-center text-[14px] text-[#718096]">
+        <p className="mt-4 lg:mt-8 text-center text-[14px] text-[#718096]">
           Gặp sự cố? Liên hệ quản trị viên để được hỗ trợ
         </p>
         <p className="mt-2 text-center text-[16px] text-[#CBD5E0]">

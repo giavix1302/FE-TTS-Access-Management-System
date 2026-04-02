@@ -4,6 +4,9 @@ export const QUERY_KEYS = {
     detail: (id: number) => ["vehicles", id] as const,
     insurance: (id: number) => ["vehicles", id, "insurance"] as const,
     inspection: (id: number) => ["vehicles", id, "inspection"] as const,
+    images: (id: number) => ["vehicles", id, "images"] as const,
+    profile: (id: number) => ["vehicles", id, "profile"] as const,
+    statusLogs: (id: number) => ["vehicles", id, "status-logs"] as const,
   },
   contracts: {
     all: ["contracts"] as const,

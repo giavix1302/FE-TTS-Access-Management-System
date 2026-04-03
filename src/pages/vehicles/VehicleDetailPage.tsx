@@ -181,7 +181,8 @@ export default function VehicleDetailPage() {
 
   const isAdmin = user?.roles?.includes('admin')
   const isAdminOrManager = isAdmin || user?.roles?.includes('manager')
-  const canChangeStatus = isAdmin || isAdminOrManager || user?.roles?.includes('staff')
+  const isAdminOrManagerOrAccountant = isAdminOrManager || user?.roles?.includes('accountant')
+  const canChangeStatus = isAdminOrManager || user?.roles?.includes('staff')
 
   const [activeTab, setActiveTab] = useState('info')
 
@@ -292,7 +293,7 @@ export default function VehicleDetailPage() {
   const MOCK_IMAGES: ImagesResponse = {
     primary_image_id: 1,
     total: 3,
-    remaining_slots: 7,
+    remaining_slots: 2,
     images: [
       { id: 1, file_name: 'xe-chinh.jpg', sas_url: 'https://placehold.co/320x240?text=Anh+1', sas_expires_at: '2026-12-31T23:59:59Z', is_primary: true, uploaded_at: '2024-03-15T08:00:00Z' },
       { id: 2, file_name: 'xe-ben-canh.jpg', sas_url: 'https://placehold.co/320x240?text=Anh+2', sas_expires_at: '2026-12-31T23:59:59Z', is_primary: false, uploaded_at: '2024-03-15T08:05:00Z' },
@@ -727,7 +728,7 @@ export default function VehicleDetailPage() {
         <TabsContent value="insurance" className="mt-4">
           <div className="flex flex-col gap-4">
             {/* Toolbar */}
-            {isAdminOrManager && (
+            {isAdminOrManagerOrAccountant && (
               <div className="flex justify-end">
                 <Button
                   size="sm"
@@ -785,7 +786,7 @@ export default function VehicleDetailPage() {
                           <Download className="h-4 w-4" />
                         </a>
                       )}
-                      {isAdminOrManager && (
+                      {isAdminOrManagerOrAccountant && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeleteInsId(ins.id) }}
                           className="p-1.5 rounded text-text-secondary hover:text-white hover:bg-error transition-colors cursor-pointer"
@@ -804,7 +805,7 @@ export default function VehicleDetailPage() {
         {/* ─── TAB 3: Đăng kiểm ─── */}
         <TabsContent value="inspection" className="mt-4">
           <div className="flex flex-col gap-4">
-            {isAdminOrManager && (
+            {isAdminOrManagerOrAccountant && (
               <div className="flex justify-end">
                 <Button
                   size="sm"
@@ -865,7 +866,7 @@ export default function VehicleDetailPage() {
                           <Download className="h-4 w-4" />
                         </a>
                       )}
-                      {isAdminOrManager && (
+                      {isAdminOrManagerOrAccountant && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeleteInspecId(ins.id) }}
                           className="p-1.5 rounded text-text-secondary hover:text-white hover:bg-error transition-colors cursor-pointer"
@@ -1372,7 +1373,7 @@ export default function VehicleDetailPage() {
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="Xóa xe này?"
-        description={`Xe ${vehicle.model} (${vehicle.serial_number}) sẽ bị xóa vĩnh viễn.`}
+        description={`Xe ${vehicle.model} (${vehicle.serial_number}) sẽ bị ẩn khỏi hệ thống. Dữ liệu lịch sử vẫn được giữ lại.`}
         variant="danger"
         confirmLabel="Xóa"
         loading={deleteMutation.isPending}
@@ -1515,7 +1516,7 @@ export default function VehicleDetailPage() {
             <input
               ref={imgInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp"
+              accept="image/jpeg,image/png"
               multiple
               className="hidden"
               onChange={(e) => {
@@ -1534,7 +1535,7 @@ export default function VehicleDetailPage() {
               className="flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border p-8 text-text-secondary hover:border-primary hover:text-primary transition-colors cursor-pointer"
             >
               <ImagePlus className="h-8 w-8" />
-              <span className="text-[length:var(--fs-base)]">Chọn ảnh (JPEG, PNG, WEBP)</span>
+              <span className="text-[length:var(--fs-base)]">Chọn ảnh (JPEG, PNG)</span>
               <span className="text-[length:var(--fs-sm)]">Tối đa {imagesQuery.data?.remaining_slots ?? 10} ảnh</span>
             </button>
 

@@ -1,100 +1,140 @@
-import { useState } from 'react'
-import { format } from 'date-fns'
+import { useRef, useState } from "react";
+import { format } from "date-fns";
 import {
-  FileText, FileSpreadsheet, FileImage, Download, Trash2, Eye, X,
-} from 'lucide-react'
-import { Button } from '@/components/ui/button'
+  FileText,
+  FileSpreadsheet,
+  FileImage,
+  Download,
+  Trash2,
+  Eye,
+  X,
+  RefreshCw,
+  Loader2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-} from '@/components/ui/dialog'
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FileCardProps {
-  fileName: string
-  url: string
+  fileName: string;
+  url: string;
   /** File size in bytes — omit to hide */
-  fileSize?: number
+  fileSize?: number;
   /** ISO date string — omit to hide */
-  createdAt?: string
+  createdAt?: string;
   /** Full name of uploader — omit to hide */
-  createdBy?: string
-  onDelete?: () => void
+  createdBy?: string;
+  onDelete?: () => void;
   /** Override download handler. Default: open url in new tab */
-  onDownload?: () => void
+  onDownload?: () => void;
+  /** Called with the new File when user picks a replacement */
+  onReplace?: (file: File) => void;
+  /** Show spinner on replace button while uploading */
+  isReplacing?: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-type FileType = 'docx' | 'xlsx' | 'jpeg' | 'png' | 'pdf' | 'unknown'
+type FileType = "docx" | "xlsx" | "jpeg" | "png" | "pdf" | "unknown";
 
 function detectFileType(fileName: string, url: string): FileType {
-  const lower = fileName.toLowerCase()
-  if (lower.endsWith('.docx')) return 'docx'
-  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'xlsx'
-  if (lower.endsWith('.pdf')) return 'pdf'
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || url.includes('image/jpeg')) return 'jpeg'
-  if (lower.endsWith('.png') || url.includes('image/png')) return 'png'
-  return 'unknown'
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".docx")) return "docx";
+  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return "xlsx";
+  if (lower.endsWith(".pdf")) return "pdf";
+  if (
+    lower.endsWith(".jpg") ||
+    lower.endsWith(".jpeg") ||
+    url.includes("image/jpeg")
+  )
+    return "jpeg";
+  if (lower.endsWith(".png") || url.includes("image/png")) return "png";
+  return "unknown";
 }
 
 function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function getFileLabel(type: FileType): string {
   const map: Record<FileType, string> = {
-    docx: 'docx', xlsx: 'xlsx', jpeg: 'jpeg', png: 'png', pdf: 'pdf', unknown: 'file',
-  }
-  return map[type]
+    docx: "docx",
+    xlsx: "xlsx",
+    jpeg: "jpeg",
+    png: "png",
+    pdf: "pdf",
+    unknown: "file",
+  };
+  return map[type];
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function FileTypeIcon({ type }: { type: FileType }) {
-  const base = 'w-10 h-10 flex items-center justify-center rounded-lg shrink-0'
+  const base = "w-10 h-10 flex items-center justify-center rounded-lg shrink-0";
 
-  if (type === 'jpeg' || type === 'png') {
+  if (type === "jpeg" || type === "png") {
     return (
       <div className={`${base} bg-[#E8F0FB]`}>
         <FileImage className="w-5 h-5 text-[#1A5FAB]" />
       </div>
-    )
+    );
   }
-  if (type === 'pdf') {
+  if (type === "pdf") {
     return (
       <div className={`${base} bg-[#FDECEA]`}>
         <FileText className="w-5 h-5 text-[#E74C3C]" />
       </div>
-    )
+    );
   }
-  if (type === 'xlsx') {
+  if (type === "xlsx") {
     return (
       <div className={`${base} bg-[#E6F4EA]`}>
         <FileSpreadsheet className="w-5 h-5 text-[#27AE60]" />
       </div>
-    )
+    );
   }
   // docx / unknown
   return (
     <div className={`${base} bg-[#EEF2F7]`}>
       <FileText className="w-5 h-5 text-[#5A5A66]" />
     </div>
-  )
+  );
+}
+
+const OFFICE_TYPES: FileType[] = ["docx", "xlsx"];
+
+function getOfficeViewerUrl(url: string) {
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(url)}`;
 }
 
 function PreviewModal({
-  open, onClose, fileType, url, fileName,
+  open,
+  onClose,
+  fileType,
+  url,
+  fileName,
 }: {
-  open: boolean
-  onClose: () => void
-  fileType: FileType
-  url: string
-  fileName: string
+  open: boolean;
+  onClose: () => void;
+  fileType: FileType;
+  url: string;
+  fileName: string;
 }) {
-  const canPreview = fileType === 'jpeg' || fileType === 'png' || fileType === 'pdf'
+  const canPreview =
+    fileType === "jpeg" ||
+    fileType === "png" ||
+    fileType === "pdf" ||
+    OFFICE_TYPES.includes(fileType);
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -118,15 +158,21 @@ function PreviewModal({
                 variant="outline"
                 size="sm"
                 className="cursor-pointer"
-                onClick={() => window.open(url, '_blank')}
+                onClick={() => window.open(url, "_blank")}
               >
                 <Download className="w-4 h-4 mr-1.5" />
                 Tải về để xem
               </Button>
             </div>
-          ) : fileType === 'pdf' ? (
+          ) : fileType === "pdf" ? (
             <iframe
               src={url}
+              className="w-full h-full border-0"
+              title={fileName}
+            />
+          ) : OFFICE_TYPES.includes(fileType) ? (
+            <iframe
+              src={getOfficeViewerUrl(url)}
               className="w-full h-full border-0"
               title={fileName}
             />
@@ -142,7 +188,7 @@ function PreviewModal({
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -155,29 +201,36 @@ export function FileCard({
   createdBy,
   onDelete,
   onDownload,
+  onReplace,
+  isReplacing,
 }: FileCardProps) {
-  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const fileType = detectFileType(fileName, url)
-  const canPreview = fileType === 'jpeg' || fileType === 'png' || fileType === 'pdf'
+  const fileType = detectFileType(fileName, url);
+  const canPreview =
+    fileType === "jpeg" ||
+    fileType === "png" ||
+    fileType === "pdf" ||
+    OFFICE_TYPES.includes(fileType);
 
-  const metaParts: string[] = []
-  metaParts.push(getFileLabel(fileType))
-  if (fileSize !== undefined) metaParts.push(formatFileSize(fileSize))
-  if (createdAt) metaParts.push(format(new Date(createdAt), 'dd/MM/yyyy'))
-  if (createdBy) metaParts.push(createdBy)
+  const metaParts: string[] = [];
+  metaParts.push(getFileLabel(fileType));
+  if (fileSize !== undefined) metaParts.push(formatFileSize(fileSize));
+  if (createdAt) metaParts.push(format(new Date(createdAt), "dd/MM/yyyy"));
+  if (createdBy) metaParts.push(createdBy);
 
   function handleDownload() {
     if (onDownload) {
-      onDownload()
-      return
+      onDownload();
+      return;
     }
-    const a = document.createElement('a')
-    a.href = url
-    a.download = fileName
-    a.target = '_blank'
-    a.rel = 'noreferrer'
-    a.click()
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.target = "_blank";
+    a.rel = "noreferrer";
+    a.click();
   }
 
   return (
@@ -192,39 +245,82 @@ export function FileCard({
             {fileName}
           </p>
           <p className="text-[length:var(--fs-xs,11px)] text-[#718096] mt-0.5 truncate">
-            {metaParts.join(' | ')}
+            {metaParts.join(" | ")}
           </p>
         </div>
 
         {/* S3 — Actions */}
         <div className="flex items-center gap-1 shrink-0">
           {canPreview && (
-            <button
-              type="button"
-              title="Xem trước"
-              className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors"
-              onClick={() => setPreviewOpen(true)}
-            >
-              <Eye className="w-4 h-4" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors"
+                  onClick={() => setPreviewOpen(true)}
+                >
+                  <Eye className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Xem trước</TooltipContent>
+            </Tooltip>
           )}
-          <button
-            type="button"
-            title="Tải về"
-            className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors"
-            onClick={handleDownload}
-          >
-            <Download className="w-4 h-4" />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors"
+                onClick={handleDownload}
+              >
+                <Download className="w-4 h-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Tải về</TooltipContent>
+          </Tooltip>
+          {onReplace && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,.xlsx,image/jpeg,image/png"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) onReplace(file);
+                  e.target.value = "";
+                }}
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={isReplacing}
+                    className="p-1.5 rounded-md text-[#718096] hover:bg-[#FFF8E1] hover:text-[#E67E22] cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {isReplacing
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <RefreshCw className="w-4 h-4" />
+                    }
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Thay thế file</TooltipContent>
+              </Tooltip>
+            </>
+          )}
           {onDelete && (
-            <button
-              type="button"
-              title="Xóa"
-              className="p-1.5 rounded-md text-[#718096] hover:bg-[#FDECEA] hover:text-[#E74C3C] cursor-pointer transition-colors"
-              onClick={onDelete}
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="p-1.5 rounded-md text-[#718096] hover:bg-[#FDECEA] hover:text-[#E74C3C] cursor-pointer transition-colors"
+                  onClick={onDelete}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>Xóa</TooltipContent>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -237,5 +333,5 @@ export function FileCard({
         fileName={fileName}
       />
     </>
-  )
+  );
 }

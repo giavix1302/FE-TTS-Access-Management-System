@@ -16,6 +16,10 @@ import { QUERY_KEYS } from '@/utils/queryKeys'
 import { useAuthStore } from '@/stores/authStore'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { FileUpload } from '@/components/shared/FileUpload'
+import { TwoColDialog } from '@/components/shared/TwoColDialog'
+import { FileCard } from '@/components/shared/FileCard'
+import { useReplaceDocument } from '@/hooks/useReplaceDocument'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -167,6 +171,66 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
       <span className="text-[length:var(--fs-base)] text-text-secondary shrink-0">{label}</span>
       <span className="text-[length:var(--fs-base)] text-text-primary font-medium text-right">{value}</span>
     </div>
+  )
+}
+
+// ─── InsuranceFileCard ────────────────────────────────────────────────────────
+
+function InsuranceFileCard({
+  document,
+  insuranceId,
+  vehicleId,
+  canEdit,
+}: {
+  document: InsuranceRecord['document']
+  insuranceId: number
+  vehicleId: number
+  canEdit: boolean
+}) {
+  const replace = useReplaceDocument({
+    documentId: document?.id,
+    entityType: 'insurance',
+    entityId: insuranceId,
+    queryKeys: [QUERY_KEYS.vehicles.insurance(vehicleId)],
+  })
+  if (!document) return <span className="text-xs text-text-disabled">Chưa có file đính kèm</span>
+  return (
+    <FileCard
+      fileName={document.file_name}
+      url={document.sas_url}
+      onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
+      isReplacing={replace.isPending}
+    />
+  )
+}
+
+// ─── InspectionFileCard ───────────────────────────────────────────────────────
+
+function InspectionFileCard({
+  document,
+  inspectionId,
+  vehicleId,
+  canEdit,
+}: {
+  document: InspectionRecord['document']
+  inspectionId: number
+  vehicleId: number
+  canEdit: boolean
+}) {
+  const replace = useReplaceDocument({
+    documentId: document?.id,
+    entityType: 'inspection',
+    entityId: inspectionId,
+    queryKeys: [QUERY_KEYS.vehicles.inspection(vehicleId)],
+  })
+  if (!document) return <span className="text-xs text-text-disabled">Chưa có file đính kèm</span>
+  return (
+    <FileCard
+      fileName={document.file_name}
+      url={document.sas_url}
+      onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
+      isReplacing={replace.isPending}
+    />
   )
 }
 
@@ -743,7 +807,7 @@ export default function VehicleDetailPage() {
             {/* List */}
             {insuranceQuery.isLoading ? (
               <div className="flex flex-col gap-3">
-                {[1, 2].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}
+                {[1, 2].map((i) => <Skeleton key={i} className="h-24 w-full rounded-lg" />)}
               </div>
             ) : !insuranceQuery.data?.length ? (
               <div className="flex flex-col items-center justify-center py-12 gap-2 bg-bg-card rounded-lg border border-border">
@@ -754,46 +818,59 @@ export default function VehicleDetailPage() {
               insuranceQuery.data.map((ins) => {
                 const expiry = getExpiryBadge(ins.expiry_date)
                 return (
-                  <div key={ins.id} onClick={() => setViewIns(ins)} className="bg-bg-card rounded-lg border border-border p-4 flex flex-wrap gap-4 items-center cursor-pointer hover:border-primary hover:shadow-sm transition-all">
-                    {/* Trái */}
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <Shield className="h-8 w-8 text-primary shrink-0" />
-                      <div className="min-w-0">
-                        <p className="font-semibold text-text-primary truncate">{ins.insurance_number || '—'}</p>
-                        <p className="text-[length:var(--fs-sm)] text-text-secondary truncate">{ins.provider || '—'}</p>
+                  <div key={ins.id} className="bg-bg-card rounded-lg border border-border p-4 mb-3 space-y-3">
+                    {/* Row 1: info + actions */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <Shield className="h-8 w-8 text-primary shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-text-primary truncate">{ins.insurance_number || '—'}</p>
+                          <p className="text-[length:var(--fs-sm)] text-text-secondary truncate">{ins.provider || '—'}</p>
+                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                            <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
+                              {ins.issue_date ? format(new Date(ins.issue_date), 'dd/MM/yyyy') : '—'} → {format(new Date(ins.expiry_date), 'dd/MM/yyyy')}
+                            </span>
+                            <span className={`text-xs px-2.5 py-1 rounded-full ${expiry.className}`}>
+                              {expiry.label}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    {/* Giữa */}
-                    <div className="text-[length:var(--fs-sm)] text-text-secondary">
-                      {ins.issue_date ? format(new Date(ins.issue_date), 'dd/MM/yyyy') : '—'}
-                      {' → '}
-                      {format(new Date(ins.expiry_date), 'dd/MM/yyyy')}
-                    </div>
-                    {/* Phải */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${expiry.className}`}>
-                        {expiry.label}
-                      </span>
-                      {ins.document && (
-                        <a
-                          href={ins.document.sas_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
-                          title={ins.document.file_name}
-                        >
-                          <Download className="h-4 w-4" />
-                        </a>
-                      )}
                       {isAdminOrManagerOrAccountant && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteInsId(ins.id) }}
-                          className="p-1.5 rounded text-text-secondary hover:text-white hover:bg-error transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center gap-0.5 flex-none">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => setViewIns(ins)}
+                                className="p-1.5 rounded-md text-text-secondary hover:bg-primary-light hover:text-primary cursor-pointer transition-colors"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Xem / Chỉnh sửa</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => setDeleteInsId(ins.id)}
+                                className="p-1.5 rounded-md text-text-secondary hover:bg-error hover:text-white cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Xóa</TooltipContent>
+                          </Tooltip>
+                        </div>
                       )}
+                    </div>
+                    {/* Row 2: file */}
+                    <div className="pt-3 border-t border-border">
+                      <InsuranceFileCard
+                        document={ins.document}
+                        insuranceId={ins.id}
+                        vehicleId={vehicleId}
+                        canEdit={isAdminOrManagerOrAccountant}
+                      />
                     </div>
                   </div>
                 )
@@ -819,7 +896,7 @@ export default function VehicleDetailPage() {
 
             {inspectionQuery.isLoading ? (
               <div className="flex flex-col gap-3">
-                {[1, 2].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)}
+                {[1, 2].map((i) => <Skeleton key={i} className="h-24 w-full rounded-lg" />)}
               </div>
             ) : !inspectionQuery.data?.length ? (
               <div className="flex flex-col items-center justify-center py-12 gap-2 bg-bg-card rounded-lg border border-border">
@@ -833,47 +910,63 @@ export default function VehicleDetailPage() {
                   ? { label: 'Đạt', className: 'bg-success-light text-success' }
                   : { label: 'Không đạt', className: 'bg-error-light text-error' }
                 return (
-                  <div key={ins.id} onClick={() => setViewInspec(ins)} className="bg-bg-card rounded-lg border border-border p-4 flex flex-wrap gap-4 items-center cursor-pointer hover:border-primary hover:shadow-sm transition-all">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <CheckCircle2 className="h-8 w-8 text-success shrink-0" />
-                      <div className="min-w-0">
-                        <p className="font-semibold text-text-primary truncate">{ins.inspection_number || '—'}</p>
-                        <p className="text-[length:var(--fs-sm)] text-text-secondary">
-                          Ngày kiểm: {ins.inspection_date ? format(new Date(ins.inspection_date), 'dd/MM/yyyy') : '—'}
-                          {' — Hết hạn: '}
-                          {format(new Date(ins.expiry_date), 'dd/MM/yyyy')}
-                        </p>
+                  <div key={ins.id} className="bg-bg-card rounded-lg border border-border p-4 mb-3 space-y-3">
+                    {/* Row 1: info + actions */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <CheckCircle2 className="h-8 w-8 text-success shrink-0" />
+                        <div className="min-w-0">
+                          <p className="font-semibold text-text-primary truncate">{ins.inspection_number || '—'}</p>
+                          <div className="flex flex-wrap gap-1.5 mt-1.5">
+                            <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
+                              Ngày kiểm: {ins.inspection_date ? format(new Date(ins.inspection_date), 'dd/MM/yyyy') : '—'} → {format(new Date(ins.expiry_date), 'dd/MM/yyyy')}
+                            </span>
+                            {ins.result && (
+                              <span className={`text-xs px-2.5 py-1 rounded-full ${resultBadge.className}`}>
+                                {resultBadge.label}
+                              </span>
+                            )}
+                            <span className={`text-xs px-2.5 py-1 rounded-full ${expiry.className}`}>
+                              {expiry.label}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                      {ins.result && (
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${resultBadge.className}`}>
-                          {resultBadge.label}
-                        </span>
-                      )}
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${expiry.className}`}>
-                        {expiry.label}
-                      </span>
-                      {ins.document && (
-                        <a
-                          href={ins.document.sas_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
-                          title={ins.document.file_name}
-                        >
-                          <Download className="h-4 w-4" />
-                        </a>
-                      )}
                       {isAdminOrManagerOrAccountant && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setDeleteInspecId(ins.id) }}
-                          className="p-1.5 rounded text-text-secondary hover:text-white hover:bg-error transition-colors cursor-pointer"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        <div className="flex items-center gap-0.5 flex-none">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => setViewInspec(ins)}
+                                className="p-1.5 rounded-md text-text-secondary hover:bg-primary-light hover:text-primary cursor-pointer transition-colors"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Xem / Chỉnh sửa</TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => setDeleteInspecId(ins.id)}
+                                className="p-1.5 rounded-md text-text-secondary hover:bg-error hover:text-white cursor-pointer transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent>Xóa</TooltipContent>
+                          </Tooltip>
+                        </div>
                       )}
+                    </div>
+                    {/* Row 2: file */}
+                    <div className="pt-3 border-t border-border">
+                      <InspectionFileCard
+                        document={ins.document}
+                        inspectionId={ins.id}
+                        vehicleId={vehicleId}
+                        canEdit={isAdminOrManagerOrAccountant}
+                      />
                     </div>
                   </div>
                 )
@@ -1276,97 +1369,109 @@ export default function VehicleDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal Thêm bảo hiểm */}
-      <Dialog open={insOpen} onOpenChange={(o) => { setInsOpen(o); if (!o) { insForm.reset(); setInsFile(null); setInsDocId(null) } }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-[length:var(--fs-title)] font-semibold">Thêm bảo hiểm</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={insForm.handleSubmit((v) => addInsMutation.mutate(v))} className="flex flex-col gap-4 mt-2">
-            <FileUpload
-              value={insFile}
-              onChange={(f) => { setInsFile(f); if (f) uploadInsFile(f) }}
-              label="Kéo thả hoặc chọn file bảo hiểm (PDF, JPEG, PNG)"
-              disabled={insUploading}
-            />
-            {insUploading && <p className="text-[length:var(--fs-sm)] text-text-secondary">Đang upload...</p>}
+      {/* Modal Thêm / Chỉnh sửa bảo hiểm */}
+      <TwoColDialog
+        open={insOpen || viewIns !== null}
+        onOpenChange={(o) => {
+          if (!o) { setInsOpen(false); setViewIns(null); insForm.reset(); setInsFile(null); setInsDocId(null) }
+        }}
+        title={viewIns ? 'Chỉnh sửa bảo hiểm' : 'Thêm bảo hiểm'}
+        file={insFile}
+        onFileChange={(f) => { setInsFile(f); if (f) uploadInsFile(f) }}
+        isEdit={viewIns !== null}
+        existingFileName={viewIns?.document?.file_name}
+        existingFileUrl={viewIns?.document?.sas_url}
+        uploadLabel="Kéo thả hoặc chọn file bảo hiểm (PDF, JPEG, PNG)"
+      >
+        <form
+          id="insurance-form"
+          onSubmit={insForm.handleSubmit((v) => addInsMutation.mutate(v))}
+          className="flex flex-col gap-4 px-5 py-4 flex-1"
+        >
+          <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">Thông tin bảo hiểm</p>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-[length:var(--fs-base)] font-medium">Số bảo hiểm</Label>
+            <Input {...insForm.register('insurance_number')} placeholder="VD: BH-2024-001" className="border-border" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-[length:var(--fs-base)] font-medium">Công ty BH</Label>
+            <Input {...insForm.register('provider')} placeholder="VD: Bảo Việt" className="border-border" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[length:var(--fs-base)] font-medium">Số bảo hiểm</Label>
-              <Input {...insForm.register('insurance_number')} placeholder="VD: BH-2024-001" className="border-border" />
+              <Label className="text-[length:var(--fs-base)] font-medium">Ngày cấp</Label>
+              <Input {...insForm.register('issue_date')} type="date" className="border-border" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[length:var(--fs-base)] font-medium">Công ty BH</Label>
-              <Input {...insForm.register('provider')} placeholder="VD: Bảo Việt" className="border-border" />
+              <Label className="text-[length:var(--fs-base)] font-medium">Ngày hết hạn <span className="text-error">*</span></Label>
+              <Input {...insForm.register('expiry_date')} type="date" className="border-border" />
+              {insForm.formState.errors.expiry_date && <p className="text-[length:var(--fs-sm)] text-error">{insForm.formState.errors.expiry_date.message}</p>}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[length:var(--fs-base)] font-medium">Ngày cấp</Label>
-                <Input {...insForm.register('issue_date')} type="date" className="border-border" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[length:var(--fs-base)] font-medium">Ngày hết hạn <span className="text-error">*</span></Label>
-                <Input {...insForm.register('expiry_date')} type="date" className="border-border" />
-                {insForm.formState.errors.expiry_date && <p className="text-[length:var(--fs-sm)] text-error">{insForm.formState.errors.expiry_date.message}</p>}
-              </div>
-            </div>
-            <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" className="border-border" onClick={() => setInsOpen(false)} disabled={addInsMutation.isPending}>Hủy</Button>
-              <Button type="submit" className="bg-primary hover:bg-primary-dark text-white" disabled={addInsMutation.isPending || insUploading}>
-                {addInsMutation.isPending ? 'Đang lưu...' : 'Lưu'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          </div>
+          {insUploading && <p className="text-[length:var(--fs-sm)] text-text-secondary">Đang upload...</p>}
+        </form>
+        <div className="px-5 py-4 border-t border-border flex justify-end gap-2 shrink-0">
+          <Button type="button" variant="outline" className="border-border cursor-pointer" onClick={() => { setInsOpen(false); setViewIns(null) }} disabled={addInsMutation.isPending}>Hủy</Button>
+          <Button type="submit" form="insurance-form" className="bg-primary hover:bg-primary-dark text-white cursor-pointer" disabled={addInsMutation.isPending || insUploading || (!viewIns && !insFile)}>
+            {addInsMutation.isPending ? 'Đang lưu...' : 'Lưu'}
+          </Button>
+        </div>
+      </TwoColDialog>
 
-      {/* Modal Thêm đăng kiểm */}
-      <Dialog open={inspecOpen} onOpenChange={(o) => { setInspecOpen(o); if (!o) { inspecForm.reset(); setInspecFile(null); setInspecDocId(null) } }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-[length:var(--fs-title)] font-semibold">Thêm đăng kiểm</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={inspecForm.handleSubmit((v) => addInspecMutation.mutate(v))} className="flex flex-col gap-4 mt-2">
-            <FileUpload
-              value={inspecFile}
-              onChange={(f) => { setInspecFile(f); if (f) uploadInspecFile(f) }}
-              label="Kéo thả hoặc chọn file đăng kiểm (PDF, JPEG, PNG)"
-              disabled={inspecUploading}
-            />
-            {inspecUploading && <p className="text-[length:var(--fs-sm)] text-text-secondary">Đang upload...</p>}
+      {/* Modal Thêm / Chỉnh sửa đăng kiểm */}
+      <TwoColDialog
+        open={inspecOpen || viewInspec !== null}
+        onOpenChange={(o) => {
+          if (!o) { setInspecOpen(false); setViewInspec(null); inspecForm.reset(); setInspecFile(null); setInspecDocId(null) }
+        }}
+        title={viewInspec ? 'Chỉnh sửa đăng kiểm' : 'Thêm đăng kiểm'}
+        file={inspecFile}
+        onFileChange={(f) => { setInspecFile(f); if (f) uploadInspecFile(f) }}
+        isEdit={viewInspec !== null}
+        existingFileName={viewInspec?.document?.file_name}
+        existingFileUrl={viewInspec?.document?.sas_url}
+        uploadLabel="Kéo thả hoặc chọn file đăng kiểm (PDF, JPEG, PNG)"
+      >
+        <form
+          id="inspection-form"
+          onSubmit={inspecForm.handleSubmit((v) => addInspecMutation.mutate(v))}
+          className="flex flex-col gap-4 px-5 py-4 flex-1"
+        >
+          <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">Thông tin đăng kiểm</p>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-[length:var(--fs-base)] font-medium">Số kiểm định</Label>
+            <Input {...inspecForm.register('inspection_number')} placeholder="VD: DK-2024-001" className="border-border" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[length:var(--fs-base)] font-medium">Số kiểm định</Label>
-              <Input {...inspecForm.register('inspection_number')} placeholder="VD: DK-2024-001" className="border-border" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[length:var(--fs-base)] font-medium">Ngày kiểm</Label>
-                <Input {...inspecForm.register('inspection_date')} type="date" className="border-border" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[length:var(--fs-base)] font-medium">Ngày hết hạn <span className="text-error">*</span></Label>
-                <Input {...inspecForm.register('expiry_date')} type="date" className="border-border" />
-                {inspecForm.formState.errors.expiry_date && <p className="text-[length:var(--fs-sm)] text-error">{inspecForm.formState.errors.expiry_date.message}</p>}
-              </div>
+              <Label className="text-[length:var(--fs-base)] font-medium">Ngày kiểm</Label>
+              <Input {...inspecForm.register('inspection_date')} type="date" className="border-border" />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label className="text-[length:var(--fs-base)] font-medium">Kết quả</Label>
-              <Select onValueChange={(v) => inspecForm.setValue('result', v as 'passed' | 'failed')}>
-                <SelectTrigger className="border-border"><SelectValue placeholder="Chọn kết quả" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="passed">Đạt</SelectItem>
-                  <SelectItem value="failed">Không đạt</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label className="text-[length:var(--fs-base)] font-medium">Ngày hết hạn <span className="text-error">*</span></Label>
+              <Input {...inspecForm.register('expiry_date')} type="date" className="border-border" />
+              {inspecForm.formState.errors.expiry_date && <p className="text-[length:var(--fs-sm)] text-error">{inspecForm.formState.errors.expiry_date.message}</p>}
             </div>
-            <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" className="border-border" onClick={() => setInspecOpen(false)} disabled={addInspecMutation.isPending}>Hủy</Button>
-              <Button type="submit" className="bg-primary hover:bg-primary-dark text-white" disabled={addInspecMutation.isPending || inspecUploading}>
-                {addInspecMutation.isPending ? 'Đang lưu...' : 'Lưu'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label className="text-[length:var(--fs-base)] font-medium">Kết quả</Label>
+            <Select onValueChange={(v) => inspecForm.setValue('result', v as 'passed' | 'failed')}>
+              <SelectTrigger className="border-border"><SelectValue placeholder="Chọn kết quả" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="passed">Đạt</SelectItem>
+                <SelectItem value="failed">Không đạt</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {inspecUploading && <p className="text-[length:var(--fs-sm)] text-text-secondary">Đang upload...</p>}
+        </form>
+        <div className="px-5 py-4 border-t border-border flex justify-end gap-2 shrink-0">
+          <Button type="button" variant="outline" className="border-border cursor-pointer" onClick={() => { setInspecOpen(false); setViewInspec(null) }} disabled={addInspecMutation.isPending}>Hủy</Button>
+          <Button type="submit" form="inspection-form" className="bg-primary hover:bg-primary-dark text-white cursor-pointer" disabled={addInspecMutation.isPending || inspecUploading || (!viewInspec && !inspecFile)}>
+            {addInspecMutation.isPending ? 'Đang lưu...' : 'Lưu'}
+          </Button>
+        </div>
+      </TwoColDialog>
 
       {/* Confirm xóa xe */}
       <ConfirmModal

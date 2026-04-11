@@ -76,7 +76,7 @@
   --fs-sm:      12px;   /* badge label, table header uppercase */
   --fs-body:    13px;   /* tooltip text, secondary label */
   --fs-base:    14px;   /* table cell, dropdown item */
-  --fs-nav:     15px;   /* nav item, username sidebar */
+  --fs-nav:     16px;   /* nav item, username sidebar */
   --fs-title:   16px;   /* topbar page title, card title */
   --fs-logo:    17px;   /* logo text sidebar */
   --fs-heading: 18px;   /* page heading */
@@ -98,7 +98,7 @@
     --fs-sm:      13px;
     --fs-body:    13px;
     --fs-base:    15px;
-    --fs-nav:     18px;
+    --fs-nav:     16px;
     --fs-title:   18px;
     --fs-logo:    20px;
     --fs-heading: 22px;

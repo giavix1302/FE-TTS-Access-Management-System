@@ -1,8 +1,868 @@
+import React, { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import {
+  ArrowLeft,
+  Pencil,
+  ChevronDown,
+  CalendarDays,
+  DollarSign,
+  CheckCircle2,
+  AlertCircle,
+  Building2,
+  User,
+  Phone,
+  Mail,
+  MapPin,
+  FileText,
+} from "lucide-react";
+import type { AxiosError } from "axios";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ConfirmModal } from "@/components/shared/ConfirmModal";
+import { ContractTab } from "./components/ContractTab";
+import { AddendumsTab } from "./components/AddendumsTab";
+import { AcceptanceTab } from "./components/AcceptanceTab";
+import { InvoicesTab } from "./components/InvoicesTab";
+import { IncidentsTab } from "./components/IncidentsTab";
+import {
+  getContractById,
+  getContractSummary,
+  changeContractStatus,
+} from "@/api/contracts.api";
+import { QUERY_KEYS } from "@/utils/queryKeys";
+import { formatCurrency, formatDate } from "@/utils/format";
+import { getContractStatusBadge } from "@/constants/contractStatus";
+import { useAuthStore } from "@/stores/authStore";
+import type {
+  ContractDetail,
+  ContractSummary,
+  ContractStatus,
+} from "@/types/contract.types";
+
+// ─── Mock data ────────────────────────────────────────────────────────────────
+const MOCK_CONTRACT: ContractDetail = {
+  id: 1,
+  contract_number: "01012026/HĐTTB/TTS-DOTHANH",
+  status: "active",
+  customer: {
+    id: 1,
+    customer_type: "business",
+    display_name: "Công ty TNHH Đô Thành",
+    international_name: "Công ty TNHH Đô Thành",
+    short_name: "DOTHANH",
+    tax_code: "0301234567",
+    tax_address: "123 Đường Hoàng Diệu, Quận 4, TP.HCM",
+    office_address: "456 Đường Nguyễn Văn Linh, Quận 7, TP.HCM",
+    representative: "Trần Văn Đô",
+    phone: "0281234567",
+    email: "contact@dothanh.vn",
+  },
+  start_date: "2026-01-05",
+  planned_days: 59,
+  end_date: "2026-03-05",
+  total_amount: 64800000,
+  created_at: "2026-01-01T08:00:00Z",
+  site_address: "Lô B5, KCN Tân Bình, Quận Tân Phú, TP.HCM",
+  subtotal: 60000000,
+  tax_amount: 4800000,
+  excluded_days: 2,
+  excluded_reason: "Nghỉ Tết Âm lịch theo quy định",
+  document: {
+    id: 1,
+    doc_type: "contract",
+    file_name: "HỢP ĐỒNG THUÊ XE TTS-DOTHANH.docx",
+    mime_type:
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    file_size_kb: 842,
+    note: "Bản scan có đóng dấu",
+    uploaded_at: "2026-01-05T09:30:00Z",
+    sas_url:
+      "https://giavixblob1302.blob.core.windows.net/documents/H%E1%BB%A2P%20%C4%90%E1%BB%92NG%20THU%C3%8A%20XE%20TTS-DOTHANH.docx",
+    sas_expires_at: "2026-12-31T23:59:59Z",
+  },
+  line_items: [
+    {
+      id: 1,
+      service: { id: 1, name: "Cho thuê xe nâng người AWP 20S", unit: "ngày" },
+      vehicle_id: 1,
+      unit_price: 1500000,
+      quantity: 30,
+      line_total: 45000000,
+      sort_order: 1,
+    },
+    {
+      id: 2,
+      service: {
+        id: 1,
+        name: "Cho thuê xe nâng người JLG 260MRT",
+        unit: "ngày",
+      },
+      vehicle_id: 2,
+      unit_price: 1800000,
+      quantity: 15,
+      line_total: 27000000,
+      sort_order: 2,
+    },
+    {
+      id: 3,
+      service: { id: 2, name: "Phí vận chuyển đưa xe", unit: "chuyến" },
+      vehicle_id: null,
+      unit_price: 4000000,
+      quantity: 2,
+      line_total: 8000000,
+      sort_order: 3,
+    },
+    {
+      id: 4,
+      service: { id: 3, name: "Phí lắp đặt & kiểm tra an toàn", unit: "lần" },
+      vehicle_id: null,
+      unit_price: 2000000,
+      quantity: 1,
+      line_total: 2000000,
+      sort_order: 4,
+    },
+  ],
+  vehicles: [
+    {
+      id: 1,
+      vehicle: {
+        id: 1,
+        model: "AWP 20S",
+        serial_number: "SN-2021-001",
+        status: "renting",
+      },
+      deploy_date: "2026-01-05",
+      return_date: null,
+      extra_days: 0,
+    },
+    {
+      id: 2,
+      vehicle: {
+        id: 2,
+        model: "JLG 260MRT",
+        serial_number: "SN-2022-002",
+        status: "renting",
+      },
+      deploy_date: "2026-01-10",
+      return_date: null,
+      extra_days: 0,
+    },
+  ],
+  created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
+};
+
+const MOCK_SUMMARY: ContractSummary = {
+  contract_id: 1,
+  start_date: "2026-01-05",
+  actual_end_date: null,
+  total_days: null,
+  amount_payable: 64800000,
+  amount_paid: 32400000,
+  amount_remaining: 32400000,
+  total_addendums: 2,
+  acceptance_record_count: 1,
+  addendum_count: 2,
+  invoice_count: 2,
+};
+
+// ─── Mock sub-data (dùng trong các Tab khi query key khớp) ─────────────────────
+export const MOCK_ADDENDUMS = [
+  {
+    id: 1,
+    addendum_number: "01012026-01/PLHĐ/TTS-DOTHANH",
+    addendum_type: "extension" as const,
+    start_date: "2026-02-20",
+    new_end_date: "2026-03-21",
+    subtotal: 16363636,
+    tax_amount: 1309091,
+    total_amount: 17672727,
+    content:
+      "Gia hạn thêm 14 ngày do tiến độ thi công chưa hoàn thành. Hai bên đồng thuận kéo dài thời gian thuê.",
+    document: {
+      id: 2,
+      doc_type: "addendum",
+      file_name: "PLHD 01 DOTHANH 01042026 - 02.04.2026.docx",
+      mime_type:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      file_size_kb: 310,
+      note: null,
+      uploaded_at: "2026-02-19T14:00:00Z",
+      sas_url:
+        "https://giavixblob1302.blob.core.windows.net/documents/PLHD%2001%20DOTHANH%2001042026%20-%2002.04.2026.docx",
+      sas_expires_at: "2026-12-31T23:59:59Z",
+    },
+    created_at: "2026-02-19T14:00:00Z",
+    created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
+  },
+  {
+    id: 2,
+    addendum_number: "01012026-02/PLHĐ/TTS-DOTHANH",
+    addendum_type: "add_service" as const,
+    start_date: null,
+    new_end_date: null,
+    subtotal: 3636364,
+    tax_amount: 290909,
+    total_amount: 3927273,
+    content:
+      "Bổ sung dịch vụ vệ sinh, bảo dưỡng định kỳ xe nâng tại công trường (2 lần/tháng).",
+    document: null,
+    created_at: "2026-01-20T10:00:00Z",
+    created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
+  },
+];
+
+export const MOCK_ACCEPTANCE_RECORDS = [
+  {
+    id: 1,
+    record_number: "BBNT-2026-001",
+    record_date: "2026-02-05",
+    actual_start_date: "2026-01-05",
+    actual_end_date: "2026-02-04",
+    subtotal: 29090909,
+    tax_amount: 2327273,
+    total_amount: 31418182,
+    document: {
+      id: 3,
+      doc_type: "acceptance",
+      file_name: "1775209939178-oflpcq.xlsx",
+      mime_type:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      file_size_kb: 512,
+      note: "Đã ký đầy đủ 2 bên",
+      uploaded_at: "2026-02-06T08:00:00Z",
+      sas_url:
+        "https://giavixblob1302.blob.core.windows.net/documents/1775209939178-oflpcq.xlsx",
+      sas_expires_at: "2026-12-31T23:59:59Z",
+    },
+    created_at: "2026-02-06T08:00:00Z",
+    created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
+  },
+];
+
+export const MOCK_INVOICES = [
+  {
+    id: 1,
+    invoice_number: "0001234",
+    invoice_date: "2026-02-07",
+    amount: 32400000,
+    note: "Hóa đơn GTGT đợt 1 — tháng 01/2026",
+    document: {
+      id: 4,
+      doc_type: "invoice",
+      file_name: "3604019619-C26TTS121.pdf",
+      mime_type: "application/pdf",
+      file_size_kb: 280,
+      note: null,
+      uploaded_at: "2026-02-07T11:00:00Z",
+      sas_url:
+        "https://giavixblob1302.blob.core.windows.net/documents/3604019619-C26TTS121.pdf",
+      sas_expires_at: "2026-12-31T23:59:59Z",
+    },
+    created_at: "2026-02-07T11:00:00Z",
+    created_by: { id: 1, full_name: "Trần Thị Kế Toán" },
+  },
+  {
+    id: 2,
+    invoice_number: null,
+    invoice_date: "2026-03-07",
+    amount: 32400000,
+    note: "Hóa đơn GTGT đợt 2 — tháng 02/2026 (chờ xuất trên MISA)",
+    document: null,
+    created_at: "2026-03-07T09:00:00Z",
+    created_by: { id: 1, full_name: "Trần Thị Kế Toán" },
+  },
+];
+
+export const MOCK_INCIDENTS = [
+  {
+    id: 1,
+    contract_vehicle: {
+      id: 1,
+      vehicle: { id: 1, model: "AWP 20S", serial_number: "SN-2021-001" },
+    },
+    incident_date: "2026-01-20",
+    incident_type: "breakdown" as const,
+    description:
+      "Xe AWP 20S bị hỏng bộ điều khiển điện tử, không nâng được sàn. Kỹ thuật viên đã kiểm tra và xác nhận cần thay linh kiện.",
+    downtime_days: 2,
+    cost_amount: 3500000,
+    charged_to: "company" as const,
+    replacement_contract_vehicle: null,
+    resolved_at: "2026-01-22T16:00:00Z",
+    created_at: "2026-01-20T14:00:00Z",
+    created_by: { id: 2, full_name: "Lê Văn Kỹ Thuật" },
+  },
+  {
+    id: 2,
+    contract_vehicle: {
+      id: 1,
+      vehicle: { id: 1, model: "AWP 20S", serial_number: "SN-2021-001" },
+    },
+    incident_date: "2026-02-10",
+    incident_type: "replacement" as const,
+    description:
+      "Xe AWP 20S bị hỏng nặng hệ thống thủy lực, không thể sửa tại chỗ. Thay thế bằng JLG 260MRT.",
+    downtime_days: 1,
+    cost_amount: null,
+    charged_to: null,
+    replacement_contract_vehicle: {
+      id: 2,
+      vehicle: { id: 2, model: "JLG 260MRT", serial_number: "SN-2022-002" },
+    },
+    resolved_at: "2026-02-11T08:00:00Z",
+    created_at: "2026-02-10T10:00:00Z",
+    created_by: { id: 2, full_name: "Lê Văn Kỹ Thuật" },
+  },
+  {
+    id: 3,
+    contract_vehicle: {
+      id: 2,
+      vehicle: { id: 2, model: "JLG 260MRT", serial_number: "SN-2022-002" },
+    },
+    incident_date: "2026-02-25",
+    incident_type: "repair_onsite" as const,
+    description:
+      "Lốp xe JLG 260MRT bị thủng do đinh tại công trường. Thay lốp tại chỗ trong buổi sáng.",
+    downtime_days: 0.5,
+    cost_amount: 800000,
+    charged_to: "customer" as const,
+    replacement_contract_vehicle: null,
+    resolved_at: "2026-02-25T12:00:00Z",
+    created_at: "2026-02-25T08:30:00Z",
+    created_by: { id: 2, full_name: "Lê Văn Kỹ Thuật" },
+  },
+];
+
+// ─── SummaryCard ──────────────────────────────────────────────────────────────
+function SummaryCard({
+  label,
+  value,
+  sub,
+  valueClass,
+  Icon,
+  iconClass,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  valueClass?: string;
+  Icon: React.ElementType;
+  iconClass?: string;
+}) {
+  return (
+    <div className="bg-bg-card rounded-lg border border-border shadow-card p-[var(--sp-card)] flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <p className="text-[length:var(--fs-sm)] font-medium text-text-secondary uppercase tracking-wide">
+          {label}
+        </p>
+        <Icon
+          className={`h-4 w-4 lg:h-5 lg:w-5 shrink-0 ${iconClass ?? "text-primary"}`}
+        />
+      </div>
+      <p
+        className={`text-[length:var(--fs-display)] font-bold leading-none text-text-primary ${valueClass ?? ""}`}
+      >
+        {value}
+      </p>
+      {sub && (
+        <p className="text-[length:var(--fs-sm)] text-text-secondary">{sub}</p>
+      )}
+    </div>
+  );
+}
+
+// ─── StatusChangeDropdown ─────────────────────────────────────────────────────
+function StatusChangeDropdown({
+  contract,
+  contractId,
+}: {
+  contract: ContractDetail;
+  contractId: number;
+}) {
+  const queryClient = useQueryClient();
+  const [confirmType, setConfirmType] = useState<
+    "complete" | "cancel" | "reopen" | null
+  >(null);
+  const [reason, setReason] = useState("");
+  const [reasonError, setReasonError] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: (body: unknown) => changeContractStatus(contractId, body),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.contracts.detail(contractId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: [...QUERY_KEYS.contracts.detail(contractId), "summary"],
+      });
+      toast.success("Đã cập nhật trạng thái hợp đồng");
+      if (
+        data?.warnings?.some(
+          (w: { code: string }) => w.code === "VEHICLES_STILL_RENTING",
+        )
+      ) {
+        toast.warning("Còn xe chưa trả — vui lòng cập nhật trạng thái xe");
+      }
+      setConfirmType(null);
+      setReason("");
+    },
+    onError: (error: AxiosError<{ code: string; message: string }>) => {
+      const code = error.response?.data?.code;
+      const messages: Record<string, string> = {
+        CONTRACT_NOT_ACTIVE: "Hợp đồng không ở trạng thái active",
+        VEHICLES_STILL_RENTING:
+          "Còn xe chưa trả — vui lòng cập nhật trạng thái xe",
+      };
+      toast.error(
+        messages[code ?? ""] ??
+          error.response?.data?.message ??
+          "Có lỗi xảy ra",
+      );
+    },
+  });
+
+  const handleConfirm = () => {
+    if (
+      (confirmType === "cancel" || confirmType === "reopen") &&
+      !reason.trim()
+    ) {
+      setReasonError("Bắt buộc nhập lý do");
+      return;
+    }
+    const body =
+      confirmType === "complete"
+        ? { status: "completed" }
+        : confirmType === "cancel"
+          ? { status: "cancelled", reason }
+          : { status: "active", reopen_reason: reason };
+    mutation.mutate(body);
+  };
+
+  if (contract.status === "cancelled") {
+    return (
+      <Button variant="outline" disabled>
+        <ChevronDown size={14} />
+        Đổi trạng thái
+      </Button>
+    );
+  }
+
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" className="cursor-pointer">
+            <ChevronDown size={14} />
+            Đổi trạng thái
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {contract.status === "active" && (
+            <>
+              <DropdownMenuItem
+                className="cursor-pointer"
+                onClick={() => setConfirmType("complete")}
+              >
+                Hoàn thành hợp đồng
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="cursor-pointer text-error focus:text-error"
+                onClick={() => setConfirmType("cancel")}
+              >
+                Hủy hợp đồng
+              </DropdownMenuItem>
+            </>
+          )}
+          {contract.status === "completed" && (
+            <DropdownMenuItem
+              className="cursor-pointer"
+              onClick={() => setConfirmType("reopen")}
+            >
+              Mở lại hợp đồng (Reopen)
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* Complete — simple confirm */}
+      <ConfirmModal
+        open={confirmType === "complete"}
+        onOpenChange={(v) => {
+          if (!v) setConfirmType(null);
+        }}
+        title="Hoàn thành hợp đồng"
+        description="Xác nhận đánh dấu hợp đồng này là hoàn thành?"
+        variant="primary"
+        confirmLabel="Hoàn thành"
+        loading={mutation.isPending}
+        onConfirm={handleConfirm}
+      />
+
+      {/* Cancel / Reopen — with reason textarea */}
+      <Dialog
+        open={confirmType === "cancel" || confirmType === "reopen"}
+        onOpenChange={(v) => {
+          if (!v) {
+            setConfirmType(null);
+            setReason("");
+            setReasonError("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmType === "cancel" ? "Hủy hợp đồng" : "Mở lại hợp đồng"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>
+              {confirmType === "cancel" ? "Lý do hủy" : "Lý do mở lại"}
+              <span className="text-error"> *</span>
+            </Label>
+            <Textarea
+              rows={3}
+              value={reason}
+              onChange={(e) => {
+                setReason(e.target.value);
+                setReasonError("");
+              }}
+              placeholder="Nhập lý do..."
+            />
+            {reasonError && <p className="text-xs text-error">{reasonError}</p>}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setConfirmType(null);
+                setReason("");
+                setReasonError("");
+              }}
+              className="cursor-pointer"
+            >
+              Hủy bỏ
+            </Button>
+            <Button
+              variant={confirmType === "cancel" ? "destructive" : "default"}
+              onClick={handleConfirm}
+              disabled={mutation.isPending}
+              className="cursor-pointer"
+            >
+              {mutation.isPending
+                ? "Đang xử lý..."
+                : confirmType === "cancel"
+                  ? "Hủy hợp đồng"
+                  : "Mở lại"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+// ─── ContractDetailPage ───────────────────────────────────────────────────────
 export default function ContractDetailPage() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const contractId = Number(id);
+  const user = useAuthStore((s) => s.user);
+
+  const canEdit =
+    user?.roles.some((r) => ["admin", "manager", "accountant"].includes(r)) ??
+    false;
+
+  // --- REAL API ---
+  // const { data: contract, isLoading } = useQuery({
+  //   queryKey: QUERY_KEYS.contracts.detail(contractId),
+  //   queryFn: () => getContractById(contractId),
+  // })
+  // const { data: summary } = useQuery({
+  //   queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'],
+  //   queryFn: () => getContractSummary(contractId),
+  // })
+
+  const [activeTab, setActiveTab] = useState("contract");
+
+  // Mock
+  const contract: ContractDetail | undefined = MOCK_CONTRACT;
+  const summary: ContractSummary | undefined = MOCK_SUMMARY;
+  const isLoading = false;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-32" />
+        <Skeleton className="h-20 w-full" />
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array(4)
+            .fill(0)
+            .map((_, i) => (
+              <Skeleton key={i} className="h-20 rounded-lg" />
+            ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!contract) {
+    return (
+      <div className="text-center py-16 text-text-secondary">
+        Không tìm thấy hợp đồng
+      </div>
+    );
+  }
+
+  const { label: statusLabel, className: statusClass } = getContractStatusBadge(
+    contract.status,
+  );
+
   return (
     <div>
-      <h1 className="text-2xl font-semibold text-text-primary">Chi tiết hợp đồng</h1>
-      <p className="mt-2 text-text-secondary">Đang phát triển</p>
+      {/* Back button */}
+      <Button
+        variant="ghost"
+        onClick={() => navigate("/contracts")}
+        className="cursor-pointer mb-2 -ml-2"
+      >
+        <ArrowLeft size={16} />
+        Quay lại
+      </Button>
+
+      {/* Header card */}
+      <div className="bg-bg-card rounded-lg border border-border shadow-card p-5 mt-2">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            {/* Contract number + status */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="font-mono font-bold text-lg text-text-primary">
+                {contract.contract_number}
+              </h1>
+              <span
+                className={`inline-flex items-center rounded-full px-3 py-1 text-[13px] font-medium ${statusClass}`}
+              >
+                {statusLabel}
+              </span>
+            </div>
+
+            {/* Customer info */}
+            <div className="mt-3 flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                {contract.customer.customer_type === "business" ? (
+                  <Building2
+                    size={14}
+                    className="text-text-secondary shrink-0"
+                  />
+                ) : (
+                  <User size={14} className="text-text-secondary shrink-0" />
+                )}
+                <span className="font-semibold text-text-primary text-sm">
+                  {contract.customer.display_name}
+                </span>
+                {contract.customer.customer_type === "business" &&
+                  contract.customer.tax_code && (
+                    <span className="text-xs text-text-secondary">
+                      · MST: {contract.customer.tax_code}
+                    </span>
+                  )}
+                {contract.customer.customer_type === "business" &&
+                  contract.customer.representative && (
+                    <span className="text-xs text-text-secondary">
+                      · Đại diện: {contract.customer.representative}
+                    </span>
+                  )}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {contract.customer.phone && (
+                  <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                    <Phone size={12} className="shrink-0 text-primary" />
+                    {contract.customer.phone}
+                  </span>
+                )}
+                {contract.customer.email && (
+                  <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                    <Mail size={12} className="shrink-0 text-primary" />
+                    {contract.customer.email}
+                  </span>
+                )}
+                {contract.customer.customer_type === "business" &&
+                  contract.customer.office_address && (
+                    <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                      <MapPin size={12} className="shrink-0 text-primary" />
+                      {contract.customer.office_address}
+                    </span>
+                  )}
+                {contract.customer.customer_type === "individual" &&
+                  contract.customer.permanent_address && (
+                    <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                      <MapPin size={12} className="shrink-0 text-primary" />
+                      {contract.customer.permanent_address}
+                    </span>
+                  )}
+              </div>
+            </div>
+          </div>
+          {canEdit && (
+            <div className="flex gap-2 flex-shrink-0">
+              <StatusChangeDropdown
+                contract={contract}
+                contractId={contractId}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 my-6">
+        {!summary ? (
+          Array(4)
+            .fill(0)
+            .map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)
+        ) : (
+          <>
+            <SummaryCard
+              Icon={CalendarDays}
+              iconClass="text-primary"
+              label="Kế hoạch"
+              value={`${contract.planned_days} ngày`}
+              sub={`${formatDate(contract.start_date)} → ${formatDate(contract.end_date)}`}
+            />
+            <SummaryCard
+              Icon={DollarSign}
+              iconClass="text-text-secondary"
+              label="Phải thanh toán"
+              value={formatCurrency(summary.amount_payable)}
+              sub={`${summary.invoice_count} hóa đơn`}
+            />
+            <SummaryCard
+              Icon={CheckCircle2}
+              iconClass="text-success"
+              label="Đã thanh toán"
+              value={formatCurrency(summary.amount_paid)}
+              valueClass="text-success"
+              sub={
+                summary.amount_paid > 0
+                  ? `${Math.round((summary.amount_paid / summary.amount_payable) * 100)}% tổng giá trị`
+                  : "—"
+              }
+            />
+            <SummaryCard
+              Icon={AlertCircle}
+              iconClass={
+                summary.amount_remaining > 0 ? "text-error" : "text-success"
+              }
+              label="Còn lại"
+              value={formatCurrency(summary.amount_remaining)}
+              valueClass={
+                summary.amount_remaining > 0 ? "text-error" : "text-success"
+              }
+              sub={
+                summary.amount_remaining > 0
+                  ? "Chưa thanh toán đủ"
+                  : "Đã thanh toán đủ"
+              }
+            />
+          </>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-6">
+        <TabsList className="border-b border-border bg-transparent w-full justify-start rounded-none p-0 h-auto gap-1 overflow-x-auto">
+          {[
+            { value: "contract", label: "Hợp đồng" },
+            {
+              value: "addendums",
+              label: "Phụ lục",
+              count: summary?.addendum_count,
+            },
+            {
+              value: "acceptance",
+              label: "BBNT",
+              count: summary?.acceptance_record_count,
+            },
+            {
+              value: "invoices",
+              label: "Hóa đơn",
+              count: summary?.invoice_count,
+            },
+            { value: "incidents", label: "Sự cố" },
+          ].map((tab) => (
+            <TabsTrigger
+              key={tab.value}
+              value={tab.value}
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-background data-[state=active]:shadow-sm text-text-secondary px-4 py-2.5 text-[length:var(--fs-base)] font-medium gap-1.5"
+            >
+              {tab.label}
+              {tab.count !== undefined && (
+                <span className="bg-primary-light text-primary text-xs font-semibold px-1.5 py-0.5 rounded-full leading-none">
+                  {tab.count}
+                </span>
+              )}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        <TabsContent value="contract">
+          <ContractTab
+            contract={contract}
+            contractId={contractId}
+            canEdit={canEdit}
+          />
+        </TabsContent>
+        <TabsContent value="addendums">
+          <AddendumsTab
+            contractId={contractId}
+            contractStatus={contract.status}
+            canEdit={canEdit}
+            initialData={MOCK_ADDENDUMS}
+          />
+        </TabsContent>
+        <TabsContent value="acceptance">
+          <AcceptanceTab
+            contractId={contractId}
+            canEdit={canEdit}
+            initialData={MOCK_ACCEPTANCE_RECORDS}
+          />
+        </TabsContent>
+        <TabsContent value="invoices">
+          <InvoicesTab
+            contractId={contractId}
+            summary={summary}
+            canEdit={canEdit}
+            initialData={MOCK_INVOICES}
+          />
+        </TabsContent>
+        <TabsContent value="incidents">
+          <IncidentsTab
+            contractId={contractId}
+            contractStatus={contract.status}
+            contractVehicles={contract.vehicles}
+            canEdit={canEdit}
+            initialData={MOCK_INCIDENTS}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

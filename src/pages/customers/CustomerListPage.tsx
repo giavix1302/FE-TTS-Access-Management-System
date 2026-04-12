@@ -1,8 +1,899 @@
-export default function CustomerListPage() {
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { toast } from "sonner";
+import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
+import {
+  Plus,
+  Eye,
+  Search,
+  Building2,
+  User,
+} from "lucide-react";
+import { QUERY_KEYS } from "@/utils/queryKeys";
+import { useDebounce } from "@/hooks/useDebounce";
+import { useAuthStore } from "@/stores/authStore";
+import { DataTable } from "@/components/shared/DataTable";
+import { PageHeader } from "@/components/shared/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
+import { formatDate } from "@/utils/format";
+import {
+  getCustomerTypeBadge,
+  getCustomerActiveBadge,
+  CUSTOMER_TYPE_OPTIONS,
+} from "@/constants/customerType";
+import type { CustomerListItem, CustomerType } from "@/types/customer.types";
+
+// ─── Mock data ────────────────────────────────────────────────────────────────
+const MOCK_CUSTOMERS: CustomerListItem[] = [
+  {
+    id: 1,
+    customer_type: "individual",
+    display_name: "Nguyễn Văn A",
+    phone: "0901234567",
+    email: "vana@gmail.com",
+    is_active: true,
+    created_at: "2025-01-05T08:00:00Z",
+  },
+  {
+    id: 2,
+    customer_type: "business",
+    display_name: "Công ty TNHH Đô Thành",
+    short_name: "DOTHANH",
+    phone: "0281234567",
+    email: "contact@dothanh.vn",
+    is_active: true,
+    created_at: "2025-01-10T08:00:00Z",
+  },
+  {
+    id: 3,
+    customer_type: "business",
+    display_name: "Công ty CP Đại Phong",
+    short_name: "DAIPHONG",
+    phone: "0251234567",
+    email: "contact@daiphong.vn",
+    is_active: true,
+    created_at: "2025-02-01T08:00:00Z",
+  },
+  {
+    id: 4,
+    customer_type: "individual",
+    display_name: "Trần Thị Bích",
+    phone: "0912345678",
+    email: null,
+    is_active: false,
+    created_at: "2025-03-15T08:00:00Z",
+  },
+  {
+    id: 5,
+    customer_type: "business",
+    display_name: "Bệnh viện Hoàn Mỹ",
+    short_name: "HOANMY",
+    phone: "0289012345",
+    email: "contact@hoanmy.vn",
+    is_active: true,
+    created_at: "2025-04-20T08:00:00Z",
+  },
+];
+
+// ─── Zod schemas ──────────────────────────────────────────────────────────────
+const individualSchema = z.object({
+  type: z.literal("individual"),
+  full_name: z.string().min(1, "Bắt buộc"),
+  phone: z.string().min(1, "Bắt buộc"),
+  cccd: z
+    .string()
+    .regex(/^\d{12}$/, "Phải là 12 số"),
+  email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
+  date_of_birth: z.string().optional(),
+  gender: z.enum(["male", "female", "other"]).optional(),
+  nationality: z.string().optional(),
+  cccd_issue_date: z.string().optional(),
+  cccd_issue_place: z.string().optional(),
+  hometown: z.string().optional(),
+  permanent_address: z.string().optional(),
+});
+
+const businessSchema = z.object({
+  type: z.literal("business"),
+  international_name: z.string().min(1, "Bắt buộc"),
+  short_name: z
+    .string()
+    .min(1, "Bắt buộc")
+    .regex(/^[A-Z0-9]+$/, "Chỉ chữ in hoa A–Z và số 0–9, không dấu cách"),
+  tax_code: z
+    .string()
+    .regex(/^\d{10}(\d{3})?$/, "Phải là 10 hoặc 13 số"),
+  tax_address: z.string().optional(),
+  office_address: z.string().optional(),
+  representative: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
+});
+
+type IndividualForm = z.infer<typeof individualSchema>;
+type BusinessForm = z.infer<typeof businessSchema>;
+
+const PAGE_SIZE = 20;
+
+// ─── CreateCustomerDialog ─────────────────────────────────────────────────────
+function CreateCustomerDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [activeType, setActiveType] = useState<CustomerType>("business");
+
+  const individualForm = useForm<IndividualForm>({
+    resolver: zodResolver(individualSchema),
+    defaultValues: { type: "individual", nationality: "Việt Nam" },
+  });
+
+  const businessForm = useForm<BusinessForm>({
+    resolver: zodResolver(businessSchema),
+    defaultValues: { type: "business" },
+  });
+
+  const mutation = useMutation({
+    mutationFn: (_body: IndividualForm | BusinessForm) =>
+      new Promise<void>((res) => setTimeout(res, 600)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.customers.all });
+      toast.success("Thêm khách hàng thành công");
+      handleClose();
+    },
+    onError: () => toast.error("Có lỗi xảy ra"),
+  });
+
+  function handleClose() {
+    onOpenChange(false);
+    individualForm.reset({ type: "individual", nationality: "Việt Nam" });
+    businessForm.reset({ type: "business" });
+  }
+
+  const iF = individualForm.formState;
+  const bF = businessForm.formState;
+
+  const fieldClass =
+    "w-full px-3 py-2 text-sm border border-input rounded-md outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 bg-background";
+  const errClass = "text-xs text-error mt-0.5";
+
   return (
-    <div>
-      <h1 className="text-2xl font-semibold text-text-primary">Khách hàng</h1>
-      <p className="mt-2 text-text-secondary">Danh sách khách hàng — đang phát triển</p>
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Thêm khách hàng mới</DialogTitle>
+        </DialogHeader>
+
+        {/* Type toggle */}
+        <div className="flex gap-2">
+          {(["business", "individual"] as CustomerType[]).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setActiveType(t)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium border cursor-pointer transition-colors ${
+                activeType === t
+                  ? "bg-primary text-white border-primary"
+                  : "bg-bg-page text-text-secondary border-border hover:border-primary hover:text-primary"
+              }`}
+            >
+              {t === "business" ? (
+                <Building2 className="h-4 w-4" />
+              ) : (
+                <User className="h-4 w-4" />
+              )}
+              {t === "business" ? "Doanh nghiệp" : "Cá nhân"}
+            </button>
+          ))}
+        </div>
+
+        <div className="max-h-[60vh] overflow-y-auto pr-1">
+          {/* ── Business form ── */}
+          {activeType === "business" && (
+            <form
+              id="customer-form"
+              onSubmit={businessForm.handleSubmit((d) => mutation.mutate(d))}
+              className="space-y-3 py-1"
+            >
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Tên doanh nghiệp <span className="text-error">*</span>
+                </Label>
+                <input
+                  {...businessForm.register("international_name")}
+                  placeholder="Công ty TNHH ABC"
+                  className={`${fieldClass} mt-1`}
+                />
+                {bF.errors.international_name && (
+                  <p className={errClass}>{bF.errors.international_name.message}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Tên viết tắt <span className="text-error">*</span>
+                  </Label>
+                  <input
+                    {...businessForm.register("short_name")}
+                    placeholder="ABC"
+                    onChange={(e) =>
+                      businessForm.setValue(
+                        "short_name",
+                        e.target.value.toUpperCase(),
+                        { shouldValidate: true },
+                      )
+                    }
+                    className={`${fieldClass} mt-1 uppercase`}
+                  />
+                  {bF.errors.short_name && (
+                    <p className={errClass}>{bF.errors.short_name.message}</p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Mã số thuế <span className="text-error">*</span>
+                  </Label>
+                  <input
+                    {...businessForm.register("tax_code")}
+                    placeholder="0123456789"
+                    className={`${fieldClass} mt-1`}
+                  />
+                  {bF.errors.tax_code && (
+                    <p className={errClass}>{bF.errors.tax_code.message}</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Người đại diện
+                </Label>
+                <input
+                  {...businessForm.register("representative")}
+                  placeholder="Nguyễn Văn A"
+                  className={`${fieldClass} mt-1`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Điện thoại
+                  </Label>
+                  <input
+                    {...businessForm.register("phone")}
+                    placeholder="028..."
+                    className={`${fieldClass} mt-1`}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Email
+                  </Label>
+                  <input
+                    {...businessForm.register("email")}
+                    placeholder="contact@..."
+                    className={`${fieldClass} mt-1`}
+                  />
+                  {bF.errors.email && (
+                    <p className={errClass}>{bF.errors.email.message}</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Địa chỉ đăng ký thuế
+                </Label>
+                <input
+                  {...businessForm.register("tax_address")}
+                  placeholder="123 Đường ABC, Quận 1..."
+                  className={`${fieldClass} mt-1`}
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Địa chỉ văn phòng
+                </Label>
+                <input
+                  {...businessForm.register("office_address")}
+                  placeholder="456 Đường XYZ, Quận 7..."
+                  className={`${fieldClass} mt-1`}
+                />
+              </div>
+            </form>
+          )}
+
+          {/* ── Individual form ── */}
+          {activeType === "individual" && (
+            <form
+              id="customer-form"
+              onSubmit={individualForm.handleSubmit((d) => mutation.mutate(d))}
+              className="space-y-3 py-1"
+            >
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Họ và tên <span className="text-error">*</span>
+                </Label>
+                <input
+                  {...individualForm.register("full_name")}
+                  placeholder="Nguyễn Văn A"
+                  className={`${fieldClass} mt-1`}
+                />
+                {iF.errors.full_name && (
+                  <p className={errClass}>{iF.errors.full_name.message}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Số điện thoại <span className="text-error">*</span>
+                  </Label>
+                  <input
+                    {...individualForm.register("phone")}
+                    placeholder="0901234567"
+                    className={`${fieldClass} mt-1`}
+                  />
+                  {iF.errors.phone && (
+                    <p className={errClass}>{iF.errors.phone.message}</p>
+                  )}
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Email
+                  </Label>
+                  <input
+                    {...individualForm.register("email")}
+                    placeholder="vana@gmail.com"
+                    className={`${fieldClass} mt-1`}
+                  />
+                  {iF.errors.email && (
+                    <p className={errClass}>{iF.errors.email.message}</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Số CCCD <span className="text-error">*</span>
+                </Label>
+                <input
+                  {...individualForm.register("cccd")}
+                  placeholder="012345678901"
+                  maxLength={12}
+                  className={`${fieldClass} mt-1`}
+                />
+                {iF.errors.cccd && (
+                  <p className={errClass}>{iF.errors.cccd.message}</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Ngày cấp CCCD
+                  </Label>
+                  <input
+                    type="date"
+                    {...individualForm.register("cccd_issue_date")}
+                    className={`${fieldClass} mt-1`}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Ngày sinh
+                  </Label>
+                  <input
+                    type="date"
+                    {...individualForm.register("date_of_birth")}
+                    className={`${fieldClass} mt-1`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Giới tính
+                  </Label>
+                  <select
+                    {...individualForm.register("gender")}
+                    className={`${fieldClass} mt-1`}
+                  >
+                    <option value="">--</option>
+                    <option value="male">Nam</option>
+                    <option value="female">Nữ</option>
+                    <option value="other">Khác</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs font-medium text-text-secondary">
+                    Quốc tịch
+                  </Label>
+                  <input
+                    {...individualForm.register("nationality")}
+                    className={`${fieldClass} mt-1`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Nơi cấp CCCD
+                </Label>
+                <input
+                  {...individualForm.register("cccd_issue_place")}
+                  placeholder="Cục Cảnh sát QLHC về TTXH"
+                  className={`${fieldClass} mt-1`}
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Quê quán
+                </Label>
+                <input
+                  {...individualForm.register("hometown")}
+                  placeholder="Hà Nội"
+                  className={`${fieldClass} mt-1`}
+                />
+              </div>
+
+              <div>
+                <Label className="text-xs font-medium text-text-secondary">
+                  Địa chỉ thường trú
+                </Label>
+                <input
+                  {...individualForm.register("permanent_address")}
+                  placeholder="123 Đường ABC, Quận 1..."
+                  className={`${fieldClass} mt-1`}
+                />
+              </div>
+            </form>
+          )}
+        </div>
+
+        <Separator />
+
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="cursor-pointer"
+            onClick={handleClose}
+          >
+            Hủy
+          </Button>
+          <Button
+            type="submit"
+            form="customer-form"
+            disabled={mutation.isPending}
+            className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
+          >
+            {mutation.isPending ? "Đang lưu..." : "Thêm khách hàng"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── CustomerListPage ─────────────────────────────────────────────────────────
+export default function CustomerListPage() {
+  const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const roles = user?.roles ?? [];
+  const canEdit = roles.some((r) => ["admin", "manager", "accountant"].includes(r));
+
+  const [createOpen, setCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [activeFilter, setActiveFilter] = useState("");
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: PAGE_SIZE,
+  });
+
+  const debouncedSearch = useDebounce(search, 400);
+  const page = pagination.pageIndex + 1;
+
+  const { data, isLoading } = useQuery({
+    queryKey: [
+      ...QUERY_KEYS.customers.all,
+      { search: debouncedSearch, typeFilter, activeFilter, page },
+    ],
+    queryFn: () => {
+      const filtered = MOCK_CUSTOMERS.filter((c) => {
+        const q = debouncedSearch.toLowerCase();
+        const matchSearch =
+          !q ||
+          c.display_name.toLowerCase().includes(q) ||
+          (c.phone ?? "").includes(q) ||
+          (c.email ?? "").toLowerCase().includes(q);
+        const matchType = !typeFilter || c.customer_type === typeFilter;
+        const matchActive =
+          activeFilter === ""
+            ? true
+            : activeFilter === "active"
+              ? c.is_active
+              : !c.is_active;
+        return matchSearch && matchType && matchActive;
+      });
+      const start = (page - 1) * PAGE_SIZE;
+      return Promise.resolve({
+        data: filtered.slice(start, start + PAGE_SIZE),
+        meta: {
+          total: filtered.length,
+          page,
+          page_size: PAGE_SIZE,
+          total_pages: Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
+        },
+      });
+    },
+  });
+
+  const customers = data?.data ?? [];
+  const meta = data?.meta;
+
+  const resetPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
+
+  // ─── Columns ──────────────────────────────────────────────────────────────
+  const columns: ColumnDef<CustomerListItem>[] = [
+    {
+      id: "name",
+      header: "Khách hàng",
+      cell: ({ row }) => {
+        const c = row.original;
+        const typeBadge = getCustomerTypeBadge(c.customer_type);
+        return (
+          <div className="flex items-center gap-2.5">
+            <div
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                c.customer_type === "business"
+                  ? "bg-[#FFF7ED]"
+                  : "bg-[#EEF2FF]"
+              }`}
+            >
+              {c.customer_type === "business" ? (
+                <Building2 className="h-4 w-4 text-[#C2410C]" />
+              ) : (
+                <User className="h-4 w-4 text-[#4F46E5]" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="font-medium text-text-primary truncate">
+                {c.display_name}
+              </p>
+              {c.short_name && (
+                <p className="text-[length:var(--fs-xs)] text-text-secondary">
+                  {c.short_name}
+                </p>
+              )}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      id: "type",
+      header: "Loại",
+      cell: ({ row }) => {
+        const { label, className } = getCustomerTypeBadge(
+          row.original.customer_type,
+        );
+        return (
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-xs)] font-medium ${className}`}
+          >
+            {label}
+          </span>
+        );
+      },
+    },
+    {
+      id: "phone",
+      header: "Điện thoại",
+      cell: ({ row }) => (
+        <span className="text-text-secondary text-[length:var(--fs-sm)]">
+          {row.original.phone ?? "—"}
+        </span>
+      ),
+    },
+    {
+      id: "email",
+      header: "Email",
+      cell: ({ row }) => (
+        <span className="text-text-secondary text-[length:var(--fs-sm)]">
+          {row.original.email ?? "—"}
+        </span>
+      ),
+    },
+    {
+      id: "status",
+      header: "Trạng thái",
+      cell: ({ row }) => {
+        const { label, className } = getCustomerActiveBadge(
+          row.original.is_active,
+        );
+        return (
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[length:var(--fs-xs)] font-medium ${className}`}
+          >
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${row.original.is_active ? "bg-success" : "bg-text-secondary"}`}
+            />
+            {label}
+          </span>
+        );
+      },
+    },
+    {
+      id: "actions",
+      header: "",
+      cell: ({ row }) => (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="cursor-pointer text-primary hover:bg-primary-light hover:text-primary"
+          onClick={() => navigate(`/customers/${row.original.id}`)}
+        >
+          <Eye className="h-4 w-4 mr-1" />
+          Xem
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-[var(--sp-section)]">
+      <PageHeader
+        title="Khách hàng"
+        subtitle="Danh sách khách hàng của công ty"
+        actions={
+          canEdit ? (
+            <Button
+              onClick={() => setCreateOpen(true)}
+              className="cursor-pointer bg-primary text-white hover:bg-primary-dark gap-1.5"
+            >
+              <Plus size={16} />
+              Thêm khách hàng
+            </Button>
+          ) : undefined
+        }
+      />
+
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
+          <Input
+            placeholder="Tìm tên, SĐT, email..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); resetPage(); }}
+            className="pl-9 border-border"
+          />
+        </div>
+
+        <Select
+          value={typeFilter || "_all"}
+          onValueChange={(v) => { setTypeFilter(v === "_all" ? "" : v); resetPage(); }}
+        >
+          <SelectTrigger className="w-full sm:w-44 border-border cursor-pointer">
+            <SelectValue placeholder="Tất cả loại" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">Tất cả loại</SelectItem>
+            {CUSTOMER_TYPE_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={activeFilter || "_all"}
+          onValueChange={(v) => { setActiveFilter(v === "_all" ? "" : v); resetPage(); }}
+        >
+          <SelectTrigger className="w-full sm:w-44 border-border cursor-pointer">
+            <SelectValue placeholder="Tất cả trạng thái" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="_all">Tất cả trạng thái</SelectItem>
+            <SelectItem value="active">Đang hoạt động</SelectItem>
+            <SelectItem value="inactive">Đã vô hiệu</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {meta && (
+          <p className="ml-auto text-[length:var(--fs-base)] text-text-secondary">
+            Tổng{" "}
+            <span className="font-medium text-text-primary">{meta.total}</span>{" "}
+            khách hàng
+          </p>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden sm:block">
+        <DataTable
+          columns={columns}
+          data={customers}
+          loading={isLoading}
+          pagination={pagination}
+          pageCount={meta?.total_pages ?? 1}
+          onPaginationChange={setPagination}
+          emptyTitle="Không tìm thấy khách hàng nào"
+          emptyDescription="Thử thay đổi bộ lọc hoặc thêm khách hàng mới"
+          emptyAction={
+            canEdit ? (
+              <Button
+                size="sm"
+                className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Thêm khách hàng
+              </Button>
+            ) : undefined
+          }
+        />
+      </div>
+
+      {/* Mobile card list */}
+      <div className="flex flex-col gap-3 sm:hidden">
+        {isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-[100px] animate-pulse rounded-xl bg-[#E2E8F0]"
+            />
+          ))
+        ) : customers.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-bg-card py-16">
+            <p className="text-[length:var(--fs-base)] text-text-secondary">
+              Không tìm thấy khách hàng nào
+            </p>
+            {canEdit && (
+              <Button
+                size="sm"
+                className="cursor-pointer bg-primary text-white hover:bg-primary-dark mt-1"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Thêm khách hàng
+              </Button>
+            )}
+          </div>
+        ) : (
+          customers.map((c) => {
+            const typeBadge = getCustomerTypeBadge(c.customer_type);
+            const activeBadge = getCustomerActiveBadge(c.is_active);
+            return (
+              <div
+                key={c.id}
+                onClick={() => navigate(`/customers/${c.id}`)}
+                className="cursor-pointer rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-2.5 hover:border-primary hover:shadow-sm transition-all active:bg-bg-page"
+              >
+                {/* Row 1: avatar + name + badges */}
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                      c.customer_type === "business"
+                        ? "bg-[#FFF7ED]"
+                        : "bg-[#EEF2FF]"
+                    }`}
+                  >
+                    {c.customer_type === "business" ? (
+                      <Building2 className="h-5 w-5 text-[#C2410C]" />
+                    ) : (
+                      <User className="h-5 w-5 text-[#4F46E5]" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-[length:var(--fs-base)] text-text-primary truncate">
+                      {c.display_name}
+                    </p>
+                    {c.short_name && (
+                      <p className="text-[length:var(--fs-xs)] text-text-secondary">
+                        {c.short_name}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${typeBadge.className}`}
+                    >
+                      {typeBadge.label}
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${activeBadge.className}`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${c.is_active ? "bg-success" : "bg-text-secondary"}`}
+                      />
+                      {activeBadge.label}
+                    </span>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Row 2: phone + email */}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[length:var(--fs-sm)] text-text-secondary">
+                  {c.phone && <span>{c.phone}</span>}
+                  {c.email && <span className="truncate">{c.email}</span>}
+                  {!c.phone && !c.email && (
+                    <span className="text-text-disabled">Chưa có liên hệ</span>
+                  )}
+                </div>
+              </div>
+            );
+          })
+        )}
+
+        {/* Pagination mobile */}
+        {!isLoading && meta && meta.total_pages > 1 && (
+          <div className="flex items-center justify-between px-1 pt-1">
+            <p className="text-[length:var(--fs-sm)] text-text-secondary">
+              Trang {meta.page}/{meta.total_pages} · {meta.total} KH
+            </p>
+            <div className="flex gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 border-border cursor-pointer"
+                disabled={pagination.pageIndex === 0}
+                onClick={() =>
+                  setPagination((p) => ({ ...p, pageIndex: p.pageIndex - 1 }))
+                }
+              >
+                Trước
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-3 border-border cursor-pointer"
+                disabled={pagination.pageIndex + 1 >= meta.total_pages}
+                onClick={() =>
+                  setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))
+                }
+              >
+                Tiếp
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <CreateCustomerDialog open={createOpen} onOpenChange={setCreateOpen} />
     </div>
   );
 }

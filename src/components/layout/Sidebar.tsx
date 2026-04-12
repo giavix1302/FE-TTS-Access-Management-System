@@ -7,6 +7,7 @@ import {
   Bell,
   UserCog,
   Settings,
+  BookOpen,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -49,6 +50,13 @@ const NAV_ADMIN: NavItem[] = [
     icon: UserCog,
     to: "/users",
     guard: (_roles, permissions) => permissions.includes("users:view"),
+  },
+  {
+    label: "Danh mục dịch vụ",
+    icon: BookOpen,
+    to: "/service-catalog",
+    guard: (roles) =>
+      roles.some((r) => ["admin", "manager", "accountant"].includes(r)),
   },
   {
     label: "Cài đặt công ty",

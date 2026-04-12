@@ -20,9 +20,11 @@ const ROUTE_TITLES: { pattern: string; title: string }[] = [
   { pattern: "/contracts", title: "Hợp đồng" },
   { pattern: "/contracts/:id", title: "Chi tiết hợp đồng" },
   { pattern: "/customers", title: "Khách hàng" },
+  { pattern: "/customers/:id", title: "Chi tiết khách hàng" },
   { pattern: "/users", title: "Người dùng & Phân quyền" },
   { pattern: "/notifications", title: "Thông báo" },
   { pattern: "/settings", title: "Cài đặt công ty" },
+  { pattern: "/service-catalog", title: "Danh mục dịch vụ" },
 ];
 
 function usePageTitle(): string {

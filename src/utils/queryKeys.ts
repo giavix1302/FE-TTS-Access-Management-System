@@ -15,6 +15,7 @@ export const QUERY_KEYS = {
   customers: {
     all: ["customers"] as const,
     detail: (id: number) => ["customers", id] as const,
+    contracts: (id: number) => ["customers", id, "contracts"] as const,
   },
   users: {
     all: ["users"] as const,
@@ -23,4 +24,7 @@ export const QUERY_KEYS = {
     all: ["notifications"] as const,
   },
   companySettings: ["company-settings"] as const,
+  serviceCatalog: {
+    all: ["service-catalog"] as const,
+  },
 };

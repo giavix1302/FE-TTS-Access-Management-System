@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Pencil, Trash2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -221,12 +221,22 @@ const lineItemSchema = z.object({
 
 type LineItemForm = z.infer<typeof lineItemSchema>;
 
-// Mock service catalog — replace with real API when available
-const MOCK_SERVICES = [
-  { id: 1, name: "Cho thuê xe nâng người", unit: "ngày" },
-  { id: 2, name: "Phí vận chuyển", unit: "chuyến" },
-  { id: 3, name: "Phí lắp đặt", unit: "lần" },
-];
+interface ServiceCatalogItem {
+  id: number
+  name: string
+  unit: string
+  default_price: number
+  is_active: boolean
+}
+
+// Mock service catalog — thay bằng real API khi BE sẵn sàng
+const MOCK_SERVICE_CATALOG: ServiceCatalogItem[] = [
+  { id: 1, name: "Cho thuê xe nâng người", unit: "ngày", default_price: 1500000, is_active: true },
+  { id: 2, name: "Phí vận chuyển đi", unit: "chuyến", default_price: 2000000, is_active: true },
+  { id: 3, name: "Cho thuê người lái", unit: "ca", default_price: 500000, is_active: false },
+  { id: 4, name: "Phí vận chuyển về", unit: "chuyến", default_price: 1800000, is_active: true },
+  { id: 5, name: "Ca trực kỹ thuật", unit: "ca", default_price: 800000, is_active: true },
+]
 
 function LineItemDialog({
   open,
@@ -244,6 +254,14 @@ function LineItemDialog({
   const queryClient = useQueryClient();
   const isEdit = !!editItem;
 
+  // Query service catalog — chỉ lấy active để chọn
+  const { data: allServices = [] } = useQuery<ServiceCatalogItem[]>({
+    queryKey: QUERY_KEYS.serviceCatalog.all,
+    queryFn: () => Promise.resolve(MOCK_SERVICE_CATALOG),
+    staleTime: 5 * 60 * 1000,
+  })
+  const activeServices = allServices.filter((s) => s.is_active)
+
   const maxOrder =
     contract.line_items.length > 0
       ? Math.max(...contract.line_items.map((li) => li.sort_order)) + 1
@@ -253,6 +271,7 @@ function LineItemDialog({
     register,
     handleSubmit,
     control,
+    setValue,
     formState: { errors },
   } = useForm<LineItemForm>({
     resolver: zodResolver(lineItemSchema),
@@ -304,17 +323,31 @@ function LineItemDialog({
               render={({ field }) => (
                 <Select
                   value={field.value?.toString()}
-                  onValueChange={(v) => field.onChange(Number(v))}
+                  onValueChange={(v) => {
+                    const id = Number(v)
+                    field.onChange(id)
+                    // auto-fill default_price khi chọn dịch vụ (chỉ khi tạo mới)
+                    if (!isEdit) {
+                      const svc = activeServices.find((s) => s.id === id)
+                      if (svc) setValue("unit_price", svc.default_price)
+                    }
+                  }}
                 >
                   <SelectTrigger className="cursor-pointer">
                     <SelectValue placeholder="Chọn dịch vụ" />
                   </SelectTrigger>
                   <SelectContent>
-                    {MOCK_SERVICES.map((s) => (
+                    {activeServices.map((s) => (
                       <SelectItem key={s.id} value={s.id.toString()}>
                         {s.name}
+                        <span className="ml-1 text-text-secondary">· {s.unit}</span>
                       </SelectItem>
                     ))}
+                    {activeServices.length === 0 && (
+                      <div className="py-3 text-center text-xs text-text-secondary">
+                        Chưa có dịch vụ nào
+                      </div>
+                    )}
                   </SelectContent>
                 </Select>
               )}

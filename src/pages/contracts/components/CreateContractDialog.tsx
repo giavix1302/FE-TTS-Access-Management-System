@@ -114,14 +114,13 @@ const MOCK_CUSTOMERS: CustomerOption[] = [
   },
 ];
 
-// ─── Mock services ────────────────────────────────────────────────────────────
-const MOCK_SERVICES: ServiceOption[] = [
-  { id: 1, name: "Cho thuê xe cẩu 25 tấn", unit: "ca", default_price: 4500000 },
-  { id: 2, name: "Cho thuê xe cẩu 50 tấn", unit: "ca", default_price: 7000000 },
-  { id: 3, name: "Cho thuê xe nâng 3 tấn", unit: "ca", default_price: 2500000 },
-  { id: 4, name: "Cho thuê xe lu bánh thép", unit: "ca", default_price: 3200000 },
-  { id: 5, name: "Vận chuyển hàng hóa", unit: "chuyến", default_price: 1800000 },
-  { id: 6, name: "Phí điều hành thiết bị", unit: "ngày", default_price: 500000 },
+// ─── Mock services — khớp với ServiceCatalogPage ─────────────────────────────
+const MOCK_SERVICES: (ServiceOption & { is_active: boolean })[] = [
+  { id: 1, name: "Cho thuê xe nâng người", unit: "ngày", default_price: 1500000, is_active: true },
+  { id: 2, name: "Phí vận chuyển đi", unit: "chuyến", default_price: 2000000, is_active: true },
+  { id: 3, name: "Cho thuê người lái", unit: "ca", default_price: 500000, is_active: false },
+  { id: 4, name: "Phí vận chuyển về", unit: "chuyến", default_price: 1800000, is_active: true },
+  { id: 5, name: "Ca trực kỹ thuật", unit: "ca", default_price: 800000, is_active: true },
 ];
 
 // ─── Mock vehicles ────────────────────────────────────────────────────────────
@@ -770,6 +769,14 @@ export function CreateContractDialog({
   const [lineItems, setLineItems] = useState<LineItemDraft[]>([]);
   const [vehicles, setVehicles] = useState<VehicleDraft[]>([]);
 
+  // Query service catalog — chỉ dùng active services cho dropdown
+  const { data: allServices = [] } = useQuery<ServiceOption[]>({
+    queryKey: QUERY_KEYS.serviceCatalog.all,
+    queryFn: () => Promise.resolve(MOCK_SERVICES.filter((s) => s.is_active)),
+    staleTime: 5 * 60 * 1000,
+  });
+  const activeServices = allServices;
+
   const hasPreview = !!file || !!mockUrl;
 
   const {
@@ -1015,7 +1022,7 @@ export function CreateContractDialog({
                           <select
                             value={item.service_id ?? ""}
                             onChange={(e) => {
-                              const svc = MOCK_SERVICES.find(
+                              const svc = activeServices.find(
                                 (s) => s.id === Number(e.target.value),
                               );
                               setLineItems((prev) =>
@@ -1036,9 +1043,9 @@ export function CreateContractDialog({
                             className="flex-1 text-sm border border-input rounded-md px-2 py-1.5 outline-none focus:border-primary bg-background"
                           >
                             <option value="">-- Chọn dịch vụ --</option>
-                            {MOCK_SERVICES.map((s) => (
+                            {activeServices.map((s) => (
                               <option key={s.id} value={s.id}>
-                                {s.name}
+                                {s.name} · {s.unit}
                               </option>
                             ))}
                           </select>

@@ -10,9 +10,11 @@ import VehicleDetailPage from "@/pages/vehicles/VehicleDetailPage";
 import ContractListPage from "@/pages/contracts/ContractListPage";
 import ContractDetailPage from "@/pages/contracts/ContractDetailPage";
 import CustomerListPage from "@/pages/customers/CustomerListPage";
+import CustomerDetailPage from "@/pages/customers/CustomerDetailPage";
 import UserListPage from "@/pages/users/UserListPage";
 import NotificationsPage from "@/pages/notifications/NotificationsPage";
 import CompanySettingsPage from "@/pages/settings/CompanySettingsPage";
+import ServiceCatalogPage from "@/pages/service-catalog/ServiceCatalogPage";
 
 export const router = createBrowserRouter([
   {
@@ -33,9 +35,11 @@ export const router = createBrowserRouter([
       { path: "contracts", element: <ContractListPage /> },
       { path: "contracts/:id", element: <ContractDetailPage /> },
       { path: "customers", element: <CustomerListPage /> },
+      { path: "customers/:id", element: <CustomerDetailPage /> },
       { path: "users", element: <UserListPage /> },
       { path: "notifications", element: <NotificationsPage /> },
       { path: "settings", element: <CompanySettingsPage /> },
+      { path: "service-catalog", element: <ServiceCatalogPage /> },
     ],
   },
 ]);

@@ -145,19 +145,11 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
               !collapsed && "mr-[10px]",
             )}
           />
-          {item.to === "/notifications" && unreadCount > 0 && collapsed && (
-            <span className="absolute -right-1 -top-1 h-[8px] w-[8px] rounded-full bg-[#E74C3C]" />
-          )}
         </span>
 
         {!collapsed && (
           <>
             <span className="flex-1 truncate">{item.label}</span>
-            {item.to === "/notifications" && unreadCount > 0 && (
-              <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[length:var(--fs-body)] font-semibold text-white">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </span>
-            )}
           </>
         )}
       </Link>
@@ -173,11 +165,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           className="flex items-center gap-2 rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
         >
           {item.label}
-          {item.to === "/notifications" && unreadCount > 0 && (
-            <span className="flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[length:var(--fs-xs)] font-semibold text-white">
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          )}
         </TooltipContent>
       </Tooltip>
     );

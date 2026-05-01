@@ -1,5 +1,5 @@
 import { useLocation, useNavigate, matchPath } from "react-router-dom";
-import { Bell, ChevronDown, KeyRound, LogOut, Menu } from "lucide-react";
+import { Bell, ChevronDown, KeyRound, LogOut, Menu, UserCircle } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -25,6 +25,8 @@ const ROUTE_TITLES: { pattern: string; title: string }[] = [
   { pattern: "/notifications", title: "Thông báo" },
   { pattern: "/settings", title: "Cài đặt công ty" },
   { pattern: "/service-catalog", title: "Danh mục dịch vụ" },
+  { pattern: "/roles", title: "Phân quyền vai trò" },
+  { pattern: "/profile", title: "Hồ sơ của tôi" },
 ];
 
 function usePageTitle(): string {
@@ -116,9 +118,14 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem
               className="cursor-pointer gap-2"
-              onClick={() => {
-                // TODO: mở modal đổi mật khẩu
-              }}
+              onClick={() => navigate("/profile")}
+            >
+              <UserCircle size={15} className="text-[#718096]" />
+              Hồ sơ của tôi
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer gap-2"
+              onClick={() => navigate("/profile")}
             >
               <KeyRound size={15} className="text-[#718096]" />
               Đổi mật khẩu

@@ -39,6 +39,14 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { FileUpload } from "@/components/shared/FileUpload";
 import { DatePicker } from "@/components/shared/DatePicker";
+import {
+  MobileSheetDialog,
+  MobileSheetContent,
+  MobileSheetFullscreenHeader,
+  MobileSheetBody,
+  MobileSheetFooter,
+} from "@/components/shared/MobileSheet";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { createContract } from "@/api/contracts.api";
 import { uploadDocument } from "@/api/documents.api";
 import { getCustomers } from "@/api/customers.api";
@@ -800,6 +808,17 @@ export function CreateContractDialog({
     setShowCreateCustomer(false);
   }
 
+  const isDesktop = useMediaQuery("(min-width: 640px)");
+  const [mobileTab, setMobileTab] = useState<"document" | "form">("document");
+
+  useEffect(() => {
+    if (file || mockUrl) setMobileTab("form");
+  }, [file, mockUrl]);
+
+  useEffect(() => {
+    if (!open) setMobileTab("document");
+  }, [open]);
+
   const mutation = useMutation({
     mutationFn: async (data: ContractForm) => {
       // Step 1: upload file if any
@@ -840,45 +859,12 @@ export function CreateContractDialog({
     onError: () => toast.error("Tạo hợp đồng thất bại"),
   });
 
-  return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent
-        className="p-0 gap-0 overflow-hidden max-h-[90vh]"
-        style={{ width: "80vw", maxWidth: "80vw" }}
-      >
-        <DialogHeader className=" pb-4 border-b border-border shrink-0">
-          <DialogTitle className="text-base font-semibold">
-            Tạo hợp đồng mới
-          </DialogTitle>
-        </DialogHeader>
-
-        <div
-          className="flex flex-row overflow-hidden"
-          style={{ height: "calc(90vh - 130px)" }}
-        >
-          {/* ── Left: Form — width cố định 420px, ẩn khi chưa có file ── */}
-          <div
-            className="relative flex flex-col border-r border-border overflow-y-auto shrink-0 transition-all duration-300"
-            style={{
-              width: hasPreview ? "420px" : "0px",
-              overflow: hasPreview ? undefined : "hidden",
-            }}
-          >
-            {showCreateCustomer && (
-              <CreateCustomerModal
-                onClose={() => setShowCreateCustomer(false)}
-                onCreated={(id) => {
-                  setValue("customer_id", id);
-                  setShowCreateCustomer(false);
-                }}
-              />
-            )}
-            {/* Form fields */}
-            <form
-              id="create-contract-form"
-              onSubmit={handleSubmit((d) => mutation.mutate(d))}
-              className="flex flex-col gap-4 px-5 py-4 flex-1"
-            >
+  const formContent = (
+    <form
+      id="create-contract-form"
+      onSubmit={handleSubmit((d) => mutation.mutate(d))}
+      className="flex flex-col gap-4 px-5 py-4 flex-1"
+    >
               {/* AI extract button — disabled */}
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium uppercase tracking-wide">
@@ -1273,26 +1259,155 @@ export function CreateContractDialog({
                   </div>
                 )}
               </div>
-            </form>
+    </form>
+  );
+
+  const footerButtons = (
+    <>
+      <Button type="button" variant="outline" onClick={handleClose} className="cursor-pointer">
+        Hủy
+      </Button>
+      <Button type="submit" form="create-contract-form" disabled={mutation.isPending} className="cursor-pointer">
+        {mutation.isPending ? "Đang tạo..." : "Tạo hợp đồng"}
+      </Button>
+    </>
+  );
+
+  const uploadPanel = (
+    <div className="flex flex-col items-center justify-center h-full gap-6">
+      <div className="text-center">
+        <p className="text-lg font-semibold text-text-primary mb-1">
+          Bắt đầu bằng cách chọn file hợp đồng
+        </p>
+        <p className="text-sm text-text-secondary">
+          Sau khi chọn file, form nhập liệu sẽ hiện ra bên trái
+        </p>
+      </div>
+      <div className="w-full max-w-md space-y-2">
+        <FileUpload value={file} onChange={setFile} label="Kéo thả hoặc nhấp để chọn file hợp đồng" />
+        <button
+          type="button"
+          onClick={() => setMockUrl(MOCK_DOC_URL)}
+          className="w-full text-xs text-amber-600 border border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 rounded-md py-1.5 transition-colors cursor-pointer"
+        >
+          [Dev] Dùng file mock để xem preview
+        </button>
+      </div>
+      <p className="text-xs text-text-secondary">PDF, DOCX, XLSX, JPEG, PNG — tối đa 20MB</p>
+    </div>
+  );
+
+  // ── Mobile layout ──────────────────────────────────────────────────────────
+  if (!isDesktop) {
+    return (
+      <MobileSheetDialog open={open} onOpenChange={handleClose}>
+        <MobileSheetContent mobileVariant="fullscreen" title="Tạo hợp đồng mới">
+          <MobileSheetFullscreenHeader title="Tạo hợp đồng mới" />
+
+          {/* Tab bar */}
+          <div className="flex border-b border-border shrink-0">
+            <button
+              type="button"
+              onClick={() => setMobileTab("document")}
+              className={cn(
+                "flex-1 py-2.5 text-sm font-medium transition-colors cursor-pointer",
+                mobileTab === "document"
+                  ? "text-primary border-b-2 border-primary"
+                  : "text-text-secondary",
+              )}
+            >
+              Tài liệu
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileTab("form")}
+              className={cn(
+                "flex-1 py-2.5 text-sm font-medium transition-colors",
+                mobileTab === "form"
+                  ? "text-primary border-b-2 border-primary cursor-pointer"
+                  : "text-text-disabled cursor-not-allowed",
+              )}
+              disabled={!file && !mockUrl}
+            >
+              Thông tin
+            </button>
+          </div>
+
+          <MobileSheetBody>
+            {mobileTab === "document" ? (
+              <div className="flex flex-col gap-4 p-4">
+                <FileUpload value={file} onChange={setFile} label="Kéo thả hoặc nhấp để chọn file hợp đồng" />
+                {!file && (
+                  <button
+                    type="button"
+                    onClick={() => setMockUrl(MOCK_DOC_URL)}
+                    className="w-full text-xs text-amber-600 border border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 rounded-md py-1.5 transition-colors cursor-pointer"
+                  >
+                    [Dev] Dùng file mock để xem preview
+                  </button>
+                )}
+                {(file || mockUrl) && <FilePreviewPanel file={file} mockUrl={mockUrl} />}
+              </div>
+            ) : (
+              <>
+                {showCreateCustomer && (
+                  <CreateCustomerModal
+                    onClose={() => setShowCreateCustomer(false)}
+                    onCreated={(id) => { setValue("customer_id", id); setShowCreateCustomer(false); }}
+                  />
+                )}
+                {formContent}
+              </>
+            )}
+          </MobileSheetBody>
+
+          <MobileSheetFooter>
+            {footerButtons}
+          </MobileSheetFooter>
+        </MobileSheetContent>
+      </MobileSheetDialog>
+    );
+  }
+
+  // ── Desktop layout ─────────────────────────────────────────────────────────
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent
+        className="p-0 gap-0 overflow-hidden max-h-[90vh]"
+        style={{ width: "80vw", maxWidth: "80vw" }}
+      >
+        <DialogHeader className=" pb-4 border-b border-border shrink-0">
+          <DialogTitle className="text-base font-semibold">
+            Tạo hợp đồng mới
+          </DialogTitle>
+        </DialogHeader>
+
+        <div
+          className="flex flex-row overflow-hidden"
+          style={{ height: "calc(90vh - 130px)" }}
+        >
+          {/* ── Left: Form — width cố định 420px, ẩn khi chưa có file ── */}
+          <div
+            className="relative flex flex-col border-r border-border overflow-y-auto shrink-0 transition-all duration-300"
+            style={{
+              width: hasPreview ? "420px" : "0px",
+              overflow: hasPreview ? undefined : "hidden",
+            }}
+          >
+            {showCreateCustomer && (
+              <CreateCustomerModal
+                onClose={() => setShowCreateCustomer(false)}
+                onCreated={(id) => {
+                  setValue("customer_id", id);
+                  setShowCreateCustomer(false);
+                }}
+              />
+            )}
+            {formContent}
 
             {/* Footer buttons */}
             <div className="px-5 py-4 border-t border-border flex justify-end gap-2 shrink-0">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleClose}
-                className="cursor-pointer"
-              >
-                Hủy
-              </Button>
-              <Button
-                type="submit"
-                form="create-contract-form"
-                disabled={mutation.isPending}
-                className="cursor-pointer"
-              >
-                {mutation.isPending ? "Đang tạo..." : "Tạo hợp đồng"}
-              </Button>
+              {footerButtons}
             </div>
           </div>
 
@@ -1303,39 +1418,7 @@ export function CreateContractDialog({
               hasPreview ? "pt-4 pl-4" : "p-8",
             )}
           >
-            {!hasPreview ? (
-              // Chưa có file: hiển thị upload zone to ở giữa
-              <div className="flex flex-col items-center justify-center h-full gap-6">
-                <div className="text-center">
-                  <p className="text-lg font-semibold text-text-primary mb-1">
-                    Bắt đầu bằng cách chọn file hợp đồng
-                  </p>
-                  <p className="text-sm text-text-secondary">
-                    Sau khi chọn file, form nhập liệu sẽ hiện ra bên trái
-                  </p>
-                </div>
-                <div className="w-full max-w-md space-y-2">
-                  <FileUpload
-                    value={file}
-                    onChange={setFile}
-                    label="Kéo thả hoặc nhấp để chọn file hợp đồng"
-                  />
-                  {/* Mock button — chỉ hiện khi chưa có file */}
-                  <button
-                    type="button"
-                    onClick={() => setMockUrl(MOCK_DOC_URL)}
-                    className="w-full text-xs text-amber-600 border border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 rounded-md py-1.5 transition-colors cursor-pointer"
-                  >
-                    [Dev] Dùng file mock để xem preview
-                  </button>
-                </div>
-                <p className="text-xs text-text-secondary">
-                  PDF, DOCX, XLSX, JPEG, PNG — tối đa 20MB
-                </p>
-              </div>
-            ) : (
-              <FilePreviewPanel file={file} mockUrl={mockUrl} />
-            )}
+            {!hasPreview ? uploadPanel : <FilePreviewPanel file={file} mockUrl={mockUrl} />}
           </div>
         </div>
       </DialogContent>

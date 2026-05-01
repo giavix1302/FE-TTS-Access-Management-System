@@ -12,12 +12,13 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
+  MobileSheetDialog,
+  MobileSheetContent,
+  MobileSheetHeader,
+  MobileSheetTitle,
+  MobileSheetBody,
+  MobileSheetFooter,
+} from '@/components/shared/MobileSheet'
 import {
   Select,
   SelectContent,
@@ -146,280 +147,236 @@ function IncidentDialog({
   const handleEdit = editForm.handleSubmit((d) => mutation.mutate(d))
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{isEdit ? 'Chỉnh sửa sự cố' : 'Ghi nhận sự cố'}</DialogTitle>
-        </DialogHeader>
+    <MobileSheetDialog open={open} onOpenChange={onOpenChange}>
+      <MobileSheetContent mobileVariant="sheet" className="sm:max-w-lg">
+        <MobileSheetHeader>
+          <MobileSheetTitle>{isEdit ? 'Chỉnh sửa sự cố' : 'Ghi nhận sự cố'}</MobileSheetTitle>
+        </MobileSheetHeader>
 
         {isEdit ? (
-          // ─── Edit form ─────────────────────────────────────────────────────
-          <form onSubmit={handleEdit} className="space-y-4">
-            {/* Read-only fields */}
-            <div className="grid grid-cols-2 gap-4 bg-gray-50 rounded-md p-3 text-sm">
-              <div>
-                <p className="text-xs text-text-secondary">Xe</p>
-                <p className="font-medium text-text-primary">
-                  {editItem.contract_vehicle.vehicle.model} · {editItem.contract_vehicle.vehicle.serial_number}
-                </p>
+          <form onSubmit={handleEdit}>
+            <MobileSheetBody className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 bg-gray-50 rounded-md p-3 text-sm">
+                <div>
+                  <p className="text-xs text-text-secondary">Xe</p>
+                  <p className="font-medium text-text-primary">
+                    {editItem.contract_vehicle.vehicle.model} · {editItem.contract_vehicle.vehicle.serial_number}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-text-secondary">Ngày sự cố</p>
+                  <p className="font-medium text-text-primary">{formatDate(editItem.incident_date)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-text-secondary">Loại sự cố</p>
+                  <p className="font-medium text-text-primary">{INCIDENT_TYPE_LABELS[editItem.incident_type]}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-text-secondary">Ngày sự cố</p>
-                <p className="font-medium text-text-primary">{formatDate(editItem.incident_date)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-text-secondary">Loại sự cố</p>
-                <p className="font-medium text-text-primary">{INCIDENT_TYPE_LABELS[editItem.incident_type]}</p>
-              </div>
-            </div>
-            <Separator />
-
-            <div className="space-y-1">
-              <Label>Mô tả <span className="text-error">*</span></Label>
-              <Textarea rows={3} maxLength={1000} {...editForm.register('description')} />
-              {editForm.formState.errors.description && (
-                <p className="text-xs text-error">{editForm.formState.errors.description.message}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+              <Separator />
               <div className="space-y-1">
-                <Label>Số ngày dừng hoạt động</Label>
-                <Input type="number" step="0.1" min={0} {...editForm.register('downtime_days', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
-              </div>
-              <div className="space-y-1">
-                <Label>Chi phí (₫)</Label>
-                <Input type="number" min={0} {...editForm.register('cost_amount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label>Bên chịu chi phí</Label>
-              <Controller
-                control={editForm.control}
-                name="charged_to"
-                render={({ field }) => (
-                  <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
-                    <SelectTrigger className="cursor-pointer">
-                      <SelectValue placeholder="Không xác định" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Không xác định</SelectItem>
-                      {CHARGED_TO_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <Label>Mô tả <span className="text-error">*</span></Label>
+                <Textarea rows={3} maxLength={1000} {...editForm.register('description')} />
+                {editForm.formState.errors.description && (
+                  <p className="text-xs text-error">{editForm.formState.errors.description.message}</p>
                 )}
-              />
-            </div>
-
-            {editItem.incident_type === 'replacement' && (
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Số ngày dừng hoạt động</Label>
+                  <Input type="number" step="0.1" min={0} {...editForm.register('downtime_days', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Chi phí (₫)</Label>
+                  <Input type="number" min={0} {...editForm.register('cost_amount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                </div>
+              </div>
               <div className="space-y-1">
-                <Label>Xe thay thế</Label>
+                <Label>Bên chịu chi phí</Label>
                 <Controller
                   control={editForm.control}
-                  name="replacement_contract_vehicle_id"
+                  name="charged_to"
                   render={({ field }) => (
-                    <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : Number(v))}>
-                      <SelectTrigger className="cursor-pointer">
-                        <SelectValue placeholder="Chọn xe thay thế" />
-                      </SelectTrigger>
+                    <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
+                      <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Không xác định" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">Không có</SelectItem>
-                        {contractVehicles
-                          .filter((cv) => cv.id !== editItem.contract_vehicle.id)
-                          .map((cv) => (
-                            <SelectItem key={cv.id} value={cv.id.toString()}>
-                              {cv.vehicle.model} · {cv.vehicle.serial_number}
-                            </SelectItem>
-                          ))
-                        }
+                        <SelectItem value="none">Không xác định</SelectItem>
+                        {CHARGED_TO_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   )}
                 />
-                {editForm.formState.errors.replacement_contract_vehicle_id && (
-                  <p className="text-xs text-error">{editForm.formState.errors.replacement_contract_vehicle_id.message}</p>
-                )}
               </div>
-            )}
-
-            <div className="space-y-1">
-              <Label>Thời điểm xử lý xong</Label>
-              <Controller
-                control={editForm.control}
-                name="resolved_at"
-                render={({ field }) => (
-                  <DatePicker value={field.value ?? undefined} onChange={field.onChange} placeholder="Chưa xử lý" />
-                )}
-              />
-            </div>
-
-            <DialogFooter>
+              {editItem.incident_type === 'replacement' && (
+                <div className="space-y-1">
+                  <Label>Xe thay thế</Label>
+                  <Controller
+                    control={editForm.control}
+                    name="replacement_contract_vehicle_id"
+                    render={({ field }) => (
+                      <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : Number(v))}>
+                        <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe thay thế" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Không có</SelectItem>
+                          {contractVehicles.filter((cv) => cv.id !== editItem.contract_vehicle.id).map((cv) => (
+                            <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serial_number}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {editForm.formState.errors.replacement_contract_vehicle_id && (
+                    <p className="text-xs text-error">{editForm.formState.errors.replacement_contract_vehicle_id.message}</p>
+                  )}
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label>Thời điểm xử lý xong</Label>
+                <Controller
+                  control={editForm.control}
+                  name="resolved_at"
+                  render={({ field }) => (
+                    <DatePicker value={field.value ?? undefined} onChange={field.onChange} placeholder="Chưa xử lý" />
+                  )}
+                />
+              </div>
+            </MobileSheetBody>
+            <MobileSheetFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="cursor-pointer">Hủy</Button>
               <Button type="submit" disabled={mutation.isPending} className="cursor-pointer">
                 {mutation.isPending ? 'Đang lưu...' : 'Lưu'}
               </Button>
-            </DialogFooter>
+            </MobileSheetFooter>
           </form>
         ) : (
-          // ─── Create form ───────────────────────────────────────────────────
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div className="space-y-1">
-              <Label>Xe <span className="text-error">*</span></Label>
-              <Controller
-                control={createForm.control}
-                name="contract_vehicle_id"
-                render={({ field }) => (
-                  <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(Number(v))}>
-                    <SelectTrigger className="cursor-pointer">
-                      <SelectValue placeholder="Chọn xe" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {contractVehicles.map((cv) => (
-                        <SelectItem key={cv.id} value={cv.id.toString()}>
-                          {cv.vehicle.model} · {cv.vehicle.serial_number}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-              {createForm.formState.errors.contract_vehicle_id && (
-                <p className="text-xs text-error">{createForm.formState.errors.contract_vehicle_id.message}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleCreate}>
+            <MobileSheetBody className="space-y-4">
               <div className="space-y-1">
-                <Label>Ngày sự cố <span className="text-error">*</span></Label>
+                <Label>Xe <span className="text-error">*</span></Label>
                 <Controller
                   control={createForm.control}
-                  name="incident_date"
+                  name="contract_vehicle_id"
                   render={({ field }) => (
-                    <DatePicker value={field.value} onChange={field.onChange} />
-                  )}
-                />
-                {createForm.formState.errors.incident_date && (
-                  <p className="text-xs text-error">{createForm.formState.errors.incident_date.message}</p>
-                )}
-              </div>
-              <div className="space-y-1">
-                <Label>Loại sự cố <span className="text-error">*</span></Label>
-                <Controller
-                  control={createForm.control}
-                  name="incident_type"
-                  render={({ field }) => (
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <SelectTrigger className="cursor-pointer">
-                        <SelectValue placeholder="Chọn loại" />
-                      </SelectTrigger>
+                    <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(Number(v))}>
+                      <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe" /></SelectTrigger>
                       <SelectContent>
-                        {INCIDENT_TYPE_OPTIONS.map((o) => (
-                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        {contractVehicles.map((cv) => (
+                          <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serial_number}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   )}
                 />
-                {createForm.formState.errors.incident_type && (
-                  <p className="text-xs text-error">{createForm.formState.errors.incident_type.message}</p>
+                {createForm.formState.errors.contract_vehicle_id && (
+                  <p className="text-xs text-error">{createForm.formState.errors.contract_vehicle_id.message}</p>
                 )}
               </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label>Mô tả <span className="text-error">*</span></Label>
-              <Textarea rows={3} maxLength={1000} {...createForm.register('description')} />
-              {createForm.formState.errors.description && (
-                <p className="text-xs text-error">{createForm.formState.errors.description.message}</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <Label>Số ngày dừng hoạt động</Label>
-                <Input type="number" step="0.1" min={0} {...createForm.register('downtime_days', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Ngày sự cố <span className="text-error">*</span></Label>
+                  <Controller
+                    control={createForm.control}
+                    name="incident_date"
+                    render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />}
+                  />
+                  {createForm.formState.errors.incident_date && (
+                    <p className="text-xs text-error">{createForm.formState.errors.incident_date.message}</p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <Label>Loại sự cố <span className="text-error">*</span></Label>
+                  <Controller
+                    control={createForm.control}
+                    name="incident_type"
+                    render={({ field }) => (
+                      <Select value={field.value} onValueChange={field.onChange}>
+                        <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn loại" /></SelectTrigger>
+                        <SelectContent>
+                          {INCIDENT_TYPE_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {createForm.formState.errors.incident_type && (
+                    <p className="text-xs text-error">{createForm.formState.errors.incident_type.message}</p>
+                  )}
+                </div>
               </div>
               <div className="space-y-1">
-                <Label>Chi phí (₫)</Label>
-                <Input type="number" min={0} {...createForm.register('cost_amount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <Label>Bên chịu chi phí</Label>
-              <Controller
-                control={createForm.control}
-                name="charged_to"
-                render={({ field }) => (
-                  <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
-                    <SelectTrigger className="cursor-pointer">
-                      <SelectValue placeholder="Không xác định" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Không xác định</SelectItem>
-                      {CHARGED_TO_OPTIONS.map((o) => (
-                        <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <Label>Mô tả <span className="text-error">*</span></Label>
+                <Textarea rows={3} maxLength={1000} {...createForm.register('description')} />
+                {createForm.formState.errors.description && (
+                  <p className="text-xs text-error">{createForm.formState.errors.description.message}</p>
                 )}
-              />
-            </div>
-
-            {incidentType === 'replacement' && (
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <Label>Số ngày dừng hoạt động</Label>
+                  <Input type="number" step="0.1" min={0} {...createForm.register('downtime_days', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                </div>
+                <div className="space-y-1">
+                  <Label>Chi phí (₫)</Label>
+                  <Input type="number" min={0} {...createForm.register('cost_amount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                </div>
+              </div>
               <div className="space-y-1">
-                <Label>Xe thay thế <span className="text-error">*</span></Label>
+                <Label>Bên chịu chi phí</Label>
                 <Controller
                   control={createForm.control}
-                  name="replacement_contract_vehicle_id"
+                  name="charged_to"
                   render={({ field }) => (
-                    <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : Number(v))}>
-                      <SelectTrigger className="cursor-pointer">
-                        <SelectValue placeholder="Chọn xe thay thế" />
-                      </SelectTrigger>
+                    <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
+                      <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Không xác định" /></SelectTrigger>
                       <SelectContent>
-                        {contractVehicles
-                          .filter((cv) => cv.id !== contractVehicleId)
-                          .map((cv) => (
-                            <SelectItem key={cv.id} value={cv.id.toString()}>
-                              {cv.vehicle.model} · {cv.vehicle.serial_number}
-                            </SelectItem>
-                          ))
-                        }
+                        <SelectItem value="none">Không xác định</SelectItem>
+                        {CHARGED_TO_OPTIONS.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   )}
                 />
-                {createForm.formState.errors.replacement_contract_vehicle_id && (
-                  <p className="text-xs text-error">{createForm.formState.errors.replacement_contract_vehicle_id.message}</p>
-                )}
               </div>
-            )}
-
-            <div className="space-y-1">
-              <Label>Thời điểm xử lý xong</Label>
-              <Controller
-                control={createForm.control}
-                name="resolved_at"
-                render={({ field }) => (
-                  <DatePicker value={field.value ?? undefined} onChange={field.onChange} placeholder="Chưa xử lý" />
-                )}
-              />
-            </div>
-
-            <DialogFooter>
+              {incidentType === 'replacement' && (
+                <div className="space-y-1">
+                  <Label>Xe thay thế <span className="text-error">*</span></Label>
+                  <Controller
+                    control={createForm.control}
+                    name="replacement_contract_vehicle_id"
+                    render={({ field }) => (
+                      <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : Number(v))}>
+                        <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe thay thế" /></SelectTrigger>
+                        <SelectContent>
+                          {contractVehicles.filter((cv) => cv.id !== contractVehicleId).map((cv) => (
+                            <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serial_number}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  />
+                  {createForm.formState.errors.replacement_contract_vehicle_id && (
+                    <p className="text-xs text-error">{createForm.formState.errors.replacement_contract_vehicle_id.message}</p>
+                  )}
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label>Thời điểm xử lý xong</Label>
+                <Controller
+                  control={createForm.control}
+                  name="resolved_at"
+                  render={({ field }) => (
+                    <DatePicker value={field.value ?? undefined} onChange={field.onChange} placeholder="Chưa xử lý" />
+                  )}
+                />
+              </div>
+            </MobileSheetBody>
+            <MobileSheetFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="cursor-pointer">Hủy</Button>
               <Button type="submit" disabled={mutation.isPending} className="cursor-pointer">
                 {mutation.isPending ? 'Đang lưu...' : 'Lưu'}
               </Button>
-            </DialogFooter>
+            </MobileSheetFooter>
           </form>
         )}
-      </DialogContent>
-    </Dialog>
+      </MobileSheetContent>
+    </MobileSheetDialog>
   )
 }
 

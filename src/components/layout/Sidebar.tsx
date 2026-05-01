@@ -8,6 +8,7 @@ import {
   UserCog,
   Settings,
   BookOpen,
+  ShieldCheck,
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -63,6 +64,12 @@ const NAV_ADMIN: NavItem[] = [
     icon: Settings,
     to: "/settings",
     guard: (roles) => roles.includes("admin") || roles.includes("manager"),
+  },
+  {
+    label: "Phân quyền",
+    icon: ShieldCheck,
+    to: "/roles",
+    guard: (roles) => roles.includes("admin"),
   },
 ];
 

@@ -1,27 +1,36 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
-import {
-  Plus,
-  Eye,
-  Search,
-  Building2,
-  User,
-} from "lucide-react";
+import { Plus, Eye, Search, Building2, User } from "lucide-react";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useAuthStore } from "@/stores/authStore";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { DataTable } from "@/components/shared/DataTable";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { DatePicker } from "@/components/shared/DatePicker";
+import {
+  MobileSheetDialog,
+  MobileSheetContent,
+  MobileSheetHeader,
+  MobileSheetTitle,
+  MobileSheetBody,
+  MobileSheetFooter,
+} from "@/components/shared/MobileSheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -29,12 +38,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { formatDate } from "@/utils/format";
 import {
@@ -101,9 +104,7 @@ const individualSchema = z.object({
   type: z.literal("individual"),
   full_name: z.string().min(1, "Bắt buộc"),
   phone: z.string().min(1, "Bắt buộc"),
-  cccd: z
-    .string()
-    .regex(/^\d{12}$/, "Phải là 12 số"),
+  cccd: z.string().regex(/^\d{12}$/, "Phải là 12 số"),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
   date_of_birth: z.string().optional(),
   gender: z.enum(["male", "female", "other"]).optional(),
@@ -136,6 +137,293 @@ type BusinessForm = z.infer<typeof businessSchema>;
 
 const PAGE_SIZE = 20;
 
+const fieldClass =
+  "w-full px-3 py-2 text-sm border border-input rounded-md outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 bg-background";
+const errClass = "text-xs text-error mt-0.5";
+
+// ─── Form nội dung: Doanh nghiệp ─────────────────────────────────────────────
+function BusinessFormFields({
+  form,
+}: {
+  form: ReturnType<typeof useForm<BusinessForm>>;
+}) {
+  const { register, setValue, formState: { errors } } = form;
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Tên doanh nghiệp <span className="text-error">*</span>
+        </Label>
+        <input
+          {...register("international_name")}
+          placeholder="Công ty TNHH ABC"
+          className={`${fieldClass} mt-1`}
+        />
+        {errors.international_name && (
+          <p className={errClass}>{errors.international_name.message}</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Tên viết tắt <span className="text-error">*</span>
+          </Label>
+          <input
+            {...register("short_name")}
+            placeholder="ABC"
+            onChange={(e) =>
+              setValue("short_name", e.target.value.toUpperCase(), {
+                shouldValidate: true,
+              })
+            }
+            className={`${fieldClass} mt-1 uppercase`}
+          />
+          {errors.short_name && (
+            <p className={errClass}>{errors.short_name.message}</p>
+          )}
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Mã số thuế <span className="text-error">*</span>
+          </Label>
+          <input
+            {...register("tax_code")}
+            placeholder="0123456789"
+            className={`${fieldClass} mt-1`}
+          />
+          {errors.tax_code && (
+            <p className={errClass}>{errors.tax_code.message}</p>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Người đại diện
+        </Label>
+        <input
+          {...register("representative")}
+          placeholder="Nguyễn Văn A"
+          className={`${fieldClass} mt-1`}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Điện thoại
+          </Label>
+          <input
+            {...register("phone")}
+            placeholder="028..."
+            className={`${fieldClass} mt-1`}
+          />
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Email
+          </Label>
+          <input
+            {...register("email")}
+            placeholder="contact@..."
+            className={`${fieldClass} mt-1`}
+          />
+          {errors.email && (
+            <p className={errClass}>{errors.email.message}</p>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Địa chỉ đăng ký thuế
+        </Label>
+        <input
+          {...register("tax_address")}
+          placeholder="123 Đường ABC, Quận 1..."
+          className={`${fieldClass} mt-1`}
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Địa chỉ văn phòng
+        </Label>
+        <input
+          {...register("office_address")}
+          placeholder="456 Đường XYZ, Quận 7..."
+          className={`${fieldClass} mt-1`}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─── Form nội dung: Cá nhân ───────────────────────────────────────────────────
+function IndividualFormFields({
+  form,
+}: {
+  form: ReturnType<typeof useForm<IndividualForm>>;
+}) {
+  const { register, control, formState: { errors } } = form;
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Họ và tên <span className="text-error">*</span>
+        </Label>
+        <input
+          {...register("full_name")}
+          placeholder="Nguyễn Văn A"
+          className={`${fieldClass} mt-1`}
+        />
+        {errors.full_name && (
+          <p className={errClass}>{errors.full_name.message}</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Số điện thoại <span className="text-error">*</span>
+          </Label>
+          <input
+            {...register("phone")}
+            placeholder="0901234567"
+            className={`${fieldClass} mt-1`}
+          />
+          {errors.phone && (
+            <p className={errClass}>{errors.phone.message}</p>
+          )}
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Email
+          </Label>
+          <input
+            {...register("email")}
+            placeholder="vana@gmail.com"
+            className={`${fieldClass} mt-1`}
+          />
+          {errors.email && (
+            <p className={errClass}>{errors.email.message}</p>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Số CCCD <span className="text-error">*</span>
+        </Label>
+        <input
+          {...register("cccd")}
+          placeholder="012345678901"
+          maxLength={12}
+          className={`${fieldClass} mt-1`}
+        />
+        {errors.cccd && (
+          <p className={errClass}>{errors.cccd.message}</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Ngày cấp CCCD
+          </Label>
+          <Controller
+            control={control}
+            name="cccd_issue_date"
+            render={({ field }) => (
+              <DatePicker
+                value={field.value}
+                onChange={field.onChange}
+                className="mt-1 w-full"
+              />
+            )}
+          />
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Ngày sinh
+          </Label>
+          <Controller
+            control={control}
+            name="date_of_birth"
+            render={({ field }) => (
+              <DatePicker
+                value={field.value}
+                onChange={field.onChange}
+                className="mt-1 w-full"
+              />
+            )}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Giới tính
+          </Label>
+          <select
+            {...register("gender")}
+            className={`${fieldClass} mt-1`}
+          >
+            <option value="">--</option>
+            <option value="male">Nam</option>
+            <option value="female">Nữ</option>
+            <option value="other">Khác</option>
+          </select>
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Quốc tịch
+          </Label>
+          <input
+            {...register("nationality")}
+            className={`${fieldClass} mt-1`}
+          />
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Nơi cấp CCCD
+        </Label>
+        <input
+          {...register("cccd_issue_place")}
+          placeholder="Cục Cảnh sát QLHC về TTXH"
+          className={`${fieldClass} mt-1`}
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Quê quán
+        </Label>
+        <input
+          {...register("hometown")}
+          placeholder="Hà Nội"
+          className={`${fieldClass} mt-1`}
+        />
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Địa chỉ thường trú
+        </Label>
+        <input
+          {...register("permanent_address")}
+          placeholder="123 Đường ABC, Quận 1..."
+          className={`${fieldClass} mt-1`}
+        />
+      </div>
+    </div>
+  );
+}
+
 // ─── CreateCustomerDialog ─────────────────────────────────────────────────────
 function CreateCustomerDialog({
   open,
@@ -145,6 +433,7 @@ function CreateCustomerDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const queryClient = useQueryClient();
+  const isDesktop = useMediaQuery("(min-width: 640px)");
   const [activeType, setActiveType] = useState<CustomerType>("business");
 
   const individualForm = useForm<IndividualForm>({
@@ -174,334 +463,112 @@ function CreateCustomerDialog({
     businessForm.reset({ type: "business" });
   }
 
-  const iF = individualForm.formState;
-  const bF = businessForm.formState;
+  const typeToggle = (
+    <div className="flex gap-2">
+      {(["business", "individual"] as CustomerType[]).map((t) => (
+        <button
+          key={t}
+          type="button"
+          onClick={() => setActiveType(t)}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium border cursor-pointer transition-colors ${
+            activeType === t
+              ? "bg-primary text-white border-primary"
+              : "bg-bg-page text-text-secondary border-border hover:border-primary hover:text-primary"
+          }`}
+        >
+          {t === "business" ? (
+            <Building2 className="h-4 w-4" />
+          ) : (
+            <User className="h-4 w-4" />
+          )}
+          {t === "business" ? "Doanh nghiệp" : "Cá nhân"}
+        </button>
+      ))}
+    </div>
+  );
 
-  const fieldClass =
-    "w-full px-3 py-2 text-sm border border-input rounded-md outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 bg-background";
-  const errClass = "text-xs text-error mt-0.5";
+  const submitButton = (
+    <Button
+      type="submit"
+      form="customer-create-form"
+      disabled={mutation.isPending}
+      className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
+    >
+      {mutation.isPending ? "Đang lưu..." : "Thêm khách hàng"}
+    </Button>
+  );
+
+  const formContent = (
+    <>
+      {activeType === "business" ? (
+        <form
+          id="customer-create-form"
+          onSubmit={businessForm.handleSubmit((d) => mutation.mutate(d))}
+        >
+          <BusinessFormFields form={businessForm} />
+        </form>
+      ) : (
+        <form
+          id="customer-create-form"
+          onSubmit={individualForm.handleSubmit((d) => mutation.mutate(d))}
+        >
+          <IndividualFormFields form={individualForm} />
+        </form>
+      )}
+    </>
+  );
+
+  if (isDesktop) {
+    return (
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Thêm khách hàng mới</DialogTitle>
+          </DialogHeader>
+          {typeToggle}
+          <div className="max-h-[60vh] overflow-y-auto pr-1">
+            {formContent}
+          </div>
+          <Separator />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="cursor-pointer"
+              onClick={handleClose}
+            >
+              Hủy
+            </Button>
+            {submitButton}
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Thêm khách hàng mới</DialogTitle>
-        </DialogHeader>
-
-        {/* Type toggle */}
-        <div className="flex gap-2">
-          {(["business", "individual"] as CustomerType[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setActiveType(t)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium border cursor-pointer transition-colors ${
-                activeType === t
-                  ? "bg-primary text-white border-primary"
-                  : "bg-bg-page text-text-secondary border-border hover:border-primary hover:text-primary"
-              }`}
-            >
-              {t === "business" ? (
-                <Building2 className="h-4 w-4" />
-              ) : (
-                <User className="h-4 w-4" />
-              )}
-              {t === "business" ? "Doanh nghiệp" : "Cá nhân"}
-            </button>
-          ))}
-        </div>
-
-        <div className="max-h-[60vh] overflow-y-auto pr-1">
-          {/* ── Business form ── */}
-          {activeType === "business" && (
-            <form
-              id="customer-form"
-              onSubmit={businessForm.handleSubmit((d) => mutation.mutate(d))}
-              className="space-y-3 py-1"
-            >
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Tên doanh nghiệp <span className="text-error">*</span>
-                </Label>
-                <input
-                  {...businessForm.register("international_name")}
-                  placeholder="Công ty TNHH ABC"
-                  className={`${fieldClass} mt-1`}
-                />
-                {bF.errors.international_name && (
-                  <p className={errClass}>{bF.errors.international_name.message}</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Tên viết tắt <span className="text-error">*</span>
-                  </Label>
-                  <input
-                    {...businessForm.register("short_name")}
-                    placeholder="ABC"
-                    onChange={(e) =>
-                      businessForm.setValue(
-                        "short_name",
-                        e.target.value.toUpperCase(),
-                        { shouldValidate: true },
-                      )
-                    }
-                    className={`${fieldClass} mt-1 uppercase`}
-                  />
-                  {bF.errors.short_name && (
-                    <p className={errClass}>{bF.errors.short_name.message}</p>
-                  )}
-                </div>
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Mã số thuế <span className="text-error">*</span>
-                  </Label>
-                  <input
-                    {...businessForm.register("tax_code")}
-                    placeholder="0123456789"
-                    className={`${fieldClass} mt-1`}
-                  />
-                  {bF.errors.tax_code && (
-                    <p className={errClass}>{bF.errors.tax_code.message}</p>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Người đại diện
-                </Label>
-                <input
-                  {...businessForm.register("representative")}
-                  placeholder="Nguyễn Văn A"
-                  className={`${fieldClass} mt-1`}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Điện thoại
-                  </Label>
-                  <input
-                    {...businessForm.register("phone")}
-                    placeholder="028..."
-                    className={`${fieldClass} mt-1`}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Email
-                  </Label>
-                  <input
-                    {...businessForm.register("email")}
-                    placeholder="contact@..."
-                    className={`${fieldClass} mt-1`}
-                  />
-                  {bF.errors.email && (
-                    <p className={errClass}>{bF.errors.email.message}</p>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Địa chỉ đăng ký thuế
-                </Label>
-                <input
-                  {...businessForm.register("tax_address")}
-                  placeholder="123 Đường ABC, Quận 1..."
-                  className={`${fieldClass} mt-1`}
-                />
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Địa chỉ văn phòng
-                </Label>
-                <input
-                  {...businessForm.register("office_address")}
-                  placeholder="456 Đường XYZ, Quận 7..."
-                  className={`${fieldClass} mt-1`}
-                />
-              </div>
-            </form>
-          )}
-
-          {/* ── Individual form ── */}
-          {activeType === "individual" && (
-            <form
-              id="customer-form"
-              onSubmit={individualForm.handleSubmit((d) => mutation.mutate(d))}
-              className="space-y-3 py-1"
-            >
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Họ và tên <span className="text-error">*</span>
-                </Label>
-                <input
-                  {...individualForm.register("full_name")}
-                  placeholder="Nguyễn Văn A"
-                  className={`${fieldClass} mt-1`}
-                />
-                {iF.errors.full_name && (
-                  <p className={errClass}>{iF.errors.full_name.message}</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Số điện thoại <span className="text-error">*</span>
-                  </Label>
-                  <input
-                    {...individualForm.register("phone")}
-                    placeholder="0901234567"
-                    className={`${fieldClass} mt-1`}
-                  />
-                  {iF.errors.phone && (
-                    <p className={errClass}>{iF.errors.phone.message}</p>
-                  )}
-                </div>
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Email
-                  </Label>
-                  <input
-                    {...individualForm.register("email")}
-                    placeholder="vana@gmail.com"
-                    className={`${fieldClass} mt-1`}
-                  />
-                  {iF.errors.email && (
-                    <p className={errClass}>{iF.errors.email.message}</p>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Số CCCD <span className="text-error">*</span>
-                </Label>
-                <input
-                  {...individualForm.register("cccd")}
-                  placeholder="012345678901"
-                  maxLength={12}
-                  className={`${fieldClass} mt-1`}
-                />
-                {iF.errors.cccd && (
-                  <p className={errClass}>{iF.errors.cccd.message}</p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Ngày cấp CCCD
-                  </Label>
-                  <input
-                    type="date"
-                    {...individualForm.register("cccd_issue_date")}
-                    className={`${fieldClass} mt-1`}
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Ngày sinh
-                  </Label>
-                  <input
-                    type="date"
-                    {...individualForm.register("date_of_birth")}
-                    className={`${fieldClass} mt-1`}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Giới tính
-                  </Label>
-                  <select
-                    {...individualForm.register("gender")}
-                    className={`${fieldClass} mt-1`}
-                  >
-                    <option value="">--</option>
-                    <option value="male">Nam</option>
-                    <option value="female">Nữ</option>
-                    <option value="other">Khác</option>
-                  </select>
-                </div>
-                <div>
-                  <Label className="text-xs font-medium text-text-secondary">
-                    Quốc tịch
-                  </Label>
-                  <input
-                    {...individualForm.register("nationality")}
-                    className={`${fieldClass} mt-1`}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Nơi cấp CCCD
-                </Label>
-                <input
-                  {...individualForm.register("cccd_issue_place")}
-                  placeholder="Cục Cảnh sát QLHC về TTXH"
-                  className={`${fieldClass} mt-1`}
-                />
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Quê quán
-                </Label>
-                <input
-                  {...individualForm.register("hometown")}
-                  placeholder="Hà Nội"
-                  className={`${fieldClass} mt-1`}
-                />
-              </div>
-
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Địa chỉ thường trú
-                </Label>
-                <input
-                  {...individualForm.register("permanent_address")}
-                  placeholder="123 Đường ABC, Quận 1..."
-                  className={`${fieldClass} mt-1`}
-                />
-              </div>
-            </form>
-          )}
-        </div>
-
-        <Separator />
-
-        <div className="flex justify-end gap-2">
+    <MobileSheetDialog open={open} onOpenChange={handleClose}>
+      <MobileSheetContent mobileVariant="fullscreen" title="Thêm khách hàng mới">
+        <MobileSheetHeader>
+          <MobileSheetTitle>Thêm khách hàng mới</MobileSheetTitle>
+        </MobileSheetHeader>
+        <MobileSheetBody className="flex-1 overflow-y-auto gap-3">
+          {typeToggle}
+          {formContent}
+        </MobileSheetBody>
+        <MobileSheetFooter>
           <Button
             type="button"
             variant="outline"
-            className="cursor-pointer"
+            className="cursor-pointer flex-1 sm:flex-none"
             onClick={handleClose}
           >
             Hủy
           </Button>
-          <Button
-            type="submit"
-            form="customer-form"
-            disabled={mutation.isPending}
-            className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
-          >
-            {mutation.isPending ? "Đang lưu..." : "Thêm khách hàng"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+          <div className="flex-1 sm:flex-none">{submitButton}</div>
+        </MobileSheetFooter>
+      </MobileSheetContent>
+    </MobileSheetDialog>
   );
 }
 
@@ -571,14 +638,11 @@ export default function CustomerListPage() {
       header: "Khách hàng",
       cell: ({ row }) => {
         const c = row.original;
-        const typeBadge = getCustomerTypeBadge(c.customer_type);
         return (
           <div className="flex items-center gap-2.5">
             <div
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                c.customer_type === "business"
-                  ? "bg-[#FFF7ED]"
-                  : "bg-[#EEF2FF]"
+                c.customer_type === "business" ? "bg-[#FFF7ED]" : "bg-[#EEF2FF]"
               }`}
             >
               {c.customer_type === "business" ? (
@@ -605,9 +669,7 @@ export default function CustomerListPage() {
       id: "type",
       header: "Loại",
       cell: ({ row }) => {
-        const { label, className } = getCustomerTypeBadge(
-          row.original.customer_type,
-        );
+        const { label, className } = getCustomerTypeBadge(row.original.customer_type);
         return (
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-xs)] font-medium ${className}`}
@@ -639,9 +701,7 @@ export default function CustomerListPage() {
       id: "status",
       header: "Trạng thái",
       cell: ({ row }) => {
-        const { label, className } = getCustomerActiveBadge(
-          row.original.is_active,
-        );
+        const { label, className } = getCustomerActiveBadge(row.original.is_active);
         return (
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[length:var(--fs-xs)] font-medium ${className}`}
@@ -680,7 +740,7 @@ export default function CustomerListPage() {
           canEdit ? (
             <Button
               onClick={() => setCreateOpen(true)}
-              className="cursor-pointer bg-primary text-white hover:bg-primary-dark gap-1.5"
+              className="cursor-pointer bg-primary text-white hover:bg-primary-dark gap-1.5 text-[length:var(--fs-sm)] sm:text-[length:var(--fs-base)]"
             >
               <Plus size={16} />
               Thêm khách hàng
@@ -771,10 +831,7 @@ export default function CustomerListPage() {
       <div className="flex flex-col gap-3 sm:hidden">
         {isLoading ? (
           Array.from({ length: 4 }).map((_, i) => (
-            <div
-              key={i}
-              className="h-[100px] animate-pulse rounded-xl bg-[#E2E8F0]"
-            />
+            <div key={i} className="h-[100px] animate-pulse rounded-xl bg-[#E2E8F0]" />
           ))
         ) : customers.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-bg-card py-16">
@@ -806,9 +863,7 @@ export default function CustomerListPage() {
                 <div className="flex items-center gap-3">
                   <div
                     className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-                      c.customer_type === "business"
-                        ? "bg-[#FFF7ED]"
-                        : "bg-[#EEF2FF]"
+                      c.customer_type === "business" ? "bg-[#FFF7ED]" : "bg-[#EEF2FF]"
                     }`}
                   >
                     {c.customer_type === "business" ? (

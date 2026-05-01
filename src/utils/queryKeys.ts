@@ -27,4 +27,11 @@ export const QUERY_KEYS = {
   serviceCatalog: {
     all: ["service-catalog"] as const,
   },
+  roles: {
+    all: ["roles"] as const,
+    detail: (id: number) => ["roles", id] as const,
+  },
+  permissions: {
+    all: ["permissions"] as const,
+  },
 };

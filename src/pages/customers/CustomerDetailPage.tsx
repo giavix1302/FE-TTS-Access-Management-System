@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -13,10 +13,6 @@ import {
   User,
   Phone,
   Mail,
-  MapPin,
-  FileText,
-  CalendarDays,
-  BadgeCheck,
   ShieldOff,
   ShieldCheck,
 } from "lucide-react";
@@ -34,6 +30,16 @@ import {
 } from "@/components/ui/dialog";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { DataTable } from "@/components/shared/DataTable";
+import { DatePicker } from "@/components/shared/DatePicker";
+import {
+  MobileSheetDialog,
+  MobileSheetContent,
+  MobileSheetHeader,
+  MobileSheetTitle,
+  MobileSheetBody,
+  MobileSheetFooter,
+} from "@/components/shared/MobileSheet";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatDate, formatCurrency } from "@/utils/format";
 import {
@@ -200,13 +206,7 @@ const fieldClass =
 const errClass = "text-xs text-error mt-0.5";
 
 // ─── InfoRow helper ───────────────────────────────────────────────────────────
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string | null;
-}) {
+function InfoRow({ label, value }: { label: string; value?: string | null }) {
   return (
     <div>
       <p className="text-[length:var(--fs-xs)] text-text-secondary">{label}</p>
@@ -228,10 +228,13 @@ function IndividualEditDialog({
   customer: IndividualCustomer;
 }) {
   const queryClient = useQueryClient();
+  const isDesktop = useMediaQuery("(min-width: 640px)");
   const {
     register,
     handleSubmit,
     reset,
+    control,
+    setValue,
     formState: { errors },
   } = useForm<IndividualEditForm>({
     resolver: zodResolver(individualEditSchema),
@@ -263,116 +266,147 @@ function IndividualEditDialog({
     onError: () => toast.error("Có lỗi xảy ra"),
   });
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) reset();
-        onOpenChange(v);
-      }}
+  function handleClose() {
+    reset();
+    onOpenChange(false);
+  }
+
+  const formContent = (
+    <form
+      id="individual-edit-form"
+      onSubmit={handleSubmit((d) => mutation.mutate(d))}
+      className="space-y-3"
     >
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Chỉnh sửa — {customer.full_name}</DialogTitle>
-        </DialogHeader>
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Họ và tên <span className="text-error">*</span>
+        </Label>
+        <input {...register("full_name")} className={`${fieldClass} mt-1`} />
+        {errors.full_name && <p className={errClass}>{errors.full_name.message}</p>}
+      </div>
 
-        <div className="max-h-[60vh] overflow-y-auto pr-1">
-          <form
-            id="individual-edit-form"
-            onSubmit={handleSubmit((d) => mutation.mutate(d))}
-            className="space-y-3 py-1"
-          >
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">
-                Họ và tên <span className="text-error">*</span>
-              </Label>
-              <input {...register("full_name")} className={`${fieldClass} mt-1`} />
-              {errors.full_name && <p className={errClass}>{errors.full_name.message}</p>}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Điện thoại <span className="text-error">*</span>
-                </Label>
-                <input {...register("phone")} className={`${fieldClass} mt-1`} />
-                {errors.phone && <p className={errClass}>{errors.phone.message}</p>}
-              </div>
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">Email</Label>
-                <input {...register("email")} className={`${fieldClass} mt-1`} />
-                {errors.email && <p className={errClass}>{errors.email.message}</p>}
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">
-                Số CCCD <span className="text-error">*</span>
-              </Label>
-              <input {...register("cccd")} maxLength={12} className={`${fieldClass} mt-1`} />
-              {errors.cccd && <p className={errClass}>{errors.cccd.message}</p>}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">Ngày cấp CCCD</Label>
-                <input type="date" {...register("cccd_issue_date")} className={`${fieldClass} mt-1`} />
-              </div>
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">Ngày sinh</Label>
-                <input type="date" {...register("date_of_birth")} className={`${fieldClass} mt-1`} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">Giới tính</Label>
-                <select {...register("gender")} className={`${fieldClass} mt-1`}>
-                  <option value="">--</option>
-                  <option value="male">Nam</option>
-                  <option value="female">Nữ</option>
-                  <option value="other">Khác</option>
-                </select>
-              </div>
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">Quốc tịch</Label>
-                <input {...register("nationality")} className={`${fieldClass} mt-1`} />
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">Nơi cấp CCCD</Label>
-              <input {...register("cccd_issue_place")} className={`${fieldClass} mt-1`} />
-            </div>
-
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">Quê quán</Label>
-              <input {...register("hometown")} className={`${fieldClass} mt-1`} />
-            </div>
-
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">Địa chỉ thường trú</Label>
-              <input {...register("permanent_address")} className={`${fieldClass} mt-1`} />
-            </div>
-          </form>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Điện thoại <span className="text-error">*</span>
+          </Label>
+          <input {...register("phone")} className={`${fieldClass} mt-1`} />
+          {errors.phone && <p className={errClass}>{errors.phone.message}</p>}
         </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">Email</Label>
+          <input {...register("email")} className={`${fieldClass} mt-1`} />
+          {errors.email && <p className={errClass}>{errors.email.message}</p>}
+        </div>
+      </div>
 
-        <Separator />
-        <DialogFooter>
-          <Button type="button" variant="outline" className="cursor-pointer" onClick={() => onOpenChange(false)}>
-            Hủy
-          </Button>
-          <Button
-            type="submit"
-            form="individual-edit-form"
-            disabled={mutation.isPending}
-            className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
-          >
-            {mutation.isPending ? "Đang lưu..." : "Lưu"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Số CCCD <span className="text-error">*</span>
+        </Label>
+        <input {...register("cccd")} maxLength={12} className={`${fieldClass} mt-1`} />
+        {errors.cccd && <p className={errClass}>{errors.cccd.message}</p>}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">Ngày cấp CCCD</Label>
+          <Controller
+            control={control}
+            name="cccd_issue_date"
+            render={({ field }) => (
+              <DatePicker value={field.value} onChange={field.onChange} className="mt-1 w-full" />
+            )}
+          />
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">Ngày sinh</Label>
+          <Controller
+            control={control}
+            name="date_of_birth"
+            render={({ field }) => (
+              <DatePicker value={field.value} onChange={field.onChange} className="mt-1 w-full" />
+            )}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">Giới tính</Label>
+          <select {...register("gender")} className={`${fieldClass} mt-1`}>
+            <option value="">--</option>
+            <option value="male">Nam</option>
+            <option value="female">Nữ</option>
+            <option value="other">Khác</option>
+          </select>
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">Quốc tịch</Label>
+          <input {...register("nationality")} className={`${fieldClass} mt-1`} />
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">Nơi cấp CCCD</Label>
+        <input {...register("cccd_issue_place")} className={`${fieldClass} mt-1`} />
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">Quê quán</Label>
+        <input {...register("hometown")} className={`${fieldClass} mt-1`} />
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">Địa chỉ thường trú</Label>
+        <input {...register("permanent_address")} className={`${fieldClass} mt-1`} />
+      </div>
+    </form>
+  );
+
+  const actionButtons = (
+    <>
+      <Button type="button" variant="outline" className="cursor-pointer" onClick={handleClose}>
+        Hủy
+      </Button>
+      <Button
+        type="submit"
+        form="individual-edit-form"
+        disabled={mutation.isPending}
+        className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
+      >
+        {mutation.isPending ? "Đang lưu..." : "Lưu"}
+      </Button>
+    </>
+  );
+
+  if (isDesktop) {
+    return (
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Chỉnh sửa — {customer.full_name}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto pr-1 py-1">{formContent}</div>
+          <Separator />
+          <DialogFooter>{actionButtons}</DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <MobileSheetDialog open={open} onOpenChange={handleClose}>
+      <MobileSheetContent mobileVariant="fullscreen" title="Chỉnh sửa khách hàng">
+        <MobileSheetHeader>
+          <MobileSheetTitle>Chỉnh sửa — {customer.full_name}</MobileSheetTitle>
+        </MobileSheetHeader>
+        <MobileSheetBody className="flex-1 overflow-y-auto">
+          {formContent}
+        </MobileSheetBody>
+        <MobileSheetFooter>{actionButtons}</MobileSheetFooter>
+      </MobileSheetContent>
+    </MobileSheetDialog>
   );
 }
 
@@ -387,6 +421,7 @@ function BusinessEditDialog({
   customer: BusinessCustomer;
 }) {
   const queryClient = useQueryClient();
+  const isDesktop = useMediaQuery("(min-width: 640px)");
   const {
     register,
     handleSubmit,
@@ -420,103 +455,120 @@ function BusinessEditDialog({
     onError: () => toast.error("Có lỗi xảy ra"),
   });
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) reset();
-        onOpenChange(v);
-      }}
+  function handleClose() {
+    reset();
+    onOpenChange(false);
+  }
+
+  const formContent = (
+    <form
+      id="business-edit-form"
+      onSubmit={handleSubmit((d) => mutation.mutate(d))}
+      className="space-y-3"
     >
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Chỉnh sửa — {customer.international_name}</DialogTitle>
-        </DialogHeader>
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Tên doanh nghiệp <span className="text-error">*</span>
+        </Label>
+        <input {...register("international_name")} className={`${fieldClass} mt-1`} />
+        {errors.international_name && <p className={errClass}>{errors.international_name.message}</p>}
+      </div>
 
-        <div className="max-h-[60vh] overflow-y-auto pr-1">
-          <form
-            id="business-edit-form"
-            onSubmit={handleSubmit((d) => mutation.mutate(d))}
-            className="space-y-3 py-1"
-          >
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">
-                Tên doanh nghiệp <span className="text-error">*</span>
-              </Label>
-              <input {...register("international_name")} className={`${fieldClass} mt-1`} />
-              {errors.international_name && <p className={errClass}>{errors.international_name.message}</p>}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Tên viết tắt <span className="text-error">*</span>
-                </Label>
-                <input
-                  {...register("short_name")}
-                  onChange={(e) =>
-                    setValue("short_name", e.target.value.toUpperCase(), {
-                      shouldValidate: true,
-                    })
-                  }
-                  className={`${fieldClass} mt-1 uppercase`}
-                />
-                {errors.short_name && <p className={errClass}>{errors.short_name.message}</p>}
-              </div>
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">
-                  Mã số thuế <span className="text-error">*</span>
-                </Label>
-                <input {...register("tax_code")} className={`${fieldClass} mt-1`} />
-                {errors.tax_code && <p className={errClass}>{errors.tax_code.message}</p>}
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">Người đại diện</Label>
-              <input {...register("representative")} className={`${fieldClass} mt-1`} />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">Điện thoại</Label>
-                <input {...register("phone")} className={`${fieldClass} mt-1`} />
-              </div>
-              <div>
-                <Label className="text-xs font-medium text-text-secondary">Email</Label>
-                <input {...register("email")} className={`${fieldClass} mt-1`} />
-                {errors.email && <p className={errClass}>{errors.email.message}</p>}
-              </div>
-            </div>
-
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">Địa chỉ đăng ký thuế</Label>
-              <input {...register("tax_address")} className={`${fieldClass} mt-1`} />
-            </div>
-
-            <div>
-              <Label className="text-xs font-medium text-text-secondary">Địa chỉ văn phòng</Label>
-              <input {...register("office_address")} className={`${fieldClass} mt-1`} />
-            </div>
-          </form>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Tên viết tắt <span className="text-error">*</span>
+          </Label>
+          <input
+            {...register("short_name")}
+            onChange={(e) =>
+              setValue("short_name", e.target.value.toUpperCase(), { shouldValidate: true })
+            }
+            className={`${fieldClass} mt-1 uppercase`}
+          />
+          {errors.short_name && <p className={errClass}>{errors.short_name.message}</p>}
         </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Mã số thuế <span className="text-error">*</span>
+          </Label>
+          <input {...register("tax_code")} className={`${fieldClass} mt-1`} />
+          {errors.tax_code && <p className={errClass}>{errors.tax_code.message}</p>}
+        </div>
+      </div>
 
-        <Separator />
-        <DialogFooter>
-          <Button type="button" variant="outline" className="cursor-pointer" onClick={() => onOpenChange(false)}>
-            Hủy
-          </Button>
-          <Button
-            type="submit"
-            form="business-edit-form"
-            disabled={mutation.isPending}
-            className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
-          >
-            {mutation.isPending ? "Đang lưu..." : "Lưu"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">Người đại diện</Label>
+        <input {...register("representative")} className={`${fieldClass} mt-1`} />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">Điện thoại</Label>
+          <input {...register("phone")} className={`${fieldClass} mt-1`} />
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">Email</Label>
+          <input {...register("email")} className={`${fieldClass} mt-1`} />
+          {errors.email && <p className={errClass}>{errors.email.message}</p>}
+        </div>
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">Địa chỉ đăng ký thuế</Label>
+        <input {...register("tax_address")} className={`${fieldClass} mt-1`} />
+      </div>
+
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">Địa chỉ văn phòng</Label>
+        <input {...register("office_address")} className={`${fieldClass} mt-1`} />
+      </div>
+    </form>
+  );
+
+  const actionButtons = (
+    <>
+      <Button type="button" variant="outline" className="cursor-pointer" onClick={handleClose}>
+        Hủy
+      </Button>
+      <Button
+        type="submit"
+        form="business-edit-form"
+        disabled={mutation.isPending}
+        className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
+      >
+        {mutation.isPending ? "Đang lưu..." : "Lưu"}
+      </Button>
+    </>
+  );
+
+  if (isDesktop) {
+    return (
+      <Dialog open={open} onOpenChange={handleClose}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Chỉnh sửa — {customer.international_name}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-y-auto pr-1 py-1">{formContent}</div>
+          <Separator />
+          <DialogFooter>{actionButtons}</DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  return (
+    <MobileSheetDialog open={open} onOpenChange={handleClose}>
+      <MobileSheetContent mobileVariant="fullscreen" title="Chỉnh sửa doanh nghiệp">
+        <MobileSheetHeader>
+          <MobileSheetTitle>Chỉnh sửa — {customer.international_name}</MobileSheetTitle>
+        </MobileSheetHeader>
+        <MobileSheetBody className="flex-1 overflow-y-auto">
+          {formContent}
+        </MobileSheetBody>
+        <MobileSheetFooter>{actionButtons}</MobileSheetFooter>
+      </MobileSheetContent>
+    </MobileSheetDialog>
   );
 }
 
@@ -717,7 +769,6 @@ export default function CustomerDetailPage() {
                   />
                   {activeBadge.label}
                 </span>
-                {/* Quick contact */}
                 {customer.phone && (
                   <span className="flex items-center gap-1 text-[length:var(--fs-xs)] text-text-secondary">
                     <Phone size={11} />
@@ -734,7 +785,7 @@ export default function CustomerDetailPage() {
             </div>
           </div>
 
-          {/* Right: actions — mobile xuống dưới */}
+          {/* Right: actions — mobile xuống dưới, border-t phân tách */}
           <div className="flex items-center gap-2 sm:shrink-0 border-t border-border pt-3 sm:border-0 sm:pt-0">
             {canEdit && (
               <Button
@@ -780,7 +831,11 @@ export default function CustomerDetailPage() {
         <TabsList className="border-b border-border bg-transparent w-full justify-start rounded-none p-0 h-auto gap-1 overflow-x-auto">
           {[
             { value: "info", label: "Thông tin" },
-            { value: "contracts", label: "Lịch sử hợp đồng", count: contracts.length > 0 ? contracts.length : undefined },
+            {
+              value: "contracts",
+              label: "Lịch sử hợp đồng",
+              count: contracts.length > 0 ? contracts.length : undefined,
+            },
           ].map((tab) => (
             <TabsTrigger
               key={tab.value}
@@ -799,7 +854,6 @@ export default function CustomerDetailPage() {
 
         {/* ── Tab 1: Thông tin ──────────────────────────────────────────── */}
         <TabsContent value="info" className="mt-4 space-y-4">
-          {/* Card 1: thông tin chính theo loại */}
           <div className="rounded-xl border border-border bg-bg-card p-5">
             <p className="text-[length:var(--fs-sm)] font-semibold text-text-primary mb-4">
               {isIndividual ? "Thông tin cá nhân" : "Thông tin doanh nghiệp"}
@@ -842,7 +896,6 @@ export default function CustomerDetailPage() {
             )}
           </div>
 
-          {/* Card 2: Liên hệ & Địa chỉ */}
           <div className="rounded-xl border border-border bg-bg-card p-5">
             <p className="text-[length:var(--fs-sm)] font-semibold text-text-primary mb-4">
               Liên hệ & Địa chỉ
@@ -873,7 +926,6 @@ export default function CustomerDetailPage() {
             </div>
           </div>
 
-          {/* Card 3: Meta */}
           <div className="rounded-xl border border-border bg-bg-card p-5">
             <p className="text-[length:var(--fs-sm)] font-semibold text-text-primary mb-4">
               Thông tin hệ thống

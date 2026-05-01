@@ -24,12 +24,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
+  MobileSheetDialog,
+  MobileSheetContent,
+  MobileSheetHeader,
+  MobileSheetTitle,
+  MobileSheetBody,
+  MobileSheetFooter,
+} from '@/components/shared/MobileSheet'
 import {
   VEHICLE_STATUS_OPTIONS,
   getVehicleStatusBadge,
@@ -440,104 +441,103 @@ export default function VehicleListPage() {
       </div>
 
       {/* ── Modal Thêm xe ── */}
-      <Dialog
+      <MobileSheetDialog
         open={addOpen}
         onOpenChange={(o) => {
           setAddOpen(o)
           if (!o) reset()
         }}
       >
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-[length:var(--fs-title)] font-semibold text-text-primary">
-              Thêm xe mới
-            </DialogTitle>
-          </DialogHeader>
+        <MobileSheetContent mobileVariant="fullscreen" className="sm:max-w-2xl">
+          <MobileSheetHeader>
+            <MobileSheetTitle>Thêm xe mới</MobileSheetTitle>
+          </MobileSheetHeader>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="mt-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Cột 1 */}
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Model <span className="text-error">*</span>
-                  </Label>
-                  <Input {...register('model')} placeholder="VD: AWP 20S" className="border-border" />
-                  {errors.model && <p className="text-[length:var(--fs-sm)] text-error">{errors.model.message}</p>}
+          <form onSubmit={handleSubmit(onSubmit)}>
+            <MobileSheetBody>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Cột 1 */}
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[length:var(--fs-base)] font-medium">
+                      Model <span className="text-error">*</span>
+                    </Label>
+                    <Input {...register('model')} placeholder="VD: AWP 20S" className="border-border" />
+                    {errors.model && <p className="text-[length:var(--fs-sm)] text-error">{errors.model.message}</p>}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[length:var(--fs-base)] font-medium">
+                      Serial Number <span className="text-error">*</span>
+                    </Label>
+                    <Input {...register('serial_number')} placeholder="VD: SN-2021-001" className="border-border" />
+                    {errors.serial_number && <p className="text-[length:var(--fs-sm)] text-error">{errors.serial_number.message}</p>}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[length:var(--fs-base)] font-medium">
+                      Hãng SX <span className="text-error">*</span>
+                    </Label>
+                    <Input {...register('manufacturer')} placeholder="VD: Genie" className="border-border" />
+                    {errors.manufacturer && <p className="text-[length:var(--fs-sm)] text-error">{errors.manufacturer.message}</p>}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[length:var(--fs-base)] font-medium">Năm SX</Label>
+                    <Input {...register('manufacture_year')} type="number" placeholder="VD: 2021" className="border-border" />
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Serial Number <span className="text-error">*</span>
-                  </Label>
-                  <Input {...register('serial_number')} placeholder="VD: SN-2021-001" className="border-border" />
-                  {errors.serial_number && <p className="text-[length:var(--fs-sm)] text-error">{errors.serial_number.message}</p>}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Hãng SX <span className="text-error">*</span>
-                  </Label>
-                  <Input {...register('manufacturer')} placeholder="VD: Genie" className="border-border" />
-                  {errors.manufacturer && <p className="text-[length:var(--fs-sm)] text-error">{errors.manufacturer.message}</p>}
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">Năm SX</Label>
-                  <Input {...register('manufacture_year')} type="number" placeholder="VD: 2021" className="border-border" />
+
+                {/* Cột 2 */}
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[length:var(--fs-base)] font-medium">
+                      Loại động cơ <span className="text-error">*</span>
+                    </Label>
+                    <Select onValueChange={(v) => setValue('engine_type', v as 'Fuel' | 'Electric')}>
+                      <SelectTrigger className="border-border">
+                        <SelectValue placeholder="Chọn loại động cơ" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Electric">Điện</SelectItem>
+                        <SelectItem value="Fuel">Xăng/Dầu</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {errors.engine_type && <p className="text-[length:var(--fs-sm)] text-error">{errors.engine_type.message}</p>}
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[length:var(--fs-base)] font-medium">Tải trọng (kg)</Label>
+                    <Input {...register('capacity')} type="number" placeholder="VD: 230" className="border-border" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[length:var(--fs-base)] font-medium">Số người</Label>
+                    <Input {...register('occupancy')} type="number" placeholder="VD: 1" className="border-border" />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label className="text-[length:var(--fs-base)] font-medium">Chiều cao sàn (m)</Label>
+                    <Input {...register('platform_height')} type="number" step="0.1" placeholder="VD: 7.79" className="border-border" />
+                  </div>
                 </div>
               </div>
 
-              {/* Cột 2 */}
-              <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Loại động cơ <span className="text-error">*</span>
-                  </Label>
-                  <Select onValueChange={(v) => setValue('engine_type', v as 'Fuel' | 'Electric')}>
-                    <SelectTrigger className="border-border">
-                      <SelectValue placeholder="Chọn loại động cơ" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Electric">Điện</SelectItem>
-                      <SelectItem value="Fuel">Xăng/Dầu</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {errors.engine_type && <p className="text-[length:var(--fs-sm)] text-error">{errors.engine_type.message}</p>}
+                  <Label className="text-[length:var(--fs-base)] font-medium">Chiều cao LV (m)</Label>
+                  <Input {...register('work_height')} type="number" step="0.1" placeholder="VD: 9.8" className="border-border" />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">Tải trọng (kg)</Label>
-                  <Input {...register('capacity')} type="number" placeholder="VD: 230" className="border-border" />
+                  <Label className="text-[length:var(--fs-base)] font-medium">Tốc độ nâng (m/s)</Label>
+                  <Input {...register('lifting_speed')} type="number" step="0.01" placeholder="VD: 0.20" className="border-border" />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">Số người</Label>
-                  <Input {...register('occupancy')} type="number" placeholder="VD: 1" className="border-border" />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">Chiều cao sàn (m)</Label>
-                  <Input {...register('platform_height')} type="number" step="0.1" placeholder="VD: 7.79" className="border-border" />
+                  <Label className="text-[length:var(--fs-base)] font-medium">Tốc độ di chuyển (km/h)</Label>
+                  <Input {...register('traveling_speed')} type="number" step="0.1" placeholder="VD: 4.0" className="border-border" />
                 </div>
               </div>
-            </div>
+            </MobileSheetBody>
 
-            {/* Full width */}
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[length:var(--fs-base)] font-medium">Chiều cao LV (m)</Label>
-                <Input {...register('work_height')} type="number" step="0.1" placeholder="VD: 9.8" className="border-border" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[length:var(--fs-base)] font-medium">Tốc độ nâng (m/s)</Label>
-                <Input {...register('lifting_speed')} type="number" step="0.01" placeholder="VD: 0.20" className="border-border" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <Label className="text-[length:var(--fs-base)] font-medium">Tốc độ di chuyển (km/h)</Label>
-                <Input {...register('traveling_speed')} type="number" step="0.1" placeholder="VD: 4.0" className="border-border" />
-              </div>
-            </div>
-
-            <DialogFooter className="mt-6 gap-2">
+            <MobileSheetFooter>
               <Button
                 type="button"
                 variant="outline"
-                className="border-border text-text-secondary"
+                className="border-border text-text-secondary cursor-pointer"
                 onClick={() => { setAddOpen(false); reset() }}
                 disabled={addMutation.isPending}
               >
@@ -545,15 +545,15 @@ export default function VehicleListPage() {
               </Button>
               <Button
                 type="submit"
-                className="bg-primary hover:bg-primary-dark text-white"
+                className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
                 disabled={addMutation.isPending}
               >
                 {addMutation.isPending ? 'Đang lưu...' : 'Lưu'}
               </Button>
-            </DialogFooter>
+            </MobileSheetFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+        </MobileSheetContent>
+      </MobileSheetDialog>
     </div>
   )
 }

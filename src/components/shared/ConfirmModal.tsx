@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 
+import type { ReactNode } from "react"
+
 interface ConfirmModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -19,6 +21,7 @@ interface ConfirmModalProps {
   variant?: "danger" | "primary"
   loading?: boolean
   onConfirm: () => void
+  customContent?: ReactNode
 }
 
 export function ConfirmModal({
@@ -31,6 +34,7 @@ export function ConfirmModal({
   variant = "primary",
   loading = false,
   onConfirm,
+  customContent,
 }: ConfirmModalProps) {
   const confirmStyle =
     variant === "danger"
@@ -42,7 +46,7 @@ export function ConfirmModal({
 
   return (
     <Dialog open={open} onOpenChange={loading ? undefined : onOpenChange}>
-      <DialogContent className="max-w-[440px]">
+      <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
           <DialogTitle className="text-[18px] font-semibold text-[#1A202C]">
             {title}
@@ -53,6 +57,8 @@ export function ConfirmModal({
             </DialogDescription>
           )}
         </DialogHeader>
+
+        {customContent}
 
         <DialogFooter className="mt-2 gap-2 sm:gap-2">
           <Button

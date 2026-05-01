@@ -19,16 +19,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  MobileSheetDialog,
+  MobileSheetContent,
+  MobileSheetHeader,
+  MobileSheetTitle,
+  MobileSheetBody,
+  MobileSheetFooter,
+} from "@/components/shared/MobileSheet";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { DatePicker } from "@/components/shared/DatePicker";
 import { FileCard } from "@/components/shared/FileCard";
-import { TwoColDialog } from "@/components/shared/TwoColDialog";
+import { MobileTwoColDialog } from "@/components/shared/MobileTwoColDialog";
 import {
   updateContract,
   createLineItem,
@@ -108,7 +109,7 @@ function ContractInfoDialog({
   });
 
   return (
-    <TwoColDialog
+    <MobileTwoColDialog
       open={open}
       onOpenChange={handleClose}
       title="Chỉnh sửa thông tin hợp đồng"
@@ -206,7 +207,7 @@ function ContractInfoDialog({
           {mutation.isPending ? "Đang lưu..." : "Lưu"}
         </Button>
       </div>
-    </TwoColDialog>
+    </MobileTwoColDialog>
   );
 }
 
@@ -302,149 +303,104 @@ function LineItemDialog({
   });
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>
+    <MobileSheetDialog open={open} onOpenChange={onOpenChange}>
+      <MobileSheetContent mobileVariant="sheet" className="sm:max-w-md">
+        <MobileSheetHeader>
+          <MobileSheetTitle>
             {isEdit ? "Chỉnh sửa dịch vụ" : "Thêm dịch vụ"}
-          </DialogTitle>
-        </DialogHeader>
-        <form
-          onSubmit={handleSubmit((d) => mutation.mutate(d))}
-          className="space-y-4"
-        >
-          <div className="space-y-1">
-            <Label>
-              Dịch vụ <span className="text-error">*</span>
-            </Label>
-            <Controller
-              control={control}
-              name="service_id"
-              render={({ field }) => (
-                <Select
-                  value={field.value?.toString()}
-                  onValueChange={(v) => {
-                    const id = Number(v)
-                    field.onChange(id)
-                    // auto-fill default_price khi chọn dịch vụ (chỉ khi tạo mới)
-                    if (!isEdit) {
-                      const svc = activeServices.find((s) => s.id === id)
-                      if (svc) setValue("unit_price", svc.default_price)
-                    }
-                  }}
-                >
-                  <SelectTrigger className="cursor-pointer">
-                    <SelectValue placeholder="Chọn dịch vụ" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {activeServices.map((s) => (
-                      <SelectItem key={s.id} value={s.id.toString()}>
-                        {s.name}
-                        <span className="ml-1 text-text-secondary">· {s.unit}</span>
-                      </SelectItem>
-                    ))}
-                    {activeServices.length === 0 && (
-                      <div className="py-3 text-center text-xs text-text-secondary">
-                        Chưa có dịch vụ nào
-                      </div>
-                    )}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-            {errors.service_id && (
-              <p className="text-xs text-error">{errors.service_id.message}</p>
-            )}
-          </div>
-
-          <div className="space-y-1">
-            <Label>Xe gán (tùy chọn)</Label>
-            <Controller
-              control={control}
-              name="vehicle_id"
-              render={({ field }) => (
-                <Select
-                  value={field.value?.toString() ?? ""}
-                  onValueChange={(v) =>
-                    field.onChange(v === "none" ? null : Number(v))
-                  }
-                >
-                  <SelectTrigger className="cursor-pointer">
-                    <SelectValue placeholder="Không gán xe" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Không gán xe</SelectItem>
-                    {contract.vehicles.map((cv) => (
-                      <SelectItem key={cv.id} value={cv.vehicle.id.toString()}>
-                        {cv.vehicle.model} · {cv.vehicle.serial_number}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+          </MobileSheetTitle>
+        </MobileSheetHeader>
+        <form onSubmit={handleSubmit((d) => mutation.mutate(d))}>
+          <MobileSheetBody className="space-y-4">
             <div className="space-y-1">
-              <Label>
-                Đơn giá <span className="text-error">*</span>
-              </Label>
-              <Input
-                type="number"
-                min={0}
-                {...register("unit_price", { valueAsNumber: true })}
+              <Label>Dịch vụ <span className="text-error">*</span></Label>
+              <Controller
+                control={control}
+                name="service_id"
+                render={({ field }) => (
+                  <Select
+                    value={field.value?.toString()}
+                    onValueChange={(v) => {
+                      const id = Number(v)
+                      field.onChange(id)
+                      if (!isEdit) {
+                        const svc = activeServices.find((s) => s.id === id)
+                        if (svc) setValue("unit_price", svc.default_price)
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="cursor-pointer">
+                      <SelectValue placeholder="Chọn dịch vụ" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {activeServices.map((s) => (
+                        <SelectItem key={s.id} value={s.id.toString()}>
+                          {s.name}<span className="ml-1 text-text-secondary">· {s.unit}</span>
+                        </SelectItem>
+                      ))}
+                      {activeServices.length === 0 && (
+                        <div className="py-3 text-center text-xs text-text-secondary">Chưa có dịch vụ nào</div>
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
               />
-              {errors.unit_price && (
-                <p className="text-xs text-error">
-                  {errors.unit_price.message}
-                </p>
-              )}
+              {errors.service_id && <p className="text-xs text-error">{errors.service_id.message}</p>}
             </div>
+
             <div className="space-y-1">
-              <Label>
-                Số lượng <span className="text-error">*</span>
-              </Label>
-              <Input
-                type="number"
-                min={1}
-                {...register("quantity", { valueAsNumber: true })}
+              <Label>Xe gán (tùy chọn)</Label>
+              <Controller
+                control={control}
+                name="vehicle_id"
+                render={({ field }) => (
+                  <Select
+                    value={field.value?.toString() ?? ""}
+                    onValueChange={(v) => field.onChange(v === "none" ? null : Number(v))}
+                  >
+                    <SelectTrigger className="cursor-pointer">
+                      <SelectValue placeholder="Không gán xe" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Không gán xe</SelectItem>
+                      {contract.vehicles.map((cv) => (
+                        <SelectItem key={cv.id} value={cv.vehicle.id.toString()}>
+                          {cv.vehicle.model} · {cv.vehicle.serial_number}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               />
-              {errors.quantity && (
-                <p className="text-xs text-error">{errors.quantity.message}</p>
-              )}
             </div>
-          </div>
 
-          <div className="space-y-1">
-            <Label>Thứ tự</Label>
-            <Input
-              type="number"
-              min={0}
-              {...register("sort_order", { valueAsNumber: true })}
-            />
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <Label>Đơn giá <span className="text-error">*</span></Label>
+                <Input type="number" min={0} {...register("unit_price", { valueAsNumber: true })} />
+                {errors.unit_price && <p className="text-xs text-error">{errors.unit_price.message}</p>}
+              </div>
+              <div className="space-y-1">
+                <Label>Số lượng <span className="text-error">*</span></Label>
+                <Input type="number" min={1} {...register("quantity", { valueAsNumber: true })} />
+                {errors.quantity && <p className="text-xs text-error">{errors.quantity.message}</p>}
+              </div>
+            </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              className="cursor-pointer"
-            >
-              Hủy
-            </Button>
-            <Button
-              type="submit"
-              disabled={mutation.isPending}
-              className="cursor-pointer"
-            >
+            <div className="space-y-1">
+              <Label>Thứ tự</Label>
+              <Input type="number" min={0} {...register("sort_order", { valueAsNumber: true })} />
+            </div>
+          </MobileSheetBody>
+          <MobileSheetFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="cursor-pointer">Hủy</Button>
+            <Button type="submit" disabled={mutation.isPending} className="cursor-pointer">
               {mutation.isPending ? "Đang lưu..." : "Lưu"}
             </Button>
-          </DialogFooter>
+          </MobileSheetFooter>
         </form>
-      </DialogContent>
-    </Dialog>
+      </MobileSheetContent>
+    </MobileSheetDialog>
   );
 }
 
@@ -613,152 +569,128 @@ export function ContractTab({
             Chưa có dịch vụ nào
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-bg-subtle border-b border-border">
-                  <th className="text-left px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">
-                    Dịch vụ
-                  </th>
-                  <th className="text-left px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">
-                    Xe gán
-                  </th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">
-                    Đơn giá
-                  </th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">
-                    SL
-                  </th>
-                  <th className="text-right px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">
-                    Thành tiền
-                  </th>
-                  {canEdit && contract.status === "active" && (
-                    <th className="px-4 py-2.5 w-16" />
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {contract.line_items.map((item) => {
-                  const cv = contract.vehicles.find(
-                    (v) => v.vehicle.id === item.vehicle_id,
-                  );
-                  const vehicleBadge = cv
-                    ? getVehicleStatusBadge(cv.vehicle.status)
-                    : null;
-                  return (
-                    <tr
-                      key={item.id}
-                      className="border-b border-border last:border-0 hover:bg-bg-subtle/50 transition-colors"
-                    >
-                      <td className="px-4 py-3 font-medium text-text-primary">
-                        {item.service.name}
-                      </td>
-                      <td className="px-4 py-3">
-                        {cv ? (
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-text-primary">
-                              {cv.vehicle.model} · {cv.vehicle.serial_number}
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              {vehicleBadge && (
-                                <span
-                                  className={`text-xs px-2 py-0.5 rounded-full ${vehicleBadge.className}`}
-                                >
-                                  {vehicleBadge.label}
-                                </span>
-                              )}
-                              <span className="text-xs text-text-secondary">
-                                {formatDate(cv.deploy_date)} →{" "}
-                                {cv.return_date
-                                  ? formatDate(cv.return_date)
-                                  : "Chưa thu"}
-                              </span>
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-text-disabled">
-                            Không gán xe
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap">
-                        {formatCurrency(item.unit_price)}
-                        <span className="text-text-disabled">
-                          /{item.service.unit}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap">
-                        {item.quantity} {item.service.unit}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-text-primary whitespace-nowrap">
-                        {formatCurrency(item.line_total)}
-                      </td>
-                      {canEdit && contract.status === "active" && (
+          <>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-bg-subtle border-b border-border">
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">Dịch vụ</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">Xe gán</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">Đơn giá</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">SL</th>
+                    <th className="text-right px-4 py-2.5 text-xs font-medium text-text-secondary uppercase tracking-wide">Thành tiền</th>
+                    {canEdit && contract.status === "active" && <th className="px-4 py-2.5 w-16" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {contract.line_items.map((item) => {
+                    const cv = contract.vehicles.find((v) => v.vehicle.id === item.vehicle_id);
+                    const vehicleBadge = cv ? getVehicleStatusBadge(cv.vehicle.status) : null;
+                    return (
+                      <tr key={item.id} className="border-b border-border last:border-0 hover:bg-bg-subtle/50 transition-colors">
+                        <td className="px-4 py-3 font-medium text-text-primary">{item.service.name}</td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-0.5">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openEditItem(item)}
-                              className="cursor-pointer h-7 w-7 p-0"
-                            >
-                              <Pencil size={13} />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setDeletingItemId(item.id)}
-                              className="cursor-pointer h-7 w-7 p-0 hover:bg-error hover:text-white"
-                            >
-                              <Trash2 size={13} />
-                            </Button>
-                          </div>
+                          {cv ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-text-primary">{cv.vehicle.model} · {cv.vehicle.serial_number}</span>
+                              <div className="flex items-center gap-1.5">
+                                {vehicleBadge && <span className={`text-xs px-2 py-0.5 rounded-full ${vehicleBadge.className}`}>{vehicleBadge.label}</span>}
+                                <span className="text-xs text-text-secondary">{formatDate(cv.deploy_date)} → {cv.return_date ? formatDate(cv.return_date) : "Chưa thu"}</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-text-disabled">Không gán xe</span>
+                          )}
                         </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot className="bg-primary-light border-t-2 border-primary/20">
-                <tr>
-                  <td
-                    colSpan={canEdit && contract.status === "active" ? 4 : 4}
-                    className="px-4 py-2.5 text-right text-xs text-text-secondary"
-                  >
-                    Tổng cộng trước thuế
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-sm font-medium text-text-primary whitespace-nowrap">
-                    {formatCurrency(contract.subtotal)}
-                  </td>
-                  {canEdit && contract.status === "active" && <td />}
-                </tr>
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-4 py-2.5 text-right text-xs text-text-secondary"
-                  >
-                    VAT
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-sm font-medium text-text-primary whitespace-nowrap">
-                    {formatCurrency(contract.tax_amount)}
-                  </td>
-                  {canEdit && contract.status === "active" && <td />}
-                </tr>
-                <tr className="border-t border-primary/20">
-                  <td
-                    colSpan={4}
-                    className="px-4 py-3 text-right text-sm font-semibold text-text-primary"
-                  >
-                    Tổng cộng sau thuế
-                  </td>
-                  <td className="px-4 py-3 text-right text-base font-bold text-primary whitespace-nowrap">
-                    {formatCurrency(contract.subtotal + contract.tax_amount)}
-                  </td>
-                  {canEdit && contract.status === "active" && <td />}
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                        <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap">
+                          {formatCurrency(item.unit_price)}<span className="text-text-disabled">/{item.service.unit}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap">{item.quantity} {item.service.unit}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-text-primary whitespace-nowrap">{formatCurrency(item.line_total)}</td>
+                        {canEdit && contract.status === "active" && (
+                          <td className="px-4 py-3">
+                            <div className="flex items-center justify-end gap-0.5">
+                              <Button variant="ghost" size="sm" onClick={() => openEditItem(item)} className="cursor-pointer h-7 w-7 p-0"><Pencil size={13} /></Button>
+                              <Button variant="ghost" size="sm" onClick={() => setDeletingItemId(item.id)} className="cursor-pointer h-7 w-7 p-0 hover:bg-error hover:text-white"><Trash2 size={13} /></Button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot className="bg-primary-light border-t-2 border-primary/20">
+                  <tr>
+                    <td colSpan={4} className="px-4 py-2.5 text-right text-xs text-text-secondary">Tổng cộng trước thuế</td>
+                    <td className="px-4 py-2.5 text-right text-sm font-medium text-text-primary whitespace-nowrap">{formatCurrency(contract.subtotal)}</td>
+                    {canEdit && contract.status === "active" && <td />}
+                  </tr>
+                  <tr>
+                    <td colSpan={4} className="px-4 py-2.5 text-right text-xs text-text-secondary">VAT</td>
+                    <td className="px-4 py-2.5 text-right text-sm font-medium text-text-primary whitespace-nowrap">{formatCurrency(contract.tax_amount)}</td>
+                    {canEdit && contract.status === "active" && <td />}
+                  </tr>
+                  <tr className="border-t border-primary/20">
+                    <td colSpan={4} className="px-4 py-3 text-right text-sm font-semibold text-text-primary">Tổng cộng sau thuế</td>
+                    <td className="px-4 py-3 text-right text-base font-bold text-primary whitespace-nowrap">{formatCurrency(contract.subtotal + contract.tax_amount)}</td>
+                    {canEdit && contract.status === "active" && <td />}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Mobile card list */}
+            <div className="sm:hidden divide-y divide-border">
+              {contract.line_items.map((item) => {
+                const cv = contract.vehicles.find((v) => v.vehicle.id === item.vehicle_id);
+                const vehicleBadge = cv ? getVehicleStatusBadge(cv.vehicle.status) : null;
+                return (
+                  <div key={item.id} className="px-4 py-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-sm text-text-primary">{item.service.name}</p>
+                        <p className="text-xs text-text-secondary mt-0.5">
+                          {item.quantity} {item.service.unit} × {formatCurrency(item.unit_price)}/{item.service.unit}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <span className="text-sm font-semibold text-text-primary">{formatCurrency(item.line_total)}</span>
+                        {canEdit && contract.status === "active" && (
+                          <>
+                            <Button variant="ghost" size="sm" onClick={() => openEditItem(item)} className="cursor-pointer h-7 w-7 p-0 ml-1"><Pencil size={13} /></Button>
+                            <Button variant="ghost" size="sm" onClick={() => setDeletingItemId(item.id)} className="cursor-pointer h-7 w-7 p-0 hover:bg-error hover:text-white"><Trash2 size={13} /></Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {cv ? (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs text-text-secondary">{cv.vehicle.model} · {cv.vehicle.serial_number}</span>
+                        {vehicleBadge && <span className={`text-xs px-2 py-0.5 rounded-full ${vehicleBadge.className}`}>{vehicleBadge.label}</span>}
+                        <span className="text-xs text-text-disabled">{formatDate(cv.deploy_date)} → {cv.return_date ? formatDate(cv.return_date) : "Chưa thu"}</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-text-disabled">Không gán xe</span>
+                    )}
+                  </div>
+                );
+              })}
+              {/* Mobile totals */}
+              <div className="bg-primary-light px-4 py-3 space-y-1.5">
+                <div className="flex justify-between text-xs text-text-secondary">
+                  <span>Trước thuế</span><span className="font-medium text-text-primary">{formatCurrency(contract.subtotal)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-text-secondary">
+                  <span>VAT</span><span className="font-medium text-text-primary">{formatCurrency(contract.tax_amount)}</span>
+                </div>
+                <div className="flex justify-between text-sm font-semibold border-t border-primary/20 pt-1.5">
+                  <span className="text-text-primary">Tổng sau thuế</span>
+                  <span className="text-primary">{formatCurrency(contract.subtotal + contract.tax_amount)}</span>
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
 

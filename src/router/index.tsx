@@ -15,6 +15,7 @@ import UserListPage from "@/pages/users/UserListPage";
 import NotificationsPage from "@/pages/notifications/NotificationsPage";
 import CompanySettingsPage from "@/pages/settings/CompanySettingsPage";
 import ServiceCatalogPage from "@/pages/service-catalog/ServiceCatalogPage";
+import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage";
 
 export const router = createBrowserRouter([
   {
@@ -40,6 +41,7 @@ export const router = createBrowserRouter([
       { path: "notifications", element: <NotificationsPage /> },
       { path: "settings", element: <CompanySettingsPage /> },
       { path: "service-catalog", element: <ServiceCatalogPage /> },
+      { path: "roles", element: <RolesPermissionsPage /> },
     ],
   },
 ]);

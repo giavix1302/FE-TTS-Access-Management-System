@@ -15,7 +15,7 @@ import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { DatePicker } from '@/components/shared/DatePicker'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { FileCard } from '@/components/shared/FileCard'
-import { TwoColDialog } from '@/components/shared/TwoColDialog'
+import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getInvoices, createInvoice, updateInvoice, deleteInvoice } from '@/api/contracts.api'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
@@ -111,7 +111,7 @@ function InvoiceDialog({
   })
 
   return (
-    <TwoColDialog
+    <MobileTwoColDialog
       open={open}
       onOpenChange={handleClose}
       title={isEdit ? 'Chỉnh sửa hóa đơn' : 'Thêm hóa đơn'}
@@ -167,7 +167,7 @@ function InvoiceDialog({
           {mutation.isPending ? 'Đang lưu...' : 'Lưu'}
         </Button>
       </div>
-    </TwoColDialog>
+    </MobileTwoColDialog>
   )
 }
 

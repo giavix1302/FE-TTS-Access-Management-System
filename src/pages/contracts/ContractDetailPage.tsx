@@ -12,14 +12,12 @@ import {
   AlertCircle,
   Building2,
   User,
-  Phone,
-  Mail,
-  MapPin,
   FileText,
 } from "lucide-react";
 import type { AxiosError } from "axios";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -30,12 +28,13 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
+  MobileSheetDialog,
+  MobileSheetContent,
+  MobileSheetHeader,
+  MobileSheetTitle,
+  MobileSheetBody,
+  MobileSheetFooter,
+} from "@/components/shared/MobileSheet";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { ContractTab } from "./components/ContractTab";
 import { AddendumsTab } from "./components/AddendumsTab";
@@ -458,7 +457,12 @@ function StatusChangeDropdown({
 
   if (contract.status === "cancelled") {
     return (
-      <Button variant="outline" disabled>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled
+        className="flex-1 sm:flex-none"
+      >
         <ChevronDown size={14} />
         Đổi trạng thái
       </Button>
@@ -469,7 +473,11 @@ function StatusChangeDropdown({
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" className="cursor-pointer">
+          <Button
+            variant="outline"
+            size="sm"
+            className="cursor-pointer flex-1 sm:flex-none"
+          >
             <ChevronDown size={14} />
             Đổi trạng thái
           </Button>
@@ -517,7 +525,7 @@ function StatusChangeDropdown({
       />
 
       {/* Cancel / Reopen — with reason textarea */}
-      <Dialog
+      <MobileSheetDialog
         open={confirmType === "cancel" || confirmType === "reopen"}
         onOpenChange={(v) => {
           if (!v) {
@@ -527,29 +535,33 @@ function StatusChangeDropdown({
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
+        <MobileSheetContent mobileVariant="sheet" className="sm:max-w-md">
+          <MobileSheetHeader>
+            <MobileSheetTitle>
               {confirmType === "cancel" ? "Hủy hợp đồng" : "Mở lại hợp đồng"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label>
-              {confirmType === "cancel" ? "Lý do hủy" : "Lý do mở lại"}
-              <span className="text-error"> *</span>
-            </Label>
-            <Textarea
-              rows={3}
-              value={reason}
-              onChange={(e) => {
-                setReason(e.target.value);
-                setReasonError("");
-              }}
-              placeholder="Nhập lý do..."
-            />
-            {reasonError && <p className="text-xs text-error">{reasonError}</p>}
-          </div>
-          <DialogFooter>
+            </MobileSheetTitle>
+          </MobileSheetHeader>
+          <MobileSheetBody>
+            <div className="space-y-2">
+              <Label>
+                {confirmType === "cancel" ? "Lý do hủy" : "Lý do mở lại"}
+                <span className="text-error"> *</span>
+              </Label>
+              <Textarea
+                rows={3}
+                value={reason}
+                onChange={(e) => {
+                  setReason(e.target.value);
+                  setReasonError("");
+                }}
+                placeholder="Nhập lý do..."
+              />
+              {reasonError && (
+                <p className="text-xs text-error">{reasonError}</p>
+              )}
+            </div>
+          </MobileSheetBody>
+          <MobileSheetFooter>
             <Button
               variant="outline"
               onClick={() => {
@@ -573,9 +585,9 @@ function StatusChangeDropdown({
                   ? "Hủy hợp đồng"
                   : "Mở lại"}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </MobileSheetFooter>
+        </MobileSheetContent>
+      </MobileSheetDialog>
     </>
   );
 }
@@ -650,86 +662,103 @@ export default function ContractDetailPage() {
 
       {/* Header card */}
       <div className="bg-bg-card rounded-lg border border-border shadow-card p-5 mt-2">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
-            {/* Contract number + status */}
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="font-mono font-bold text-lg text-text-primary">
-                {contract.contract_number}
-              </h1>
-              <span
-                className={`inline-flex items-center rounded-full px-3 py-1 text-[13px] font-medium ${statusClass}`}
-              >
-                {statusLabel}
-              </span>
-            </div>
+        {/* Title row */}
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <h1 className="font-mono font-bold text-base text-text-primary leading-tight">
+            {contract.contract_number}
+          </h1>
+          <span
+            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusClass}`}
+          >
+            {statusLabel}
+          </span>
+        </div>
 
-            {/* Customer info */}
-            <div className="mt-3 flex flex-col gap-1.5">
-              <div className="flex items-center gap-2">
-                {contract.customer.customer_type === "business" ? (
-                  <Building2
-                    size={14}
-                    className="text-text-secondary shrink-0"
-                  />
-                ) : (
-                  <User size={14} className="text-text-secondary shrink-0" />
-                )}
-                <span className="font-semibold text-text-primary text-sm">
-                  {contract.customer.display_name}
-                </span>
-                {contract.customer.customer_type === "business" &&
-                  contract.customer.tax_code && (
-                    <span className="text-xs text-text-secondary">
-                      · MST: {contract.customer.tax_code}
-                    </span>
-                  )}
-                {contract.customer.customer_type === "business" &&
-                  contract.customer.representative && (
-                    <span className="text-xs text-text-secondary">
-                      · Đại diện: {contract.customer.representative}
-                    </span>
-                  )}
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {contract.customer.phone && (
-                  <span className="flex items-center gap-1.5 text-xs text-text-secondary">
-                    <Phone size={12} className="shrink-0 text-primary" />
-                    {contract.customer.phone}
-                  </span>
-                )}
-                {contract.customer.email && (
-                  <span className="flex items-center gap-1.5 text-xs text-text-secondary">
-                    <Mail size={12} className="shrink-0 text-primary" />
-                    {contract.customer.email}
-                  </span>
-                )}
-                {contract.customer.customer_type === "business" &&
-                  contract.customer.office_address && (
-                    <span className="flex items-center gap-1.5 text-xs text-text-secondary">
-                      <MapPin size={12} className="shrink-0 text-primary" />
-                      {contract.customer.office_address}
-                    </span>
-                  )}
-                {contract.customer.customer_type === "individual" &&
-                  contract.customer.permanent_address && (
-                    <span className="flex items-center gap-1.5 text-xs text-text-secondary">
-                      <MapPin size={12} className="shrink-0 text-primary" />
-                      {contract.customer.permanent_address}
-                    </span>
-                  )}
-              </div>
+        <Separator className="mb-4" />
+
+        {/* Customer info grid */}
+        <div className="grid grid-cols-2 gap-x-8 gap-y-3">
+          <div className="col-span-2">
+            <p className="text-xs text-text-secondary">Khách hàng</p>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {contract.customer.customer_type === "business" ? (
+                <Building2 size={13} className="text-text-secondary shrink-0" />
+              ) : (
+                <User size={13} className="text-text-secondary shrink-0" />
+              )}
+              <p className="text-sm font-medium text-text-primary">
+                {contract.customer.display_name}
+              </p>
             </div>
           </div>
-          {canEdit && (
-            <div className="flex gap-2 flex-shrink-0">
-              <StatusChangeDropdown
-                contract={contract}
-                contractId={contractId}
-              />
+
+          {contract.customer.customer_type === "business" &&
+            contract.customer.tax_code && (
+              <div>
+                <p className="text-xs text-text-secondary">Mã số thuế</p>
+                <p className="text-sm font-medium text-text-primary">
+                  {contract.customer.tax_code}
+                </p>
+              </div>
+            )}
+
+          {contract.customer.customer_type === "business" &&
+            contract.customer.representative && (
+              <div>
+                <p className="text-xs text-text-secondary">Người đại diện</p>
+                <p className="text-sm font-medium text-text-primary">
+                  {contract.customer.representative}
+                </p>
+              </div>
+            )}
+
+          {contract.customer.phone && (
+            <div>
+              <p className="text-xs text-text-secondary">Điện thoại</p>
+              <p className="text-sm font-medium text-text-primary">
+                {contract.customer.phone}
+              </p>
             </div>
           )}
+
+          {contract.customer.email && (
+            <div>
+              <p className="text-xs text-text-secondary">Email</p>
+              <p className="text-sm font-medium text-text-primary break-all">
+                {contract.customer.email}
+              </p>
+            </div>
+          )}
+
+          {contract.customer.customer_type === "business" &&
+            contract.customer.office_address && (
+              <div className="col-span-2">
+                <p className="text-xs text-text-secondary">Địa chỉ văn phòng</p>
+                <p className="text-sm font-medium text-text-primary">
+                  {contract.customer.office_address}
+                </p>
+              </div>
+            )}
+
+          {contract.customer.customer_type === "individual" &&
+            contract.customer.permanent_address && (
+              <div className="col-span-2">
+                <p className="text-xs text-text-secondary">
+                  Địa chỉ thường trú
+                </p>
+                <p className="text-sm font-medium text-text-primary">
+                  {contract.customer.permanent_address}
+                </p>
+              </div>
+            )}
         </div>
+
+        {/* Row actions */}
+        {canEdit && (
+          <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
+            <StatusChangeDropdown contract={contract} contractId={contractId} />
+          </div>
+        )}
       </div>
 
       {/* Summary cards */}

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuthStore } from "@/stores/authStore";
 import { useQuery } from "@tanstack/react-query";
 import { CreateContractDialog } from "./components/CreateContractDialog";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
@@ -116,6 +117,8 @@ const PAGE_SIZE = 20;
 // ─── ContractListPage ─────────────────────────────────────────────────────────
 export default function ContractListPage() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
+  const canCreate = user?.permissions?.includes("contracts.create") ?? false;
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -281,10 +284,12 @@ export default function ContractListPage() {
         title="Hợp đồng"
         subtitle="Tất cả hợp đồng của công ty"
         actions={
-          <Button onClick={() => setCreateOpen(true)} className="cursor-pointer">
-            <Plus size={16} />
-            Tạo hợp đồng
-          </Button>
+          canCreate ? (
+            <Button onClick={() => setCreateOpen(true)} className="cursor-pointer">
+              <Plus size={16} />
+              Tạo hợp đồng
+            </Button>
+          ) : undefined
         }
       />
 
@@ -381,14 +386,16 @@ export default function ContractListPage() {
           emptyTitle="Không tìm thấy hợp đồng nào"
           emptyDescription="Thử thay đổi bộ lọc hoặc tạo hợp đồng mới"
           emptyAction={
-            <Button
-              size="sm"
-              className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
-              onClick={() => setCreateOpen(true)}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Tạo hợp đồng
-            </Button>
+            canCreate ? (
+              <Button
+                size="sm"
+                className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Tạo hợp đồng
+              </Button>
+            ) : undefined
           }
         />
       </div>
@@ -411,13 +418,15 @@ export default function ContractListPage() {
             <p className="text-[length:var(--fs-base)] text-text-secondary">
               Không tìm thấy hợp đồng nào
             </p>
-            <Button
-              size="sm"
-              className="bg-primary hover:bg-primary-dark text-white mt-1 cursor-pointer"
-              onClick={() => setCreateOpen(true)}
-            >
-              <Plus className="h-4 w-4 mr-1" /> Tạo hợp đồng
-            </Button>
+            {canCreate && (
+              <Button
+                size="sm"
+                className="bg-primary hover:bg-primary-dark text-white mt-1 cursor-pointer"
+                onClick={() => setCreateOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-1" /> Tạo hợp đồng
+              </Button>
+            )}
           </div>
         ) : (
           contracts.map((c) => {

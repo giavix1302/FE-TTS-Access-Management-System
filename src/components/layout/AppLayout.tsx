@@ -3,58 +3,35 @@ import { Outlet, useNavigate } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { useAuthStore } from "@/stores/authStore";
-// import { getMe } from "@/api/auth.api"; // uncomment khi backend sẵn sàng
-
-// --- MOCK DATA (xóa khi backend sẵn sàng) ---
-const MOCK_USER = {
-  id: 1,
-  full_name: "Nguyễn Văn Admin",
-  phone: "0901234567",
-  email: "admin@tts.vn",
-  avatar_url: undefined as string | undefined,
-  roles: ["admin"],
-  permissions: [
-    "users:view",
-    "vehicles:view",
-    "contracts:view",
-    "customers:view",
-  ],
-};
-// --- END MOCK DATA ---
+import { getMe } from "@/api/auth.api";
 
 export default function AppLayout() {
   const navigate = useNavigate();
-  const { user, accessToken, setAuth } = useAuthStore();
+  const { user, accessToken, setUser } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    // Nếu đã có user và accessToken trong store (persist), không cần gọi lại
-    if (user && accessToken) return;
+    // Đã có user in-memory → không cần gọi lại
+    if (user) return;
 
-    // TODO: Bỏ mock và dùng getMe() khi backend sẵn sàng
+    // Sau reload: accessToken mất, user mất, nhưng cookie vẫn còn
+    // Gọi getMe() → axios interceptor sẽ tự refresh cookie để lấy accessToken mới
     const fetchMe = async () => {
       try {
-        // --- MOCK: comment khối này khi backend sẵn sàng ---
-        setAuth(
-          MOCK_USER,
-          accessToken ?? "mock-access-token",
-          "mock-refresh-token",
-        );
-        // --- END MOCK ---
-
-        // --- REAL API (uncomment khi backend sẵn sàng) ---
-        // const res = await getMe();
-        // if (res.success) {
-        //   setAuth(res.data, accessToken ?? "", useAuthStore.getState().refreshToken ?? "");
-        // }
+        const res = await getMe();
+        if (res.success) {
+          setUser(res.data);
+        } else {
+          navigate("/login", { replace: true });
+        }
       } catch {
         navigate("/login", { replace: true });
       }
     };
 
     fetchMe();
-  }, [user, accessToken, setAuth, navigate]);
+  }, [user, setUser, navigate]);
 
   return (
     <div className="flex h-screen overflow-hidden">

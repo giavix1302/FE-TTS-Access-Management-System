@@ -1,12 +1,11 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
 
 interface User {
   id: number;
   full_name: string;
   phone: string;
-  email?: string;
-  avatar_url?: string;
+  email?: string | null;
+  avatar_url?: string | null;
   roles: string[];
   permissions: string[];
 }
@@ -14,26 +13,21 @@ interface User {
 interface AuthState {
   user: User | null;
   accessToken: string | null;
-  refreshToken: string | null;
-  setAuth: (user: User, accessToken: string, refreshToken: string) => void;
+  setAuth: (user: User, accessToken: string) => void;
   setUser: (user: User) => void;
+  setAccessToken: (accessToken: string) => void;
   clearAuth: () => void;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
-      user: null,
-      accessToken: null,
-      refreshToken: null,
-      setAuth: (user, accessToken, refreshToken) =>
-        set({ user, accessToken, refreshToken }),
-      setUser: (user) => set({ user }),
-      clearAuth: () =>
-        set({ user: null, accessToken: null, refreshToken: null }),
-    }),
-    {
-      name: "tts-auth",
-    }
-  )
-);
+// Không persist gì vào localStorage:
+// - accessToken: in-memory (mất khi reload → tự refresh qua HttpOnly cookie)
+// - refreshToken: HttpOnly cookie, JS không đọc được
+// - user: lấy lại từ GET /auth/me sau mỗi lần reload
+export const useAuthStore = create<AuthState>()((set) => ({
+  user: null,
+  accessToken: null,
+  setAuth: (user, accessToken) => set({ user, accessToken }),
+  setUser: (user) => set({ user }),
+  setAccessToken: (accessToken) => set({ accessToken }),
+  clearAuth: () => set({ user: null, accessToken: null }),
+}));

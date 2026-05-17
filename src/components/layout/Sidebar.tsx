@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -25,6 +26,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { generateInitials } from "@/utils/helpers";
 import { logout } from "@/api/auth.api";
+import { ConfirmModal } from "@/components/shared/ConfirmModal";
 
 interface NavItem {
   label: string;
@@ -50,7 +52,7 @@ const NAV_ADMIN: NavItem[] = [
     label: "Người dùng",
     icon: UserCog,
     to: "/users",
-    guard: (_roles, permissions) => permissions.includes("users:view"),
+    guard: (_roles, permissions) => permissions.includes("users.view"),
   },
   {
     label: "Danh mục dịch vụ",
@@ -87,8 +89,10 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, clearAuth, refreshToken } = useAuthStore();
+  const { user, clearAuth } = useAuthStore();
   const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
   const roles = user?.roles ?? [];
   const permissions = user?.permissions ?? [];
@@ -99,13 +103,13 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
   };
 
   const handleLogout = async () => {
+    setLogoutLoading(true);
     try {
-      if (refreshToken) {
-        await logout(refreshToken);
-      }
+      await logout();
     } catch {
       // bỏ qua lỗi logout, vẫn clear local
     } finally {
+      setLogoutLoading(false);
       clearAuth();
       navigate("/login", { replace: true });
     }
@@ -253,13 +257,22 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
               <span className="flex-1 truncate text-[length:var(--fs-nav)] font-medium text-[#5A5A66]">
                 {user?.full_name ?? "---"}
               </span>
-              <button
-                onClick={handleLogout}
-                title="Đăng xuất"
-                className="shrink-0 rounded p-1 text-[#718096] transition-colors hover:text-[#E74C3C]"
-              >
-                <LogOut size={18} />
-              </button>
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setLogoutOpen(true)}
+                    className="cursor-pointer shrink-0 rounded p-1 text-[#718096] transition-colors hover:text-[#E74C3C]"
+                  >
+                    <LogOut size={18} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="right"
+                  className="rounded-lg border-0 bg-[#E74C3C] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
+                >
+                  Đăng xuất
+                </TooltipContent>
+              </Tooltip>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2">
@@ -285,8 +298,8 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
               <Tooltip delayDuration={100}>
                 <TooltipTrigger asChild>
                   <button
-                    onClick={handleLogout}
-                    className="flex items-center justify-center rounded p-1 text-[#718096] transition-colors hover:text-[#E74C3C]"
+                    onClick={() => setLogoutOpen(true)}
+                    className="cursor-pointer flex items-center justify-center rounded p-1 text-[#718096] transition-colors hover:text-[#E74C3C]"
                   >
                     <LogOut size={18} />
                   </button>
@@ -302,6 +315,17 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
           )}
         </div>
       </aside>
+
+      <ConfirmModal
+        open={logoutOpen}
+        onOpenChange={setLogoutOpen}
+        title="Đăng xuất?"
+        description="Bạn sẽ được chuyển về trang đăng nhập. Các phiên làm việc chưa lưu sẽ bị mất."
+        confirmLabel="Đăng xuất"
+        variant="danger"
+        loading={logoutLoading}
+        onConfirm={handleLogout}
+      />
     </TooltipProvider>
   );
 }

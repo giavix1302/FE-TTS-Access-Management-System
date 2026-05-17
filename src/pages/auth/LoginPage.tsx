@@ -5,30 +5,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Phone, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
+import { login } from "@/api/auth.api";
 import { loginSchema, type LoginFormValues } from "./login.schema";
-
-// ---------------------------------------------------------------------------
-// MOCK
-// ---------------------------------------------------------------------------
-const MOCK_CREDENTIALS = { phone: "0901234567", password: "123456" };
-const MOCK_RESPONSE = {
-  access_token: "mock-access-token",
-  refresh_token: "mock-refresh-token",
-  user: {
-    id: 1,
-    full_name: "Nguyễn Văn Admin",
-    phone: "0901234567",
-    email: "admin@tts.vn",
-    avatar_url: undefined as string | undefined,
-    roles: ["admin"],
-    permissions: [
-      "users:view",
-      "vehicles:view",
-      "contracts:view",
-      "customers:view",
-    ],
-  },
-};
 
 // ---------------------------------------------------------------------------
 // Slides config
@@ -168,6 +146,7 @@ function RightPanel() {
 function LeftPanel() {
   const navigate = useNavigate();
   const { setAuth, accessToken } = useAuthStore();
+
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -184,33 +163,28 @@ function LeftPanel() {
   const onSubmit = async (values: LoginFormValues) => {
     setIsLoading(true);
     try {
-      // --- MOCK ---
-      await new Promise((res) => setTimeout(res, 800));
-      if (
-        values.phone === MOCK_CREDENTIALS.phone &&
-        values.password === MOCK_CREDENTIALS.password
-      ) {
-        const { access_token, refresh_token, user } = MOCK_RESPONSE;
-        setAuth(user, access_token, refresh_token);
+      const res = await login({ phone: values.phone, password: values.password });
+      if (res.success) {
+        const { access_token, user } = res.data;
+        setAuth(
+          {
+            id: user.id,
+            full_name: user.full_name,
+            phone: user.phone,
+            email: user.email,
+            avatar_url: user.avatar_url,
+            roles: user.roles,
+            permissions: user.permissions,
+          },
+          access_token,
+        );
         navigate("/", { replace: true });
-      } else {
-        toast.error("Số điện thoại hoặc mật khẩu không đúng");
       }
-      return;
-      // --- END MOCK ---
-
-      // --- REAL API ---
-      // const res = await login({ phone: values.phone, password: values.password });
-      // if (res.success) {
-      //   setAuth(res.data.user, res.data.access_token, res.data.refresh_token);
-      //   navigate("/", { replace: true });
-      // }
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response
-        ?.status;
-      if (status === 401) toast.error("Số điện thoại hoặc mật khẩu không đúng");
-      else if (status === 403)
-        toast.error("Tài khoản đã bị vô hiệu hóa. Liên hệ admin");
+      const data = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data;
+      const code = data?.error?.code;
+      if (code === "UNAUTHORIZED") toast.error("Số điện thoại hoặc mật khẩu không đúng");
+      else if (code === "ACCOUNT_DISABLED") toast.error("Tài khoản đã bị vô hiệu hóa. Liên hệ admin");
       else toast.error("Không thể kết nối server");
     } finally {
       setIsLoading(false);
@@ -319,10 +293,6 @@ function LeftPanel() {
         {/* Footer */}
         <p className="mt-4 lg:mt-8 text-center text-[14px] text-[#718096]">
           Gặp sự cố? Liên hệ quản trị viên để được hỗ trợ
-        </p>
-        <p className="mt-2 text-center text-[16px] text-[#CBD5E0]">
-          Demo: <span className="font-mono">0901234567</span> /{" "}
-          <span className="font-mono">123456</span>
         </p>
       </div>
     </div>

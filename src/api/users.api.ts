@@ -12,5 +12,14 @@ export const createUser = (body: unknown) =>
 export const updateUser = (id: number, body: unknown) =>
   axiosInstance.put(`/users/${id}`, body).then((r) => r.data);
 
-export const deleteUser = (id: number) =>
-  axiosInstance.delete(`/users/${id}`).then((r) => r.data);
+export const activateUser = (id: number) =>
+  axiosInstance.put(`/users/${id}/activate`).then((r) => r.data);
+
+export const deactivateUser = (id: number) =>
+  axiosInstance.put(`/users/${id}/deactivate`).then((r) => r.data);
+
+export const resetPassword = (id: number) =>
+  axiosInstance.post(`/users/${id}/reset-password`).then((r) => r.data);
+
+export const updateUserRoles = (id: number, role_ids: number[]) =>
+  axiosInstance.put(`/users/${id}/roles`, { role_ids }).then((r) => r.data);

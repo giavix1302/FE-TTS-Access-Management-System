@@ -41,90 +41,16 @@ import {
 } from "@/components/ui/select";
 import { formatDate } from "@/utils/format";
 import type { User, UserRole } from "@/types/user.types";
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-const MOCK_USERS: User[] = [
-  {
-    id: 1,
-    full_name: "Trần Minh Quân",
-    phone: "0901111001",
-    email: "quan.tran@awpms.vn",
-    roles: ["admin"],
-    permissions: [],
-    is_active: true,
-    created_at: "2025-01-01T08:00:00Z",
-  },
-  {
-    id: 2,
-    full_name: "Nguyễn Thị Hoa",
-    phone: "0902222002",
-    email: "hoa.nguyen@awpms.vn",
-    roles: ["manager"],
-    permissions: [],
-    is_active: true,
-    created_at: "2025-01-15T08:00:00Z",
-  },
-  {
-    id: 3,
-    full_name: "Lê Văn Bình",
-    phone: "0903333003",
-    email: "binh.le@awpms.vn",
-    roles: ["accountant"],
-    permissions: [],
-    is_active: true,
-    created_at: "2025-02-01T08:00:00Z",
-  },
-  {
-    id: 4,
-    full_name: "Phạm Thị Cúc",
-    phone: "0904444004",
-    email: null,
-    roles: ["staff"],
-    permissions: [],
-    is_active: true,
-    created_at: "2025-02-10T08:00:00Z",
-  },
-  {
-    id: 5,
-    full_name: "Hoàng Văn Đức",
-    phone: "0905555005",
-    email: "duc.hoang@awpms.vn",
-    roles: ["manager", "accountant"],
-    permissions: [],
-    is_active: false,
-    created_at: "2025-03-01T08:00:00Z",
-  },
-  {
-    id: 6,
-    full_name: "Vũ Thị Em",
-    phone: "0906666006",
-    email: "em.vu@awpms.vn",
-    roles: ["staff"],
-    permissions: [],
-    is_active: true,
-    created_at: "2025-03-20T08:00:00Z",
-  },
-  {
-    id: 7,
-    full_name: "Đặng Văn Phúc",
-    phone: "0907777007",
-    email: "phuc.dang@awpms.vn",
-    roles: ["accountant"],
-    permissions: [],
-    is_active: true,
-    created_at: "2025-04-01T08:00:00Z",
-  },
-  {
-    id: 8,
-    full_name: "Bùi Thị Giang",
-    phone: "0908888008",
-    email: null,
-    roles: ["staff"],
-    permissions: [],
-    is_active: false,
-    created_at: "2025-04-15T08:00:00Z",
-  },
-];
+import {
+  getUsers,
+  createUser,
+  updateUser,
+  activateUser,
+  deactivateUser,
+  resetPassword,
+  updateUserRoles,
+} from "@/api/users.api";
+import { getRoles } from "@/api/roles.api";
 
 // ─── Role config ──────────────────────────────────────────────────────────────
 const ROLE_CONFIG: Record<UserRole, { label: string; className: string }> = {
@@ -231,9 +157,13 @@ const createSchema = z.object({
     .regex(/^0\d{9}$/, "Phải là 10 số, bắt đầu bằng 0"),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
   password: z.string().min(8, "Tối thiểu 8 ký tự"),
+  confirm_password: z.string().min(1, "Bắt buộc"),
   role: z.enum(["admin", "manager", "accountant", "staff"], {
     required_error: "Bắt buộc chọn vai trò",
   }),
+}).refine((d) => d.password === d.confirm_password, {
+  message: "Mật khẩu xác nhận không khớp",
+  path: ["confirm_password"],
 });
 
 const editSchema = z.object({
@@ -264,6 +194,13 @@ function CreateUserDialog({
   const queryClient = useQueryClient();
   const isDesktop = useMediaQuery("(min-width: 640px)");
 
+  const { data: rolesData } = useQuery({
+    queryKey: QUERY_KEYS.roles.all,
+    queryFn: () => getRoles(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const rolesList: { id: number; name: string }[] = rolesData?.data ?? [];
+
   const {
     register,
     handleSubmit,
@@ -276,14 +213,28 @@ function CreateUserDialog({
   });
 
   const mutation = useMutation({
-    mutationFn: (_body: CreateForm) =>
-      new Promise<void>((res) => setTimeout(res, 600)),
+    mutationFn: (body: CreateForm) => {
+      const roleId = rolesList.find((r) => r.name === body.role)?.id;
+      if (!roleId) throw new Error("Không tìm thấy role");
+      return createUser({
+        full_name: body.full_name,
+        phone: body.phone,
+        email: body.email || null,
+        password: body.password,
+        role_ids: [roleId],
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.users.all });
       toast.success("Thêm người dùng thành công");
       handleClose();
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err: unknown) => {
+      const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
+      if (code === "PHONE_ALREADY_EXISTS") toast.error("Số điện thoại đã được sử dụng");
+      else if (code === "EMAIL_ALREADY_EXISTS") toast.error("Email đã được sử dụng");
+      else toast.error("Có lỗi xảy ra");
+    },
   });
 
   function handleClose() {
@@ -330,17 +281,31 @@ function CreateUserDialog({
         </div>
       </div>
 
-      <div>
-        <Label className="text-xs font-medium text-text-secondary">
-          Mật khẩu <span className="text-error">*</span>
-        </Label>
-        <input
-          {...register("password")}
-          type="password"
-          placeholder="Tối thiểu 8 ký tự"
-          className={`${fieldClass} mt-1`}
-        />
-        {errors.password && <p className={errClass}>{errors.password.message}</p>}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Mật khẩu <span className="text-error">*</span>
+          </Label>
+          <input
+            {...register("password")}
+            type="password"
+            placeholder="Tối thiểu 8 ký tự"
+            className={`${fieldClass} mt-1`}
+          />
+          {errors.password && <p className={errClass}>{errors.password.message}</p>}
+        </div>
+        <div>
+          <Label className="text-xs font-medium text-text-secondary">
+            Xác nhận mật khẩu <span className="text-error">*</span>
+          </Label>
+          <input
+            {...register("confirm_password")}
+            type="password"
+            placeholder="Nhập lại mật khẩu"
+            className={`${fieldClass} mt-1`}
+          />
+          {errors.confirm_password && <p className={errClass}>{errors.confirm_password.message}</p>}
+        </div>
       </div>
 
       <div>
@@ -450,9 +415,24 @@ function EditUserDialog({
     },
   });
 
+  const { data: rolesData } = useQuery({
+    queryKey: QUERY_KEYS.roles.all,
+    queryFn: () => getRoles(),
+    staleTime: 5 * 60 * 1000,
+  });
+  const rolesList: { id: number; name: string }[] = rolesData?.data ?? [];
+
   const mutation = useMutation({
-    mutationFn: (_body: EditForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: async (body: EditForm) => {
+      await updateUser(user.id, {
+        full_name: body.full_name,
+        email: body.email || null,
+      });
+      if (!isSelf && body.role !== user.roles[0]) {
+        const roleId = rolesList.find((r) => r.name === body.role)?.id;
+        if (roleId) await updateUserRoles(user.id, [roleId]);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.users.all });
       toast.success("Cập nhật thành công");
@@ -608,12 +588,9 @@ function ResetPasswordDialog({
   const [copied, setCopied] = useState(false);
 
   const mutation = useMutation({
-    mutationFn: () =>
-      new Promise<string>((res) =>
-        setTimeout(() => res("Awpms@" + Math.floor(100000 + Math.random() * 900000)), 600),
-      ),
-    onSuccess: (pwd) => {
-      setTempPassword(pwd);
+    mutationFn: () => resetPassword(user.id),
+    onSuccess: (res) => {
+      setTempPassword(res.data?.temporary_password ?? null);
     },
     onError: () => toast.error("Có lỗi xảy ra"),
   });
@@ -701,34 +678,14 @@ export default function UserListPage() {
       ...QUERY_KEYS.users.all,
       { search: debouncedSearch, roleFilter, activeFilter, page },
     ],
-    queryFn: () => {
-      const filtered = MOCK_USERS.filter((u) => {
-        const q = debouncedSearch.toLowerCase();
-        const matchSearch =
-          !q ||
-          u.full_name.toLowerCase().includes(q) ||
-          u.phone.includes(q) ||
-          (u.email ?? "").toLowerCase().includes(q);
-        const matchRole = !roleFilter || u.roles.includes(roleFilter as UserRole);
-        const matchActive =
-          activeFilter === ""
-            ? true
-            : activeFilter === "active"
-              ? u.is_active
-              : !u.is_active;
-        return matchSearch && matchRole && matchActive;
-      });
-      const start = (page - 1) * PAGE_SIZE;
-      return Promise.resolve({
-        data: filtered.slice(start, start + PAGE_SIZE),
-        meta: {
-          total: filtered.length,
-          page,
-          page_size: PAGE_SIZE,
-          total_pages: Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
-        },
-      });
-    },
+    queryFn: () =>
+      getUsers({
+        search: debouncedSearch || undefined,
+        role: roleFilter || undefined,
+        is_active: activeFilter === "active" ? true : activeFilter === "inactive" ? false : undefined,
+        page,
+        page_size: PAGE_SIZE,
+      }),
   });
 
   const users = data?.data ?? [];
@@ -737,7 +694,7 @@ export default function UserListPage() {
   const resetPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
 
   const toggleMutation = useMutation({
-    mutationFn: (_user: User) => new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (u: User) => u.is_active ? deactivateUser(u.id) : activateUser(u.id),
     onSuccess: (_, u) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.users.all });
       toast.success(u.is_active ? "Đã vô hiệu hóa tài khoản" : "Đã kích hoạt tài khoản");

@@ -7,16 +7,17 @@ import { getMe } from "@/api/auth.api";
 
 export default function AppLayout() {
   const navigate = useNavigate();
-  const { user, accessToken, setUser } = useAuthStore();
+  const { user, setUser } = useAuthStore();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [restoring, setRestoring] = useState(!user);
 
   useEffect(() => {
-    // Đã có user in-memory → không cần gọi lại
-    if (user) return;
+    if (user) {
+      setRestoring(false);
+      return;
+    }
 
-    // Sau reload: accessToken mất, user mất, nhưng cookie vẫn còn
-    // Gọi getMe() → axios interceptor sẽ tự refresh cookie để lấy accessToken mới
     const fetchMe = async () => {
       try {
         const res = await getMe();
@@ -27,11 +28,15 @@ export default function AppLayout() {
         }
       } catch {
         navigate("/login", { replace: true });
+      } finally {
+        setRestoring(false);
       }
     };
 
     fetchMe();
   }, [user, setUser, navigate]);
+
+  if (restoring) return null;
 
   return (
     <div className="flex h-screen overflow-hidden">

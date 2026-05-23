@@ -108,7 +108,7 @@ function ActiveBadge({ isActive }: { isActive: boolean }) {
 }
 
 function UserAvatar({ user, size = "sm" }: { user: User; size?: "sm" | "md" | "lg" }) {
-  const initials = user.full_name
+  const initials = user.fullName
     .split(" ")
     .slice(-2)
     .map((w) => w[0])
@@ -121,11 +121,11 @@ function UserAvatar({ user, size = "sm" }: { user: User; size?: "sm" | "md" | "l
     lg: "h-12 w-12 text-base",
   }[size];
 
-  if (user.avatar_url) {
+  if (user.avatarUrl) {
     return (
       <img
-        src={user.avatar_url}
-        alt={user.full_name}
+        src={user.avatarUrl}
+        alt={user.fullName}
         className={`${sizeClass} rounded-full object-cover shrink-0`}
       />
     );
@@ -177,7 +177,7 @@ const editSchema = z.object({
 type CreateForm = z.infer<typeof createSchema>;
 type EditForm = z.infer<typeof editSchema>;
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 const fieldClass =
   "w-full px-3 py-2 text-sm border border-input rounded-md outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 bg-background";
@@ -217,11 +217,11 @@ function CreateUserDialog({
       const roleId = rolesList.find((r) => r.name === body.role)?.id;
       if (!roleId) throw new Error("Không tìm thấy role");
       return createUser({
-        full_name: body.full_name,
+        fullName: body.full_name,
         phone: body.phone,
         email: body.email || null,
         password: body.password,
-        role_ids: [roleId],
+        roleIds: [roleId],
       });
     },
     onSuccess: () => {
@@ -409,7 +409,7 @@ function EditUserDialog({
   } = useForm<EditForm>({
     resolver: zodResolver(editSchema),
     defaultValues: {
-      full_name: user.full_name,
+      full_name: user.fullName,
       email: user.email ?? "",
       role: user.roles[0] ?? "staff",
     },
@@ -425,7 +425,7 @@ function EditUserDialog({
   const mutation = useMutation({
     mutationFn: async (body: EditForm) => {
       await updateUser(user.id, {
-        full_name: body.full_name,
+        fullName: body.full_name,
         email: body.email || null,
       });
       if (!isSelf && body.role !== user.roles[0]) {
@@ -549,7 +549,7 @@ function EditUserDialog({
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Chỉnh sửa — {user.full_name}</DialogTitle>
+            <DialogTitle>Chỉnh sửa — {user.fullName}</DialogTitle>
           </DialogHeader>
           {formContent}
           <Separator />
@@ -563,7 +563,7 @@ function EditUserDialog({
     <MobileSheetDialog open={open} onOpenChange={handleClose}>
       <MobileSheetContent mobileVariant="fullscreen" title="Chỉnh sửa người dùng">
         <MobileSheetHeader>
-          <MobileSheetTitle>Chỉnh sửa — {user.full_name}</MobileSheetTitle>
+          <MobileSheetTitle>Chỉnh sửa — {user.fullName}</MobileSheetTitle>
         </MobileSheetHeader>
         <MobileSheetBody className="flex-1 overflow-y-auto">
           {formContent}
@@ -590,7 +590,7 @@ function ResetPasswordDialog({
   const mutation = useMutation({
     mutationFn: () => resetPassword(user.id),
     onSuccess: (res) => {
-      setTempPassword(res.data?.temporary_password ?? null);
+      setTempPassword(res.data?.temporaryPassword ?? null);
     },
     onError: () => toast.error("Có lỗi xảy ra"),
   });
@@ -612,11 +612,11 @@ function ResetPasswordDialog({
     <ConfirmModal
       open={open}
       onOpenChange={(v) => { if (!v) handleClose(); }}
-      title={`Reset mật khẩu — ${user.full_name}`}
+      title={`Reset mật khẩu — ${user.fullName}`}
       description={
         tempPassword
           ? undefined
-          : `Hệ thống sẽ tạo mật khẩu tạm thời mới và thu hồi toàn bộ phiên đăng nhập của "${user.full_name}". Hành động này không thể hoàn tác.`
+          : `Hệ thống sẽ tạo mật khẩu tạm thời mới và thu hồi toàn bộ phiên đăng nhập của "${user.fullName}". Hành động này không thể hoàn tác.`
       }
       confirmLabel={tempPassword ? "Đóng" : "Reset mật khẩu"}
       variant="primary"
@@ -682,7 +682,7 @@ export default function UserListPage() {
       getUsers({
         search: debouncedSearch || undefined,
         role: roleFilter || undefined,
-        is_active: activeFilter === "active" ? true : activeFilter === "inactive" ? false : undefined,
+        isActive: activeFilter === "active" ? true : activeFilter === "inactive" ? false : undefined,
         page,
         page_size: PAGE_SIZE,
       }),
@@ -694,10 +694,10 @@ export default function UserListPage() {
   const resetPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
 
   const toggleMutation = useMutation({
-    mutationFn: (u: User) => u.is_active ? deactivateUser(u.id) : activateUser(u.id),
+    mutationFn: (u: User) => u.isActive ? deactivateUser(u.id) : activateUser(u.id),
     onSuccess: (_, u) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.users.all });
-      toast.success(u.is_active ? "Đã vô hiệu hóa tài khoản" : "Đã kích hoạt tài khoản");
+      toast.success(u.isActive ? "Đã vô hiệu hóa tài khoản" : "Đã kích hoạt tài khoản");
       setToggleUser(null);
     },
     onError: () => toast.error("Có lỗi xảy ra"),
@@ -714,7 +714,7 @@ export default function UserListPage() {
           <div className="flex items-center gap-3">
             <UserAvatar user={u} size="sm" />
             <div className="min-w-0">
-              <p className="font-medium text-text-primary truncate">{u.full_name}</p>
+              <p className="font-medium text-text-primary truncate">{u.fullName}</p>
               <p className="text-[length:var(--fs-xs)] text-text-secondary">{u.phone}</p>
             </div>
           </div>
@@ -744,14 +744,14 @@ export default function UserListPage() {
     {
       id: "status",
       header: "Trạng thái",
-      cell: ({ row }) => <ActiveBadge isActive={row.original.is_active} />,
+      cell: ({ row }) => <ActiveBadge isActive={row.original.isActive} />,
     },
     {
       id: "created_at",
       header: "Ngày tạo",
       cell: ({ row }) => (
         <span className="text-[length:var(--fs-sm)] text-text-secondary">
-          {formatDate(row.original.created_at)}
+          {formatDate(row.original.createdAt)}
         </span>
       ),
     },
@@ -787,14 +787,14 @@ export default function UserListPage() {
                 variant="ghost"
                 size="sm"
                 className={`cursor-pointer h-8 w-8 p-0 ${
-                  u.is_active
+                  u.isActive
                     ? "text-text-secondary hover:text-error hover:bg-error-light"
                     : "text-text-secondary hover:text-success hover:bg-[#DCFCE7]"
                 }`}
                 onClick={(e) => { e.stopPropagation(); setToggleUser(u); }}
-                title={u.is_active ? "Vô hiệu hóa" : "Kích hoạt"}
+                title={u.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
               >
-                {u.is_active ? (
+                {u.isActive ? (
                   <ShieldOff className="h-3.5 w-3.5" />
                 ) : (
                   <ShieldCheck className="h-3.5 w-3.5" />
@@ -936,11 +936,11 @@ export default function UserListPage() {
                 <UserAvatar user={u} size="md" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-[length:var(--fs-base)] text-text-primary truncate">
-                    {u.full_name}
+                    {u.fullName}
                   </p>
                   <p className="text-[length:var(--fs-xs)] text-text-secondary">{u.phone}</p>
                 </div>
-                <ActiveBadge isActive={u.is_active} />
+                <ActiveBadge isActive={u.isActive} />
               </div>
 
               {/* Row 2: roles + email */}
@@ -985,13 +985,13 @@ export default function UserListPage() {
                         variant="outline"
                         size="sm"
                         className={`cursor-pointer flex-1 gap-1.5 text-[length:var(--fs-xs)] ${
-                          u.is_active
+                          u.isActive
                             ? "text-error border-error hover:bg-error hover:text-white"
                             : "text-success border-success hover:bg-success hover:text-white"
                         }`}
                         onClick={() => setToggleUser(u)}
                       >
-                        {u.is_active ? (
+                        {u.isActive ? (
                           <>
                             <ShieldOff className="h-3.5 w-3.5" />
                             Vô hiệu
@@ -1065,17 +1065,17 @@ export default function UserListPage() {
           open={!!toggleUser}
           onOpenChange={(v) => { if (!v) setToggleUser(null); }}
           title={
-            toggleUser.is_active
-              ? `Vô hiệu hóa "${toggleUser.full_name}"?`
-              : `Kích hoạt "${toggleUser.full_name}"?`
+            toggleUser.isActive
+              ? `Vô hiệu hóa "${toggleUser.fullName}"?`
+              : `Kích hoạt "${toggleUser.fullName}"?`
           }
           description={
-            toggleUser.is_active
+            toggleUser.isActive
               ? "Tài khoản sẽ bị khóa ngay lập tức. Toàn bộ phiên đăng nhập sẽ bị thu hồi."
               : "Tài khoản sẽ được kích hoạt và người dùng có thể đăng nhập trở lại."
           }
-          confirmLabel={toggleUser.is_active ? "Vô hiệu hóa" : "Kích hoạt"}
-          variant={toggleUser.is_active ? "danger" : "primary"}
+          confirmLabel={toggleUser.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
+          variant={toggleUser.isActive ? "danger" : "primary"}
           loading={toggleMutation.isPending}
           onConfirm={() => toggleMutation.mutate(toggleUser)}
         />

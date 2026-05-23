@@ -29,6 +29,7 @@ interface DataTableProps<TData, TValue> {
   emptyTitle?: string
   emptyDescription?: string
   emptyAction?: React.ReactNode
+  onRowClick?: (row: TData) => void
 }
 
 export function DataTable<TData, TValue>({
@@ -41,6 +42,7 @@ export function DataTable<TData, TValue>({
   emptyTitle,
   emptyDescription,
   emptyAction,
+  onRowClick,
 }: DataTableProps<TData, TValue>) {
   const isControlled = pagination !== undefined && onPaginationChange !== undefined
 
@@ -125,7 +127,8 @@ export function DataTable<TData, TValue>({
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className="border-b border-[#E2E8F0] hover:bg-[#F4F6F8] transition-colors"
+                  className={`border-b border-[#E2E8F0] hover:bg-[#F4F6F8] transition-colors ${onRowClick ? "cursor-pointer" : ""}`}
+                  onClick={() => onRowClick?.(row.original)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id} className="px-[var(--sp-card)] py-3 text-[length:var(--fs-base)] text-[#1A202C]">
@@ -156,22 +159,38 @@ export function DataTable<TData, TValue>({
               <ChevronLeft className="h-4 w-4" />
             </Button>
 
-            {Array.from({ length: totalPages }, (_, i) => i).map((i) => (
-              <Button
-                key={i}
-                variant="outline"
-                size="sm"
-                className="h-8 w-8 text-[length:var(--fs-base)] border-[#E2E8F0]"
-                style={
-                  pageIndex === i
-                    ? { backgroundColor: "#1A5FAB", color: "#fff", borderColor: "#1A5FAB" }
-                    : { color: "#5A5A66" }
-                }
-                onClick={() => table.setPageIndex(i)}
-              >
-                {i + 1}
-              </Button>
-            ))}
+            {(() => {
+              const pages: (number | "...")[] = []
+              if (totalPages <= 7) {
+                for (let i = 0; i < totalPages; i++) pages.push(i)
+              } else {
+                pages.push(0)
+                if (pageIndex > 2) pages.push("...")
+                for (let i = Math.max(1, pageIndex - 1); i <= Math.min(totalPages - 2, pageIndex + 1); i++) pages.push(i)
+                if (pageIndex < totalPages - 3) pages.push("...")
+                pages.push(totalPages - 1)
+              }
+              return pages.map((item, idx) =>
+                item === "..." ? (
+                  <span key={`ellipsis-${idx}`} className="h-8 w-8 flex items-center justify-center text-[#718096] text-[length:var(--fs-base)]">…</span>
+                ) : (
+                  <Button
+                    key={item}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 w-8 text-[length:var(--fs-base)] border-[#E2E8F0] cursor-pointer"
+                    style={
+                      pageIndex === item
+                        ? { backgroundColor: "#1A5FAB", color: "#fff", borderColor: "#1A5FAB" }
+                        : { color: "#5A5A66" }
+                    }
+                    onClick={() => table.setPageIndex(item)}
+                  >
+                    {item + 1}
+                  </Button>
+                )
+              )
+            })()}
 
             <Button
               variant="outline"

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
+import { changePassword as changePasswordApi } from "@/api/auth.api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -103,7 +104,7 @@ export default function ProfilePage() {
   } = useForm<InfoForm>({
     resolver: zodResolver(infoSchema),
     values: user
-      ? { full_name: user.full_name, email: user.email ?? "" }
+      ? { full_name: user.fullName, email: user.email ?? "" }
       : undefined,
   });
 
@@ -133,10 +134,8 @@ export default function ProfilePage() {
 
   // Mutation: change password
   const { mutate: changePassword, isPending: isChangingPwd } = useMutation({
-    mutationFn: (_body: PasswordForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
-    // --- REAL API ---
-    // mutationFn: (body) => axiosInstance.put("/auth/change-password", { old_password: body.old_password, new_password: body.new_password }),
+    mutationFn: (body: PasswordForm) =>
+      changePasswordApi({ currentPassword: body.old_password, newPassword: body.new_password }),
     onSuccess: () => {
       toast.success("Đã đổi mật khẩu thành công");
       resetPwd();
@@ -144,10 +143,8 @@ export default function ProfilePage() {
     onError: (err: unknown) => {
       const code = (err as { response?: { data?: { error?: { code?: string } } } })
         ?.response?.data?.error?.code;
-      if (code === "WRONG_OLD_PASSWORD") {
-        toast.error("Mật khẩu cũ không đúng");
-      } else if (code === "SAME_PASSWORD") {
-        toast.error("Mật khẩu mới không được trùng mật khẩu cũ");
+      if (code === "UNAUTHORIZED") {
+        toast.error("Mật khẩu hiện tại không đúng");
       } else {
         toast.error("Có lỗi xảy ra");
       }
@@ -195,7 +192,7 @@ export default function ProfilePage() {
                   <AvatarImage src={avatarSrc} alt={user?.full_name} />
                 ) : null}
                 <AvatarFallback className="bg-[#1A5FAB] text-xl font-semibold text-white">
-                  {user ? generateInitials(user.full_name) : "?"}
+                  {user ? generateInitials(user.fullName) : "?"}
                 </AvatarFallback>
               </Avatar>
               <button

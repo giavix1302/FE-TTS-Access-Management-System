@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { toast } from 'sonner'
 import { Plus, Pencil, EyeOff, Eye, BookOpen } from 'lucide-react'
 import { QUERY_KEYS } from '@/utils/queryKeys'
-import { useAuthStore } from '@/stores/authStore'
+import { usePermission } from '@/hooks/usePermission'
 import { DataTable } from '@/components/shared/DataTable'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
@@ -73,9 +73,8 @@ type FilterTab = 'all' | 'active' | 'inactive'
 
 export default function ServiceCatalogPage() {
   const queryClient = useQueryClient()
-  const { user } = useAuthStore()
-  const roles = user?.roles ?? []
-  const canEdit = roles.includes('admin') || roles.includes('manager')
+  const { hasPermission } = usePermission()
+  const canEdit = hasPermission("service_catalog.create")
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -431,7 +430,7 @@ export default function ServiceCatalogPage() {
                 />
                 {/* Quick pick */}
                 <Select onValueChange={(v) => form.setValue('unit', v, { shouldValidate: true })}>
-                  <SelectTrigger className="w-[100px] shrink-0 text-[length:var(--fs-sm)]">
+                  <SelectTrigger className="w-[100px] shrink-0 text-[length:var(--fs-sm)] cursor-pointer">
                     <SelectValue placeholder="Gợi ý" />
                   </SelectTrigger>
                   <SelectContent>

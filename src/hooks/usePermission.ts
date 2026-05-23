@@ -11,5 +11,9 @@ export const usePermission = () => {
     return user?.roles?.includes(role) ?? false;
   };
 
-  return { hasPermission, hasRole };
+  const hasAnyRole = (...roles: string[]): boolean => {
+    return user?.roles?.some((r) => roles.includes(r)) ?? false;
+  };
+
+  return { hasPermission, hasRole, hasAnyRole };
 };

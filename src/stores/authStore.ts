@@ -2,10 +2,10 @@ import { create } from "zustand";
 
 interface User {
   id: number;
-  full_name: string;
+  fullName: string;
   phone: string;
   email?: string | null;
-  avatar_url?: string | null;
+  avatarUrl?: string | null;
   roles: string[];
   permissions: string[];
 }

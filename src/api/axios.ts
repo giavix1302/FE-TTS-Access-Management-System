@@ -71,8 +71,8 @@ axiosInstance.interceptors.response.use(
       const { refreshTokenApi } = await import("./auth.api");
       const res = await refreshTokenApi();
 
-      if (res.success && res.data?.access_token) {
-        const newToken = res.data.access_token;
+      if (res.success && res.data?.accessToken) {
+        const newToken = res.data.accessToken;
         useAuthStore.getState().setAccessToken(newToken);
         processQueue(null, newToken);
         originalRequest.headers.Authorization = `Bearer ${newToken}`;

@@ -49,7 +49,7 @@ import {
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatCurrency, formatDate } from "@/utils/format";
 import { getContractStatusBadge } from "@/constants/contractStatus";
-import { useAuthStore } from "@/stores/authStore";
+import { usePermission } from "@/hooks/usePermission";
 import type {
   ContractDetail,
   ContractSummary,
@@ -597,11 +597,9 @@ export default function ContractDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const contractId = Number(id);
-  const user = useAuthStore((s) => s.user);
+  const { hasPermission } = usePermission();
 
-  const canEdit =
-    user?.roles.some((r) => ["admin", "manager", "accountant"].includes(r)) ??
-    false;
+  const canEdit = hasPermission("contracts.update");
 
   // --- REAL API ---
   // const { data: contract, isLoading } = useQuery({
@@ -651,14 +649,12 @@ export default function ContractDetailPage() {
   return (
     <div>
       {/* Back button */}
-      <Button
-        variant="ghost"
+      <button
         onClick={() => navigate("/contracts")}
-        className="cursor-pointer mb-2 -ml-2"
+        className="flex items-center gap-1.5 text-[length:var(--fs-base)] text-text-secondary hover:text-primary hover:bg-primary-light transition-colors w-fit cursor-pointer px-3 py-1.5 rounded-md"
       >
-        <ArrowLeft size={16} />
-        Quay lại
-      </Button>
+        <ArrowLeft className="h-4 w-4" /> Danh sách hợp đồng
+      </button>
 
       {/* Header card */}
       <div className="bg-bg-card rounded-lg border border-border shadow-card p-5 mt-2">

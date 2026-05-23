@@ -21,5 +21,5 @@ export const deactivateUser = (id: number) =>
 export const resetPassword = (id: number) =>
   axiosInstance.post(`/users/${id}/reset-password`).then((r) => r.data);
 
-export const updateUserRoles = (id: number, role_ids: number[]) =>
-  axiosInstance.put(`/users/${id}/roles`, { role_ids }).then((r) => r.data);
+export const updateUserRoles = (id: number, roleIds: number[]) =>
+  axiosInstance.put(`/users/${id}/roles`, { roleIds }).then((r) => r.data);

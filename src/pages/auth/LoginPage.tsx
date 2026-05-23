@@ -165,18 +165,18 @@ function LeftPanel() {
     try {
       const res = await login({ phone: values.phone, password: values.password });
       if (res.success) {
-        const { access_token, user } = res.data;
+        const { accessToken, user } = res.data;
         setAuth(
           {
             id: user.id,
-            full_name: user.full_name,
+            fullName: user.fullName,
             phone: user.phone,
             email: user.email,
-            avatar_url: user.avatar_url,
+            avatarUrl: user.avatarUrl,
             roles: user.roles,
             permissions: user.permissions,
           },
-          access_token,
+          accessToken,
         );
         navigate("/", { replace: true });
       }

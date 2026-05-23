@@ -17,6 +17,7 @@ import CompanySettingsPage from "@/pages/settings/CompanySettingsPage";
 import ServiceCatalogPage from "@/pages/service-catalog/ServiceCatalogPage";
 import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage";
 import ProfilePage from "@/pages/profile/ProfilePage";
+import ComingSoonPage from "@/pages/coming-soon/ComingSoonPage";
 
 export const router = createBrowserRouter([
   {
@@ -44,6 +45,8 @@ export const router = createBrowserRouter([
       { path: "service-catalog", element: <ServiceCatalogPage /> },
       { path: "roles", element: <RolesPermissionsPage /> },
       { path: "profile", element: <ProfilePage /> },
+      { path: "analytics", element: <ComingSoonPage title="Thống kê" description="Trang thống kê tổng quan doanh thu, xe và hợp đồng đang được phát triển." /> },
+      { path: "reports", element: <ComingSoonPage title="Xuất báo cáo" description="Tính năng xuất báo cáo Excel / PDF theo kỳ đang được phát triển." /> },
     ],
   },
 ]);

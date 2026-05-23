@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import axiosInstance from "@/api/axios";
 import { QUERY_KEYS } from "@/utils/queryKeys";
-import { useAuthStore } from "@/stores/authStore";
+import { usePermission } from "@/hooks/usePermission";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { DatePicker } from "@/components/shared/DatePicker";
 import { FileUpload } from "@/components/shared/FileUpload";
@@ -319,13 +319,11 @@ export default function VehicleDetailPage() {
   const vehicleId = Number(id);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user } = useAuthStore();
+  const { hasPermission } = usePermission();
 
-  const isAdmin = user?.roles?.includes("admin");
-  const isAdminOrManager = isAdmin || user?.roles?.includes("manager");
-  const isAdminOrManagerOrAccountant =
-    isAdminOrManager || user?.roles?.includes("accountant");
-  const canChangeStatus = isAdminOrManager || user?.roles?.includes("staff");
+  const isAdminOrManager = hasPermission("vehicles.update");
+  const isAdminOrManagerOrAccountant = hasPermission("vehicles.update");
+  const canChangeStatus = hasPermission("vehicles.status");
 
   const [activeTab, setActiveTab] = useState("info");
 
@@ -810,7 +808,7 @@ export default function VehicleDetailPage() {
       {/* Back */}
       <button
         onClick={() => navigate("/vehicles")}
-        className="flex items-center gap-1.5 text-[length:var(--fs-base)] text-text-secondary hover:text-primary transition-colors w-fit cursor-pointer"
+        className="flex items-center gap-1.5 text-[length:var(--fs-base)] text-text-secondary hover:text-primary hover:bg-primary-light transition-colors w-fit cursor-pointer px-3 py-1.5 rounded-md"
       >
         <ArrowLeft className="h-4 w-4" /> Danh sách xe
       </button>
@@ -856,9 +854,9 @@ export default function VehicleDetailPage() {
         </div>
 
         {/* Row 2: actions — full width, dưới ảnh+info */}
-        {(isAdmin || (canChangeStatus && validNextStatuses.length > 0)) && (
+        {(isAdminOrManager || (canChangeStatus && validNextStatuses.length > 0)) && (
           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border">
-            {isAdmin && (
+            {isAdminOrManager && (
               <Button
                 size="sm"
                 variant="outline"
@@ -878,7 +876,7 @@ export default function VehicleDetailPage() {
                 <RefreshCw className="h-4 w-4 mr-1" /> Đổi trạng thái
               </Button>
             )}
-            {isAdmin && (
+            {isAdminOrManager && (
               <Button
                 size="sm"
                 variant="outline"
@@ -1593,7 +1591,7 @@ export default function VehicleDetailPage() {
                         )
                       }
                     >
-                      <SelectTrigger className="border-border">
+                      <SelectTrigger className="border-border cursor-pointer">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1720,7 +1718,7 @@ export default function VehicleDetailPage() {
                 value={newStatus}
                 onValueChange={(v) => setNewStatus(v as VehicleStatus)}
               >
-                <SelectTrigger className="border-border">
+                <SelectTrigger className="border-border cursor-pointer">
                   <SelectValue placeholder="Chọn trạng thái" />
                 </SelectTrigger>
                 <SelectContent>

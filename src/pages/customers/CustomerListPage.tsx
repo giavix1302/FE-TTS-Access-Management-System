@@ -6,10 +6,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
-import { Plus, Eye, Search, Building2, User } from "lucide-react";
+import { Plus, Search, Building2, User } from "lucide-react";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { useDebounce } from "@/hooks/useDebounce";
-import { useAuthStore } from "@/stores/authStore";
+import { usePermission } from "@/hooks/usePermission";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { DataTable } from "@/components/shared/DataTable";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -135,7 +135,7 @@ const businessSchema = z.object({
 type IndividualForm = z.infer<typeof individualSchema>;
 type BusinessForm = z.infer<typeof businessSchema>;
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 const fieldClass =
   "w-full px-3 py-2 text-sm border border-input rounded-md outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 bg-background";
@@ -575,9 +575,8 @@ function CreateCustomerDialog({
 // ─── CustomerListPage ─────────────────────────────────────────────────────────
 export default function CustomerListPage() {
   const navigate = useNavigate();
-  const { user } = useAuthStore();
-  const roles = user?.roles ?? [];
-  const canEdit = roles.some((r) => ["admin", "manager", "accountant"].includes(r));
+  const { hasPermission } = usePermission();
+  const canEdit = hasPermission("customers.create");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -714,21 +713,6 @@ export default function CustomerListPage() {
         );
       },
     },
-    {
-      id: "actions",
-      header: "",
-      cell: ({ row }) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="cursor-pointer text-primary hover:bg-primary-light hover:text-primary"
-          onClick={() => navigate(`/customers/${row.original.id}`)}
-        >
-          <Eye className="h-4 w-4 mr-1" />
-          Xem
-        </Button>
-      ),
-    },
   ];
 
   return (
@@ -810,6 +794,7 @@ export default function CustomerListPage() {
           pagination={pagination}
           pageCount={meta?.total_pages ?? 1}
           onPaginationChange={setPagination}
+          onRowClick={(row) => navigate(`/customers/${row.id}`)}
           emptyTitle="Không tìm thấy khách hàng nào"
           emptyDescription="Thử thay đổi bộ lọc hoặc thêm khách hàng mới"
           emptyAction={

@@ -47,7 +47,7 @@ import {
   getCustomerActiveBadge,
 } from "@/constants/customerType";
 import { getContractStatusBadge } from "@/constants/contractStatus";
-import { useAuthStore } from "@/stores/authStore";
+import { usePermission } from "@/hooks/usePermission";
 import type {
   CustomerDetail,
   IndividualCustomer,
@@ -577,10 +577,9 @@ export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { user } = useAuthStore();
-  const roles = user?.roles ?? [];
-  const canEdit = roles.some((r) => ["admin", "manager", "accountant"].includes(r));
-  const canToggle = roles.some((r) => ["admin", "manager"].includes(r));
+  const { hasPermission } = usePermission();
+  const canEdit = hasPermission("customers.update");
+  const canToggle = hasPermission("customers.update");
 
   const customerId = Number(id);
 
@@ -719,14 +718,12 @@ export default function CustomerDetailPage() {
   return (
     <div className="flex flex-col gap-[var(--sp-section)]">
       {/* Back button */}
-      <Button
-        variant="ghost"
-        className="cursor-pointer mb-2 -ml-2 w-fit"
+      <button
         onClick={() => navigate("/customers")}
+        className="flex items-center gap-1.5 text-[length:var(--fs-base)] text-text-secondary hover:text-primary hover:bg-primary-light transition-colors w-fit cursor-pointer px-3 py-1.5 rounded-md"
       >
-        <ArrowLeft size={16} />
-        Khách hàng
-      </Button>
+        <ArrowLeft className="h-4 w-4" /> Danh sách khách hàng
+      </button>
 
       {/* ── Header card ────────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-bg-card p-5">

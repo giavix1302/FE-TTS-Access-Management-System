@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { QUERY_KEYS } from "@/utils/queryKeys";
-import { useAuthStore } from "@/stores/authStore";
+import { usePermission } from "@/hooks/usePermission";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { formatDateTime } from "@/utils/format";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -373,9 +373,8 @@ function BankAccountCard({
 
 export default function CompanySettingsPage() {
   const queryClient = useQueryClient();
-  const { user } = useAuthStore();
-  const canEdit =
-    (user?.roles?.includes("admin") || user?.roles?.includes("manager")) ?? false;
+  const { hasPermission } = usePermission();
+  const canEdit = hasPermission("company.update");
 
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [isEditingInfo, setIsEditingInfo] = useState(false);

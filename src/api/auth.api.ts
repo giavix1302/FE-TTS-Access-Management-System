@@ -15,6 +15,6 @@ export const getMe = () =>
   axiosInstance.get("/auth/me").then((r) => r.data);
 
 export const changePassword = (body: {
-  current_password: string;
-  new_password: string;
+  currentPassword: string;
+  newPassword: string;
 }) => axiosInstance.put("/auth/change-password", body).then((r) => r.data);

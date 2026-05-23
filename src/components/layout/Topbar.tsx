@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useLocation, useNavigate, matchPath } from "react-router-dom";
-import { Bell, ChevronDown, KeyRound, LogOut, Menu, UserCircle } from "lucide-react";
+import { Bell, ChevronDown, LogOut, Menu, UserCircle } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -12,6 +13,8 @@ import { useAuthStore } from "@/stores/authStore";
 import { useNotificationStore } from "@/stores/notificationStore";
 import { generateInitials } from "@/utils/helpers";
 import { logout } from "@/api/auth.api";
+import { ConfirmModal } from "@/components/shared/ConfirmModal";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const ROUTE_TITLES: { pattern: string; title: string }[] = [
   { pattern: "/", title: "Dashboard" },
@@ -27,6 +30,8 @@ const ROUTE_TITLES: { pattern: string; title: string }[] = [
   { pattern: "/service-catalog", title: "Danh mục dịch vụ" },
   { pattern: "/roles", title: "Phân quyền vai trò" },
   { pattern: "/profile", title: "Hồ sơ của tôi" },
+  { pattern: "/analytics", title: "Thống kê" },
+  { pattern: "/reports", title: "Xuất báo cáo" },
 ];
 
 function usePageTitle(): string {
@@ -46,18 +51,20 @@ interface TopbarProps {
 
 export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
   const navigate = useNavigate();
-  const { user, clearAuth, refreshToken } = useAuthStore();
+  const { user, clearAuth } = useAuthStore();
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const pageTitle = usePageTitle();
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
 
   const handleLogout = async () => {
+    setLogoutLoading(true);
     try {
-      if (refreshToken) {
-        await logout(refreshToken);
-      }
+      await logout();
     } catch {
       // bỏ qua lỗi, vẫn clear local
     } finally {
+      setLogoutLoading(false);
       clearAuth();
       navigate("/login", { replace: true });
     }
@@ -77,72 +84,89 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
         >
           <Menu size={22} />
         </button>
-        <h1 className="hidden text-[length:var(--fs-title)] font-medium text-[#1A202C] lg:block">{pageTitle}</h1>
+        <h1 className="hidden text-[length:var(--fs-title)] font-medium text-[#1A202C] lg:block">
+          {pageTitle}
+        </h1>
       </div>
 
       {/* Bên phải */}
       <div className="flex items-center gap-4">
         {/* Icon chuông */}
-        <button
-          onClick={() => navigate("/notifications")}
-          className="relative rounded p-1 text-[#718096] transition-colors hover:text-[#1A5FAB]"
-          title="Thông báo"
-        >
-          <Bell size={20} />
-          {unreadCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[11px] font-semibold text-white">
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          )}
-        </button>
+        <TooltipProvider>
+          <Tooltip delayDuration={100}>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => navigate("/notifications")}
+                className="cursor-pointer relative rounded p-1 text-[#718096] transition-colors hover:text-[#1A5FAB]"
+              >
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[11px] font-semibold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              className="rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
+            >
+              Thông báo
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         {/* Avatar + Dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[#F4F6F8]">
+            <button className="flex items-center gap-2 rounded-md px-2 py-1 cursor-pointer hover:bg-primary-light">
               <Avatar className="h-9 w-9 shrink-0">
-                {user?.avatar_url ? (
-                  <AvatarImage src={user.avatar_url} alt={user.full_name} />
+                {user?.avatarUrl ? (
+                  <AvatarImage src={user.avatarUrl} alt={user.fullName} />
                 ) : null}
                 <AvatarFallback className="bg-[#1A5FAB] text-xs font-semibold text-white">
-                  {user ? generateInitials(user.full_name) : "?"}
+                  {user ? generateInitials(user.fullName) : "?"}
                 </AvatarFallback>
               </Avatar>
               <span className="hidden max-w-[140px] truncate text-[length:var(--fs-base)] font-normal text-[#1A202C] lg:block">
-                {user?.full_name ?? "---"}
+                {user?.fullName ?? "---"}
               </span>
               <ChevronDown size={14} className="text-[#718096]" />
             </button>
           </DropdownMenuTrigger>
 
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-48 border-none">
             <DropdownMenuItem
-              className="cursor-pointer gap-2"
+              className="cursor-pointer gap-2 focus:bg-primary-light focus:text-primary"
               onClick={() => navigate("/profile")}
             >
-              <UserCircle size={15} className="text-[#718096]" />
+              <UserCircle size={15} />
               Hồ sơ của tôi
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer gap-2"
-              onClick={() => navigate("/profile")}
-            >
-              <KeyRound size={15} className="text-[#718096]" />
-              Đổi mật khẩu
             </DropdownMenuItem>
 
             <DropdownMenuSeparator />
 
             <DropdownMenuItem
-              className="cursor-pointer gap-2 text-[#E74C3C] focus:text-[#E74C3C]"
-              onClick={handleLogout}
+              className="cursor-pointer gap-2 text-[#E74C3C] focus:bg-[#FEE2E2] focus:text-[#E74C3C]"
+              onClick={() => setLogoutOpen(true)}
             >
-              <LogOut size={15} className="text-[#E74C3C]" />
+              <LogOut size={15} />
               Đăng xuất
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <ConfirmModal
+        open={logoutOpen}
+        onOpenChange={setLogoutOpen}
+        title="Đăng xuất?"
+        description="Bạn sẽ được chuyển về trang đăng nhập. Các phiên làm việc chưa lưu sẽ bị mất."
+        confirmLabel="Đăng xuất"
+        variant="danger"
+        loading={logoutLoading}
+        onConfirm={handleLogout}
+      />
     </header>
   );
 }

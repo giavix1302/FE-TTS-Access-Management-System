@@ -4,14 +4,14 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  access_token: string;
-  refresh_token: string;
+  accessToken: string;
+  refreshToken: string;
   user: {
     id: number;
-    full_name: string;
+    fullName: string;
     phone: string;
     email?: string;
-    avatar_url?: string;
+    avatarUrl?: string;
     roles: string[];
     permissions: string[];
   };

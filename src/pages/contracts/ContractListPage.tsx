@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuthStore } from "@/stores/authStore";
+import { usePermission } from "@/hooks/usePermission";
 import { useQuery } from "@tanstack/react-query";
 import { CreateContractDialog } from "./components/CreateContractDialog";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
-import { Plus, Eye, CalendarIcon, Search } from "lucide-react";
+import { Plus, CalendarIcon, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -112,13 +112,13 @@ const CUSTOMER_TYPE_LABELS: Record<string, string> = {
   business: "Doanh nghiệp",
 };
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 10;
 
 // ─── ContractListPage ─────────────────────────────────────────────────────────
 export default function ContractListPage() {
   const navigate = useNavigate();
-  const { user } = useAuthStore();
-  const canCreate = user?.permissions?.includes("contracts.create") ?? false;
+  const { hasPermission } = usePermission();
+  const canCreate = hasPermission("contracts.create");
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -261,21 +261,6 @@ export default function ContractListPage() {
         );
       },
     },
-    {
-      id: "actions",
-      header: "",
-      cell: ({ row }) => (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-primary hover:text-primary hover:bg-primary-light cursor-pointer"
-          onClick={() => navigate(`/contracts/${row.original.id}`)}
-        >
-          <Eye className="h-4 w-4 mr-1" />
-          Xem
-        </Button>
-      ),
-    },
   ];
 
   return (
@@ -383,6 +368,7 @@ export default function ContractListPage() {
           pagination={pagination}
           pageCount={meta?.total_pages ?? 1}
           onPaginationChange={setPagination}
+          onRowClick={(row) => navigate(`/contracts/${row.id}`)}
           emptyTitle="Không tìm thấy hợp đồng nào"
           emptyDescription="Thử thay đổi bộ lọc hoặc tạo hợp đồng mới"
           emptyAction={

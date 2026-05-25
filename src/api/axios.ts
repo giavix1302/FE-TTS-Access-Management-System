@@ -43,8 +43,14 @@ axiosInstance.interceptors.response.use(
     if (error.response?.status !== 401 || originalRequest._retry)
       return Promise.reject(error);
 
+    // Các endpoint auth public → trả lỗi thẳng, không refresh
+    const url = originalRequest.url ?? "";
+    if (url.includes("/auth/login") || url.includes("/auth/logout")) {
+      return Promise.reject(error);
+    }
+
     // Chính /auth/refresh bị 401 → cookie hết hạn, logout hẳn
-    if (originalRequest.url?.includes("/auth/refresh")) {
+    if (url.includes("/auth/refresh")) {
       useAuthStore.getState().clearAuth();
       window.location.href = "/login";
       return Promise.reject(error);

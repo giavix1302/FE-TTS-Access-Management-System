@@ -65,7 +65,7 @@ const NAV_SYSTEM: NavItem[] = [
     label: "Cài đặt công ty",
     icon: Settings,
     to: "/settings",
-    guard: (_roles, permissions) => permissions.includes("company.update"),
+    guard: (_roles, permissions) => permissions.includes("company.view"),
   },
   {
     label: "Phân quyền",

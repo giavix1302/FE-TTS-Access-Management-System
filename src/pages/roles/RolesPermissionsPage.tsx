@@ -10,95 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import type { Permission, Role, RoleDetail } from "@/types/role.types";
+import { getRoles, getRoleDetail, updateRolePermissions } from "@/api/roles.api";
+import { getPermissions } from "@/api/permissions.api";
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_PERMISSIONS: Permission[] = [
-  { id: 1,  module: "vehicles",       action: "view",   description: "Xem danh sách xe" },
-  { id: 2,  module: "vehicles",       action: "create", description: "Thêm xe mới" },
-  { id: 3,  module: "vehicles",       action: "update", description: "Cập nhật thông tin xe" },
-  { id: 4,  module: "vehicles",       action: "delete", description: "Xóa xe" },
-  { id: 5,  module: "contracts",      action: "view",   description: "Xem danh sách hợp đồng" },
-  { id: 6,  module: "contracts",      action: "create", description: "Tạo hợp đồng mới" },
-  { id: 7,  module: "contracts",      action: "update", description: "Cập nhật hợp đồng" },
-  { id: 8,  module: "contracts",      action: "delete", description: "Xóa hợp đồng" },
-  { id: 9,  module: "customers",      action: "view",   description: "Xem danh sách khách hàng" },
-  { id: 10, module: "customers",      action: "create", description: "Thêm khách hàng mới" },
-  { id: 11, module: "customers",      action: "update", description: "Cập nhật khách hàng" },
-  { id: 12, module: "customers",      action: "delete", description: "Xóa/ẩn khách hàng" },
-  { id: 13, module: "users",          action: "view",   description: "Xem danh sách người dùng" },
-  { id: 14, module: "users",          action: "create", description: "Tạo tài khoản mới" },
-  { id: 15, module: "users",          action: "update", description: "Cập nhật tài khoản" },
-  { id: 16, module: "users",          action: "delete", description: "Deactivate tài khoản" },
-  { id: 17, module: "service_catalog",action: "view",   description: "Xem danh mục dịch vụ" },
-  { id: 18, module: "service_catalog",action: "create", description: "Thêm dịch vụ mới" },
-  { id: 19, module: "service_catalog",action: "update", description: "Cập nhật dịch vụ" },
-  { id: 20, module: "dashboard",      action: "view",   description: "Xem Dashboard" },
-  { id: 21, module: "notifications",  action: "view",   description: "Xem thông báo" },
-  { id: 22, module: "company",        action: "view",   description: "Xem cài đặt công ty" },
-  { id: 23, module: "company",        action: "update", description: "Cập nhật cài đặt công ty" },
-  { id: 24, module: "extract",        action: "use",    description: "Sử dụng tính năng AI Extract" },
-  { id: 25, module: "roles",          action: "view",   description: "Xem phân quyền" },
-  { id: 26, module: "roles",          action: "update", description: "Cập nhật phân quyền" },
-];
-
-const MOCK_ROLES: Role[] = [
-  {
-    id: 1,
-    name: "admin",
-    description: "Toàn quyền hệ thống",
-    permissions: MOCK_PERMISSIONS.map((p) => `${p.module}:${p.action}`),
-  },
-  {
-    id: 2,
-    name: "manager",
-    description: "Quản lý hợp đồng, xe, khách hàng",
-    permissions: [
-      "vehicles:view", "vehicles:create", "vehicles:update",
-      "contracts:view", "contracts:create", "contracts:update",
-      "customers:view", "customers:create", "customers:update",
-      "service_catalog:view", "service_catalog:create", "service_catalog:update",
-      "dashboard:view", "notifications:view",
-      "company:view", "company:update",
-      "extract:use",
-    ],
-  },
-  {
-    id: 3,
-    name: "accountant",
-    description: "Hóa đơn, thanh toán, hợp đồng",
-    permissions: [
-      "vehicles:view",
-      "contracts:view", "contracts:create", "contracts:update",
-      "customers:view", "customers:create", "customers:update",
-      "service_catalog:view",
-      "dashboard:view", "notifications:view",
-      "extract:use",
-    ],
-  },
-  {
-    id: 4,
-    name: "staff",
-    description: "Xem và ghi nhận nghiệp vụ cơ bản",
-    permissions: [
-      "vehicles:view",
-      "contracts:view",
-      "notifications:view",
-    ],
-  },
-];
-
-const MOCK_ROLE_DETAILS: Record<number, RoleDetail> = Object.fromEntries(
-  MOCK_ROLES.map((role) => [
-    role.id,
-    {
-      ...role,
-      permissions: MOCK_PERMISSIONS.filter((p) =>
-        role.permissions.includes(`${p.module}:${p.action}`)
-      ),
-    },
-  ])
-);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -133,50 +47,36 @@ const ACTION_LABEL: Record<string, string> = {
 // ─── PermissionEditor ─────────────────────────────────────────────────────────
 
 interface PermissionEditorProps {
-  role: Role;
+  roleDetail: RoleDetail;
   allPermissions: Permission[];
   onSaved: () => void;
 }
 
-function PermissionEditor({ role, allPermissions, onSaved }: PermissionEditorProps) {
+function PermissionEditor({ roleDetail, allPermissions, onSaved }: PermissionEditorProps) {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<Set<number>>(() => {
-    const currentKeys = new Set(role.permissions);
-    return new Set(
-      allPermissions
-        .filter((p) => currentKeys.has(`${p.module}:${p.action}`))
-        .map((p) => p.id)
-    );
-  });
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(roleDetail.permissions.map((p) => p.id))
+  );
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // Tính dirty state
-  const originalIds = new Set(
-    allPermissions
-      .filter((p) => role.permissions.includes(`${p.module}:${p.action}`))
-      .map((p) => p.id)
-  );
+  const originalIds = new Set(roleDetail.permissions.map((p) => p.id));
   const isDirty =
     selected.size !== originalIds.size ||
     [...selected].some((id) => !originalIds.has(id));
 
-  // Group permissions by module
   const grouped = allPermissions.reduce<Record<string, Permission[]>>((acc, p) => {
     if (!acc[p.module]) acc[p.module] = [];
     acc[p.module].push(p);
     return acc;
   }, {});
 
-  // --- MOCK mutation ---
   const { mutate, isPending } = useMutation({
-    mutationFn: (_ids: number[]) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (ids: number[]) => updateRolePermissions(roleDetail.id, ids),
     onSuccess: () => {
-      // --- REAL API ---
-      // mutationFn: (ids) => updateRolePermissions(role.id, ids)
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.roles.all });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.roles.detail(role.id) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.roles.detail(roleDetail.id) });
       toast.success("Đã cập nhật phân quyền");
+      setShowConfirm(false);
       onSaved();
     },
     onError: () => toast.error("Có lỗi xảy ra"),
@@ -204,13 +104,13 @@ function PermissionEditor({ role, allPermissions, onSaved }: PermissionEditorPro
   return (
     <div className="flex flex-col gap-4">
       {/* Header role */}
-      <div className="flex items-center gap-3 rounded-lg border border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3">
+      <div className="flex items-center gap-3 rounded-lg border border-[#E2E8F0] bg-white px-4 py-3">
         <Shield size={18} className="shrink-0 text-[#1A5FAB]" />
         <div>
           <p className="text-[length:var(--fs-base)] font-semibold text-[#1A3A5C]">
-            {ROLE_LABEL[role.name] ?? role.name}
+            {ROLE_LABEL[roleDetail.name] ?? roleDetail.name}
           </p>
-          <p className="text-[length:var(--fs-body)] text-[#718096]">{role.description}</p>
+          <p className="text-[length:var(--fs-body)] text-[#718096]">{roleDetail.description}</p>
         </div>
         <Badge className="ml-auto shrink-0 bg-[#E8F0FB] text-[#1A5FAB] hover:bg-[#E8F0FB]">
           {selected.size} quyền
@@ -231,10 +131,12 @@ function PermissionEditor({ role, allPermissions, onSaved }: PermissionEditorPro
           return (
             <div key={module} className="rounded-lg border border-[#E2E8F0]">
               {/* Module header — click để toggle cả nhóm */}
-              <button
-                type="button"
+              <div
+                role="button"
+                tabIndex={0}
                 onClick={() => toggleModule(perms)}
-                className="flex w-full cursor-pointer items-center gap-3 border-b border-[#E2E8F0] bg-[#F8FAFC] px-4 py-2.5 text-left"
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && toggleModule(perms)}
+                className="flex w-full cursor-pointer items-center gap-3 border-b border-[#E2E8F0] bg-white px-4 py-2.5 text-left"
               >
                 <Checkbox
                   checked={allChecked}
@@ -248,21 +150,21 @@ function PermissionEditor({ role, allPermissions, onSaved }: PermissionEditorPro
                 <span className="ml-auto text-[length:var(--fs-body)] text-[#718096]">
                   {perms.filter((p) => selected.has(p.id)).length}/{perms.length}
                 </span>
-              </button>
+              </div>
 
               {/* Permission rows */}
-              <div className="divide-y divide-[#F4F6F8]">
+              <div className="divide-y divide-[#F4F6F8] bg-white">
                 {perms.map((p) => (
                   <label
                     key={p.id}
-                    className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-[#F8FAFC]"
+                    className="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-primary-light"
                   >
                     <Checkbox
                       checked={selected.has(p.id)}
                       onCheckedChange={() => toggle(p.id)}
                     />
                     <span className="flex-1 text-[length:var(--fs-body)] text-[#4A5568]">
-                      {p.description}
+                      {p.description || `${MODULE_LABEL[p.module] ?? p.module} — ${ACTION_LABEL[p.action] ?? p.action}`}
                     </span>
                     <Badge
                       variant="outline"
@@ -293,7 +195,7 @@ function PermissionEditor({ role, allPermissions, onSaved }: PermissionEditorPro
         open={showConfirm}
         onOpenChange={setShowConfirm}
         title="Xác nhận cập nhật phân quyền"
-        description={`Thay đổi phân quyền cho vai trò "${ROLE_LABEL[role.name] ?? role.name}" sẽ có hiệu lực ngay với tất cả người dùng đang đăng nhập. Bạn có chắc chắn muốn tiếp tục?`}
+        description={`Thay đổi phân quyền cho vai trò "${ROLE_LABEL[roleDetail.name] ?? roleDetail.name}" sẽ có hiệu lực ngay với tất cả người dùng đang đăng nhập. Bạn có chắc chắn muốn tiếp tục?`}
         confirmText="Xác nhận"
         cancelText="Hủy"
         variant="primary"
@@ -365,52 +267,34 @@ function RoleCard({ role, selected, onClick }: RoleCardProps) {
 
 export default function RolesPermissionsPage() {
   const [selectedRoleId, setSelectedRoleId] = useState<number | null>(null);
-  // Mobile: "list" | "editor"
   const [mobileView, setMobileView] = useState<"list" | "editor">("list");
 
-  // --- MOCK queries ---
   const { data: rolesData } = useQuery({
     queryKey: QUERY_KEYS.roles.all,
-    queryFn: () => Promise.resolve({ data: MOCK_ROLES }),
-    // --- REAL API ---
-    // queryFn: getRoles,
+    queryFn: getRoles,
   });
 
   const { data: permissionsData } = useQuery({
     queryKey: QUERY_KEYS.permissions.all,
-    queryFn: () => Promise.resolve({ data: MOCK_PERMISSIONS }),
-    // --- REAL API ---
-    // queryFn: getPermissions,
+    queryFn: getPermissions,
+  });
+
+  const { data: roleDetailData } = useQuery({
+    queryKey: QUERY_KEYS.roles.detail(selectedRoleId!),
+    queryFn: () => getRoleDetail(selectedRoleId!),
+    enabled: selectedRoleId !== null,
   });
 
   const roles: Role[] = rolesData?.data ?? [];
   const allPermissions: Permission[] = permissionsData?.data ?? [];
+  const roleDetail: RoleDetail | null = roleDetailData?.data ?? null;
 
-  const selectedRole = roles.find((r) => r.id === selectedRoleId) ?? null;
-
-  // Khi chọn role trên mobile → chuyển sang màn editor
   const handleSelectRole = (id: number) => {
     setSelectedRoleId(id);
-
-    // Inject mock detail vào cache thay vì gọi API
-    // --- REAL API sẽ dùng useQuery riêng với getRoleDetail(id) ---
     setMobileView("editor");
   };
 
-  const handleSaved = () => {
-    // Sau khi lưu thành công: cập nhật lại mock roles để badge số quyền đúng
-    // Với REAL API: queryClient.invalidateQueries đã xử lý trong mutation
-  };
-
-  // Resolve permissions đầy đủ cho role đang chọn
-  const resolveRolePermissions = (role: Role): Role => {
-    const detail = MOCK_ROLE_DETAILS[role.id];
-    if (!detail) return role;
-    return {
-      ...role,
-      permissions: detail.permissions.map((p) => `${p.module}:${p.action}`),
-    };
-  };
+  const handleSaved = () => {};
 
   return (
     <div className="flex flex-col gap-[var(--sp-section)]">
@@ -435,10 +319,10 @@ export default function RolesPermissionsPage() {
 
         {/* Cột phải — editor */}
         <div>
-          {selectedRole ? (
+          {roleDetail ? (
             <PermissionEditor
-              key={selectedRole.id}
-              role={resolveRolePermissions(selectedRole)}
+              key={roleDetail.id}
+              roleDetail={roleDetail}
               allPermissions={allPermissions}
               onSaved={handleSaved}
             />
@@ -476,10 +360,10 @@ export default function RolesPermissionsPage() {
               <ChevronLeft size={16} />
               Danh sách vai trò
             </button>
-            {selectedRole && (
+            {roleDetail && (
               <PermissionEditor
-                key={selectedRole.id}
-                role={resolveRolePermissions(selectedRole)}
+                key={roleDetail.id}
+                roleDetail={roleDetail}
                 allPermissions={allPermissions}
                 onSaved={() => {
                   handleSaved();

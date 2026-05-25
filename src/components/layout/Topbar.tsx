@@ -79,7 +79,7 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
       <div className="flex items-center gap-3">
         <button
           onClick={onMobileMenuOpen}
-          className="rounded p-1.5 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB] lg:hidden"
+          className="rounded p-1.5 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB] lg:hidden cursor-pointer"
           title="Mở menu"
         >
           <Menu size={22} />

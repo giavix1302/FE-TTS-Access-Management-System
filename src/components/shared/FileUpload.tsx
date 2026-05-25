@@ -100,7 +100,7 @@ export function FileUpload({
             <button
               type="button"
               onClick={handleRemove}
-              className="shrink-0 rounded-full p-1 text-[#718096] hover:bg-[#E2E8F0] hover:text-[#E74C3C] transition-colors"
+              className="shrink-0 rounded-full p-1 text-[#718096] hover:bg-[#E2E8F0] hover:text-[#E74C3C] transition-colors cursor-pointer"
             >
               <X className="h-4 w-4" />
             </button>

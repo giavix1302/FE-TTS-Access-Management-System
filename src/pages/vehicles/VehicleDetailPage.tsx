@@ -860,7 +860,7 @@ export default function VehicleDetailPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="border-border flex-1 sm:flex-none"
+                className="border-border flex-1 sm:flex-none cursor-pointer"
                 onClick={openEdit}
               >
                 <Pencil className="h-4 w-4 mr-1" /> Chỉnh sửa
@@ -870,7 +870,7 @@ export default function VehicleDetailPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="border-border flex-1 sm:flex-none"
+                className="border-border flex-1 sm:flex-none cursor-pointer"
                 onClick={() => setStatusOpen(true)}
               >
                 <RefreshCw className="h-4 w-4 mr-1" /> Đổi trạng thái
@@ -880,7 +880,7 @@ export default function VehicleDetailPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="border-error text-error hover:bg-error hover:text-white sm:ml-auto"
+                className="border-error text-error hover:bg-error hover:text-white sm:ml-auto cursor-pointer"
                 onClick={() => setDeleteOpen(true)}
               >
                 <Trash2 className="h-4 w-4 mr-1" /> Xóa
@@ -902,7 +902,7 @@ export default function VehicleDetailPage() {
             <TabsTrigger
               key={tab.value}
               value={tab.value}
-              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-white text-text-secondary px-4 py-2.5 text-[length:var(--fs-base)] font-medium"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-white text-text-secondary px-4 py-2.5 text-[length:var(--fs-base)] font-medium cursor-pointer"
             >
               {tab.label}
             </TabsTrigger>
@@ -983,7 +983,7 @@ export default function VehicleDetailPage() {
               <div className="flex justify-end">
                 <Button
                   size="sm"
-                  className="bg-primary hover:bg-primary-dark text-white"
+                  className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
                   onClick={() => setInsOpen(true)}
                 >
                   <Plus className="h-4 w-4 mr-1" /> Thêm bảo hiểm
@@ -1090,7 +1090,7 @@ export default function VehicleDetailPage() {
               <div className="flex justify-end">
                 <Button
                   size="sm"
-                  className="bg-primary hover:bg-primary-dark text-white"
+                  className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
                   onClick={() => setInspecOpen(true)}
                 >
                   <Plus className="h-4 w-4 mr-1" /> Thêm đăng kiểm
@@ -1219,7 +1219,7 @@ export default function VehicleDetailPage() {
                 {isAdminOrManager && (
                   <Button
                     size="sm"
-                    className="bg-primary hover:bg-primary-dark text-white"
+                    className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
                     onClick={() => {
                       setImgFiles([]);
                       setImgModalOpen(true);
@@ -1973,7 +1973,7 @@ export default function VehicleDetailPage() {
                 inspecForm.setValue("result", v as "passed" | "failed")
               }
             >
-              <SelectTrigger className="border-border">
+              <SelectTrigger className="border-border cursor-pointer">
                 <SelectValue placeholder="Chọn kết quả" />
               </SelectTrigger>
               <SelectContent>

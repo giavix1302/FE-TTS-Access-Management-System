@@ -36,6 +36,7 @@ import {
   updateLineItem,
   deleteLineItem,
 } from "@/api/contracts.api";
+import { getServiceCatalog } from "@/api/service-catalog.api";
 import { useReplaceDocument } from "@/hooks/useReplaceDocument";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatCurrency, formatDate } from "@/utils/format";
@@ -226,18 +227,9 @@ interface ServiceCatalogItem {
   id: number
   name: string
   unit: string
-  default_price: number
-  is_active: boolean
+  defaultPrice: number
+  isActive: boolean
 }
-
-// Mock service catalog — thay bằng real API khi BE sẵn sàng
-const MOCK_SERVICE_CATALOG: ServiceCatalogItem[] = [
-  { id: 1, name: "Cho thuê xe nâng người", unit: "ngày", default_price: 1500000, is_active: true },
-  { id: 2, name: "Phí vận chuyển đi", unit: "chuyến", default_price: 2000000, is_active: true },
-  { id: 3, name: "Cho thuê người lái", unit: "ca", default_price: 500000, is_active: false },
-  { id: 4, name: "Phí vận chuyển về", unit: "chuyến", default_price: 1800000, is_active: true },
-  { id: 5, name: "Ca trực kỹ thuật", unit: "ca", default_price: 800000, is_active: true },
-]
 
 function LineItemDialog({
   open,
@@ -256,12 +248,13 @@ function LineItemDialog({
   const isEdit = !!editItem;
 
   // Query service catalog — chỉ lấy active để chọn
-  const { data: allServices = [] } = useQuery<ServiceCatalogItem[]>({
+  const { data: serviceCatalogRes } = useQuery({
     queryKey: QUERY_KEYS.serviceCatalog.all,
-    queryFn: () => Promise.resolve(MOCK_SERVICE_CATALOG),
+    queryFn: getServiceCatalog,
     staleTime: 5 * 60 * 1000,
   })
-  const activeServices = allServices.filter((s) => s.is_active)
+  const allServices: ServiceCatalogItem[] = serviceCatalogRes?.data ?? []
+  const activeServices = allServices.filter((s) => s.isActive)
 
   const maxOrder =
     contract.line_items.length > 0
@@ -325,7 +318,7 @@ function LineItemDialog({
                       field.onChange(id)
                       if (!isEdit) {
                         const svc = activeServices.find((s) => s.id === id)
-                        if (svc) setValue("unit_price", svc.default_price)
+                        if (svc) setValue("unit_price", svc.defaultPrice)
                       }
                     }}
                   >

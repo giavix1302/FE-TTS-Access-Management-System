@@ -126,7 +126,7 @@ function RightPanel() {
             <button
               key={i}
               onClick={() => handleDotClick(i)}
-              className="h-2 rounded-full transition-all duration-300"
+              className="h-2 rounded-full transition-all duration-300 cursor-pointer"
               style={{
                 width: i === current ? "24px" : "8px",
                 backgroundColor:
@@ -260,7 +260,7 @@ function LeftPanel() {
               <button
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#718096] hover:text-[#1A202C]"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#718096] hover:text-[#1A202C] cursor-pointer"
                 tabIndex={-1}
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
@@ -277,7 +277,7 @@ function LeftPanel() {
           <button
             type="submit"
             disabled={isLoading}
-            className="mt-2 flex h-[46px] w-full items-center justify-center gap-2 rounded-lg bg-[#1A5FAB] text-[19px] font-medium text-white transition-colors hover:bg-[#154D8A] disabled:cursor-not-allowed disabled:opacity-70"
+            className="mt-2 flex h-[46px] w-full items-center justify-center gap-2 rounded-lg bg-[#1A5FAB] text-[19px] font-medium text-white transition-colors hover:bg-[#154D8A] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
           >
             {isLoading ? (
               <>

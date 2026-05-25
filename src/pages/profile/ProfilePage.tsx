@@ -168,7 +168,7 @@ export default function ProfilePage() {
     if (!isEditingInfo) setIsEditingInfo(true);
   };
 
-  const avatarSrc = avatarPreview ?? user?.avatar_url ?? undefined;
+  const avatarSrc = avatarPreview ?? user?.avatarUrl ?? undefined;
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-[var(--sp-section)]">
@@ -189,7 +189,7 @@ export default function ProfilePage() {
             <div className="relative">
               <Avatar className="h-20 w-20">
                 {avatarSrc ? (
-                  <AvatarImage src={avatarSrc} alt={user?.full_name} />
+                  <AvatarImage src={avatarSrc} alt={user?.fullName} />
                 ) : null}
                 <AvatarFallback className="bg-[#1A5FAB] text-xl font-semibold text-white">
                   {user ? generateInitials(user.fullName) : "?"}
@@ -213,7 +213,7 @@ export default function ProfilePage() {
             </div>
             <div>
               <p className="text-[length:var(--fs-base)] font-semibold text-[#1A3A5C]">
-                {user?.full_name}
+                {user?.fullName}
               </p>
               <p className="mt-0.5 text-[length:var(--fs-body)] text-[#718096]">
                 {user?.phone}
@@ -293,7 +293,7 @@ export default function ProfilePage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
                   <p className="text-[length:var(--fs-body)] text-[#718096]">Họ và tên</p>
-                  <p className="mt-0.5 font-medium text-[#2D3748]">{user?.full_name ?? "—"}</p>
+                  <p className="mt-0.5 font-medium text-[#2D3748]">{user?.fullName ?? "—"}</p>
                 </div>
                 <div>
                   <p className="text-[length:var(--fs-body)] text-[#718096]">Email</p>

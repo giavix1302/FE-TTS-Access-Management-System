@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { type ColumnDef } from '@tanstack/react-table'
+import {
+  getServiceCatalog,
+  createServiceCatalog,
+  updateServiceCatalog,
+  activateServiceCatalog,
+  deactivateServiceCatalog,
+} from '@/api/service-catalog.api'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -12,6 +19,11 @@ import { DataTable } from '@/components/shared/DataTable'
 import { PageHeader } from '@/components/shared/PageHeader'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -35,26 +47,16 @@ interface ServiceCatalogItem {
   id: number
   name: string
   unit: string
-  default_price: number
-  is_active: boolean
+  defaultPrice: number
+  isActive: boolean
 }
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_SERVICES: ServiceCatalogItem[] = [
-  { id: 1, name: 'Cho thuê xe nâng người', unit: 'ngày', default_price: 1500000, is_active: true },
-  { id: 2, name: 'Phí vận chuyển đi', unit: 'chuyến', default_price: 2000000, is_active: true },
-  { id: 3, name: 'Cho thuê người lái', unit: 'ca', default_price: 500000, is_active: false },
-  { id: 4, name: 'Phí vận chuyển về', unit: 'chuyến', default_price: 1800000, is_active: true },
-  { id: 5, name: 'Ca trực kỹ thuật', unit: 'ca', default_price: 800000, is_active: true },
-]
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 
 const serviceSchema = z.object({
   name: z.string().min(1, 'Bắt buộc'),
   unit: z.string().min(1, 'Bắt buộc'),
-  default_price: z.coerce.number({ invalid_type_error: 'Phải là số' }).positive('Phải lớn hơn 0'),
+  defaultPrice: z.coerce.number({ invalid_type_error: 'Phải là số' }).positive('Phải lớn hơn 0'),
 })
 
 type ServiceForm = z.infer<typeof serviceSchema>
@@ -74,7 +76,9 @@ type FilterTab = 'all' | 'active' | 'inactive'
 export default function ServiceCatalogPage() {
   const queryClient = useQueryClient()
   const { hasPermission } = usePermission()
-  const canEdit = hasPermission("service_catalog.create")
+  const canCreate = hasPermission("service_catalog.create")
+  const canUpdate = hasPermission("service_catalog.update")
+  const canEdit = canCreate || canUpdate
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -85,57 +89,63 @@ export default function ServiceCatalogPage() {
 
   // ── Query ──────────────────────────────────────────────────────────────────
 
-  const { data: services = [], isLoading } = useQuery<ServiceCatalogItem[]>({
+  const { data: servicesData, isLoading } = useQuery({
     queryKey: QUERY_KEYS.serviceCatalog.all,
-    queryFn: () => Promise.resolve(MOCK_SERVICES),
+    queryFn: getServiceCatalog,
   })
+  const services: ServiceCatalogItem[] = servicesData?.data ?? []
 
   // ── Mutations ──────────────────────────────────────────────────────────────
 
   const createMutation = useMutation({
-    mutationFn: (_body: ServiceForm) => new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (body: ServiceForm) =>
+      createServiceCatalog({ name: body.name, unit: body.unit, defaultPrice: body.defaultPrice }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.serviceCatalog.all })
       toast.success('Thêm dịch vụ thành công')
       setDialogOpen(false)
     },
+    onError: () => toast.error('Có lỗi xảy ra'),
   })
 
   const updateMutation = useMutation({
-    mutationFn: (_body: ServiceForm & { id: number }) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (body: ServiceForm & { id: number }) =>
+      updateServiceCatalog(body.id, { name: body.name, unit: body.unit, defaultPrice: body.defaultPrice }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.serviceCatalog.all })
       toast.success('Cập nhật dịch vụ thành công')
       setDialogOpen(false)
       setEditTarget(null)
     },
+    onError: () => toast.error('Có lỗi xảy ra'),
   })
 
   const toggleMutation = useMutation({
-    mutationFn: (_item: ServiceCatalogItem) => new Promise<void>((res) => setTimeout(res, 400)),
+    mutationFn: (item: ServiceCatalogItem) =>
+      item.isActive ? deactivateServiceCatalog(item.id) : activateServiceCatalog(item.id),
     onSuccess: (_data, item) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.serviceCatalog.all })
-      toast.success(item.is_active ? 'Đã ẩn dịch vụ' : 'Đã hiện dịch vụ')
+      toast.success(item.isActive ? 'Đã ẩn dịch vụ' : 'Đã hiện dịch vụ')
       setConfirmToggle(null)
     },
+    onError: () => toast.error('Có lỗi xảy ra'),
   })
 
   // ── Form ───────────────────────────────────────────────────────────────────
 
   const form = useForm<ServiceForm>({
     resolver: zodResolver(serviceSchema),
-    defaultValues: { name: '', unit: '', default_price: 0 },
+    defaultValues: { name: '', unit: '', defaultPrice: 0 },
   })
 
   const openCreate = () => {
-    form.reset({ name: '', unit: '', default_price: 0 })
+    form.reset({ name: '', unit: '', defaultPrice: 0 })
     setEditTarget(null)
     setDialogOpen(true)
   }
 
   const openEdit = (item: ServiceCatalogItem) => {
-    form.reset({ name: item.name, unit: item.unit, default_price: item.default_price })
+    form.reset({ name: item.name, unit: item.unit, defaultPrice: item.defaultPrice })
     setEditTarget(item)
     setDialogOpen(true)
   }
@@ -153,8 +163,8 @@ export default function ServiceCatalogPage() {
   // ── Filtered data ──────────────────────────────────────────────────────────
 
   const filtered = services.filter((s) => {
-    if (filterTab === 'active') return s.is_active
-    if (filterTab === 'inactive') return !s.is_active
+    if (filterTab === 'active') return s.isActive
+    if (filterTab === 'inactive') return !s.isActive
     return true
   })
 
@@ -178,11 +188,11 @@ export default function ServiceCatalogPage() {
       ),
     },
     {
-      accessorKey: 'default_price',
+      accessorKey: 'defaultPrice',
       header: 'Đơn giá mặc định',
       cell: ({ row }) => (
         <span className="font-medium text-[#1A5FAB]">
-          {formatVND(row.original.default_price)}
+          {formatVND(row.original.defaultPrice)}
         </span>
       ),
     },
@@ -190,7 +200,7 @@ export default function ServiceCatalogPage() {
       accessorKey: 'is_active',
       header: 'Trạng thái',
       cell: ({ row }) =>
-        row.original.is_active ? (
+        row.original.isActive ? (
           <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E8F5E9] px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium text-[#27AE60]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#27AE60]" />
             Hoạt động
@@ -202,41 +212,49 @@ export default function ServiceCatalogPage() {
           </span>
         ),
     },
-    ...(canEdit
+    ...(canUpdate
       ? [
           {
             id: 'actions',
-            header: '',
+            header: 'Thao tác',
             cell: ({ row }: { row: { original: ServiceCatalogItem } }) => (
-              <div className="flex items-center justify-end gap-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="cursor-pointer gap-1.5 text-[#5A5A66] hover:text-[#1A5FAB]"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    openEdit(row.original)
-                  }}
-                >
-                  <Pencil size={14} />
-                  Sửa
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={
-                    row.original.is_active
-                      ? 'cursor-pointer gap-1.5 text-[#5A5A66] hover:bg-[#FFF3F3] hover:text-[#E74C3C]'
-                      : 'cursor-pointer gap-1.5 text-[#5A5A66] hover:bg-[#E8F5E9] hover:text-[#27AE60]'
-                  }
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setConfirmToggle(row.original)
-                  }}
-                >
-                  {row.original.is_active ? <EyeOff size={14} /> : <Eye size={14} />}
-                  {row.original.is_active ? 'Ẩn' : 'Hiện'}
-                </Button>
+              <div className="flex items-center gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="cursor-pointer h-8 w-8 p-0 text-text-secondary hover:text-primary hover:bg-primary-light"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openEdit(row.original)
+                      }}
+                    >
+                      <Pencil size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Chỉnh sửa</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={
+                        row.original.isActive
+                          ? 'cursor-pointer h-8 w-8 p-0 text-text-secondary hover:bg-error-light hover:text-error'
+                          : 'cursor-pointer h-8 w-8 p-0 text-text-secondary hover:bg-[#DCFCE7] hover:text-success'
+                      }
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setConfirmToggle(row.original)
+                      }}
+                    >
+                      {row.original.isActive ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{row.original.isActive ? 'Ẩn dịch vụ' : 'Hiện dịch vụ'}</TooltipContent>
+                </Tooltip>
               </div>
             ),
           } satisfies ColumnDef<ServiceCatalogItem>,
@@ -259,7 +277,7 @@ export default function ServiceCatalogPage() {
         title="Danh mục dịch vụ"
         subtitle="Quản lý các dịch vụ dùng chung cho hợp đồng"
         actions={
-          canEdit ? (
+          canCreate ? (
             <Button
               onClick={openCreate}
               className="cursor-pointer gap-1.5 bg-[#1A5FAB] text-[length:var(--fs-sm)] text-white hover:bg-[#154D8A] sm:text-[length:var(--fs-base)]"
@@ -325,7 +343,7 @@ export default function ServiceCatalogPage() {
                 <span className="font-medium text-[length:var(--fs-base)] text-[#1A202C] leading-snug">
                   {item.name}
                 </span>
-                {item.is_active ? (
+                {item.isActive ? (
                   <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-[#E8F5E9] px-2 py-0.5 text-[length:var(--fs-xs)] font-medium text-[#27AE60]">
                     <span className="h-1.5 w-1.5 rounded-full bg-[#27AE60]" />
                     Hoạt động
@@ -344,12 +362,12 @@ export default function ServiceCatalogPage() {
                   {item.unit}
                 </span>
                 <span className="font-semibold text-[#1A5FAB]">
-                  {formatVND(item.default_price)}
+                  {formatVND(item.defaultPrice)}
                 </span>
               </div>
 
-              {/* Row 3: actions — chỉ hiện nếu canEdit */}
-              {canEdit && (
+              {/* Row 3: actions — chỉ hiện nếu canUpdate */}
+              {canUpdate && (
                 <div className="flex items-center gap-2 border-t border-[#E2E8F0] pt-2">
                   <Button
                     variant="ghost"
@@ -364,14 +382,14 @@ export default function ServiceCatalogPage() {
                     variant="ghost"
                     size="sm"
                     className={
-                      item.is_active
+                      item.isActive
                         ? 'flex-1 cursor-pointer gap-1.5 text-[length:var(--fs-sm)] text-[#5A5A66] hover:bg-[#FFF3F3] hover:text-[#E74C3C]'
                         : 'flex-1 cursor-pointer gap-1.5 text-[length:var(--fs-sm)] text-[#5A5A66] hover:bg-[#E8F5E9] hover:text-[#27AE60]'
                     }
                     onClick={() => setConfirmToggle(item)}
                   >
-                    {item.is_active ? <EyeOff size={14} /> : <Eye size={14} />}
-                    {item.is_active ? 'Ẩn' : 'Hiện'}
+                    {item.isActive ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {item.isActive ? 'Ẩn' : 'Hiện'}
                   </Button>
                 </div>
               )}
@@ -460,7 +478,7 @@ export default function ServiceCatalogPage() {
                 min={1}
                 step={1000}
                 placeholder="VD: 1500000"
-                {...form.register('default_price')}
+                {...form.register('defaultPrice')}
                 className={form.formState.errors.default_price ? 'border-[#E74C3C]' : ''}
               />
               {form.formState.errors.default_price && (
@@ -470,7 +488,7 @@ export default function ServiceCatalogPage() {
               )}
               {/* Preview */}
               {(() => {
-                const v = form.watch('default_price')
+                const v = form.watch('defaultPrice')
                 return v > 0 ? (
                   <p className="text-[length:var(--fs-xs)] text-[#718096]">
                     = {formatVND(v)}
@@ -508,14 +526,14 @@ export default function ServiceCatalogPage() {
         <ConfirmModal
           open={!!confirmToggle}
           onOpenChange={(open) => { if (!open) setConfirmToggle(null) }}
-          title={confirmToggle.is_active ? 'Ẩn dịch vụ?' : 'Hiện dịch vụ?'}
+          title={confirmToggle.isActive ? 'Ẩn dịch vụ?' : 'Hiện dịch vụ?'}
           description={
-            confirmToggle.is_active
+            confirmToggle.isActive
               ? `Dịch vụ "${confirmToggle.name}" sẽ không còn xuất hiện trong dropdown tạo hợp đồng mới.`
               : `Dịch vụ "${confirmToggle.name}" sẽ được hiện lại trong danh mục.`
           }
-          confirmLabel={confirmToggle.is_active ? 'Ẩn dịch vụ' : 'Hiện dịch vụ'}
-          variant={confirmToggle.is_active ? 'danger' : 'primary'}
+          confirmLabel={confirmToggle.isActive ? 'Ẩn dịch vụ' : 'Hiện dịch vụ'}
+          variant={confirmToggle.isActive ? 'danger' : 'primary'}
           loading={toggleMutation.isPending}
           onConfirm={() => toggleMutation.mutate(confirmToggle)}
         />

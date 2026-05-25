@@ -87,11 +87,11 @@ export function DataTable<TData, TValue>({
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="bg-[#DDE4ED] hover:bg-[#DDE4ED] border-b border-[#C4CFDB]">
+              <TableRow key={headerGroup.id} className="bg-[#1A5FAB] hover:bg-[#1A5FAB] border-b border-[#154D8A]">
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className="text-[length:var(--fs-sm)] font-semibold text-[#2D3748] uppercase tracking-wide h-11 px-[var(--sp-card)]"
+                    className="text-[length:var(--fs-sm)] font-semibold text-white uppercase tracking-wide h-11 px-[var(--sp-card)]"
                   >
                     {header.isPlaceholder
                       ? null
@@ -127,7 +127,7 @@ export function DataTable<TData, TValue>({
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className={`border-b border-[#E2E8F0] hover:bg-[#F4F6F8] transition-colors ${onRowClick ? "cursor-pointer" : ""}`}
+                  className={`border-b border-[#E2E8F0] hover:bg-[#E8F0FB] transition-colors ${onRowClick ? "cursor-pointer" : ""}`}
                   onClick={() => onRowClick?.(row.original)}
                 >
                   {row.getVisibleCells().map((cell) => (

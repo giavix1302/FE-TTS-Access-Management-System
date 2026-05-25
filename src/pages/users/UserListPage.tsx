@@ -29,6 +29,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -757,49 +762,61 @@ export default function UserListPage() {
     },
     {
       id: "actions",
-      header: "",
+      header: "Thao tác",
       cell: ({ row }) => {
         const u = row.original;
         const isSelf = currentUser?.id === u.id;
         if (!isAdmin) return null;
         return (
           <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="cursor-pointer text-text-secondary hover:text-primary hover:bg-primary-light h-8 w-8 p-0"
-              onClick={(e) => { e.stopPropagation(); setEditUser(u); }}
-              title="Chỉnh sửa"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="cursor-pointer text-text-secondary hover:text-warning hover:bg-[#FEF3C7] h-8 w-8 p-0"
-              onClick={(e) => { e.stopPropagation(); setResetUser(u); }}
-              title="Reset mật khẩu"
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="cursor-pointer text-text-secondary hover:text-primary hover:bg-primary-light h-8 w-8 p-0"
+                  onClick={(e) => { e.stopPropagation(); setEditUser(u); }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Chỉnh sửa</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="cursor-pointer text-text-secondary hover:text-warning hover:bg-[#FEF3C7] h-8 w-8 p-0"
+                  onClick={(e) => { e.stopPropagation(); setResetUser(u); }}
+                >
+                  <KeyRound className="h-3.5 w-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Reset mật khẩu</TooltipContent>
+            </Tooltip>
             {!isSelf && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`cursor-pointer h-8 w-8 p-0 ${
-                  u.isActive
-                    ? "text-text-secondary hover:text-error hover:bg-error-light"
-                    : "text-text-secondary hover:text-success hover:bg-[#DCFCE7]"
-                }`}
-                onClick={(e) => { e.stopPropagation(); setToggleUser(u); }}
-                title={u.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
-              >
-                {u.isActive ? (
-                  <ShieldOff className="h-3.5 w-3.5" />
-                ) : (
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                )}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`cursor-pointer h-8 w-8 p-0 ${
+                      u.isActive
+                        ? "text-text-secondary hover:text-error hover:bg-error-light"
+                        : "text-text-secondary hover:text-success hover:bg-[#DCFCE7]"
+                    }`}
+                    onClick={(e) => { e.stopPropagation(); setToggleUser(u); }}
+                  >
+                    {u.isActive ? (
+                      <ShieldOff className="h-3.5 w-3.5" />
+                    ) : (
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{u.isActive ? "Vô hiệu hóa" : "Kích hoạt"}</TooltipContent>
+              </Tooltip>
             )}
           </div>
         );

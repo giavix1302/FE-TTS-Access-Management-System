@@ -981,7 +981,7 @@ export default function VehicleListPage() {
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${
               isElectric
-                ? "bg-info-light text-info"
+                ? "bg-primary-light text-primary"
                 : "bg-warning-light text-warning"
             }`}
           >
@@ -1192,7 +1192,7 @@ export default function VehicleListPage() {
                       {v.manufacturer} · {v.manufacture_year}
                     </span>
                     <span
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${isElectric ? "bg-info-light text-info" : "bg-warning-light text-warning"}`}
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${isElectric ? "bg-primary-light text-primary" : "bg-warning-light text-warning"}`}
                     >
                       {isElectric ? "Điện" : "Xăng/Dầu"}
                     </span>

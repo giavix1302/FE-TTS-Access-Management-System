@@ -50,6 +50,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { createContract } from "@/api/contracts.api";
 import { uploadDocument } from "@/api/documents.api";
 import { getCustomers } from "@/api/customers.api";
+import { getServiceCatalog } from "@/api/service-catalog.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { cn } from "@/lib/utils";
 
@@ -66,7 +67,8 @@ interface ServiceOption {
   id: number;
   name: string;
   unit: string;
-  default_price: number;
+  defaultPrice: number;
+  isActive: boolean;
 }
 
 interface VehicleOption {
@@ -122,14 +124,6 @@ const MOCK_CUSTOMERS: CustomerOption[] = [
   },
 ];
 
-// ─── Mock services — khớp với ServiceCatalogPage ─────────────────────────────
-const MOCK_SERVICES: (ServiceOption & { is_active: boolean })[] = [
-  { id: 1, name: "Cho thuê xe nâng người", unit: "ngày", default_price: 1500000, is_active: true },
-  { id: 2, name: "Phí vận chuyển đi", unit: "chuyến", default_price: 2000000, is_active: true },
-  { id: 3, name: "Cho thuê người lái", unit: "ca", default_price: 500000, is_active: false },
-  { id: 4, name: "Phí vận chuyển về", unit: "chuyến", default_price: 1800000, is_active: true },
-  { id: 5, name: "Ca trực kỹ thuật", unit: "ca", default_price: 800000, is_active: true },
-];
 
 // ─── Mock vehicles ────────────────────────────────────────────────────────────
 const MOCK_VEHICLES: VehicleOption[] = [
@@ -778,12 +772,12 @@ export function CreateContractDialog({
   const [vehicles, setVehicles] = useState<VehicleDraft[]>([]);
 
   // Query service catalog — chỉ dùng active services cho dropdown
-  const { data: allServices = [] } = useQuery<ServiceOption[]>({
+  const { data: serviceCatalogRes } = useQuery({
     queryKey: QUERY_KEYS.serviceCatalog.all,
-    queryFn: () => Promise.resolve(MOCK_SERVICES.filter((s) => s.is_active)),
+    queryFn: getServiceCatalog,
     staleTime: 5 * 60 * 1000,
   });
-  const activeServices = allServices;
+  const activeServices: ServiceOption[] = (serviceCatalogRes?.data ?? []).filter((s: ServiceOption) => s.isActive);
 
   const hasPreview = !!file || !!mockUrl;
 
@@ -1020,7 +1014,7 @@ export function CreateContractDialog({
                                         service_name: svc?.name ?? "",
                                         unit: svc?.unit ?? "",
                                         unit_price:
-                                          svc?.default_price ?? li.unit_price,
+                                          svc?.defaultPrice ?? li.unit_price,
                                       }
                                     : li,
                                 ),

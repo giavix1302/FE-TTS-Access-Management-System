@@ -3,50 +3,55 @@ export type CustomerType = "individual" | "business";
 // ─── List item (GET /customers) ───────────────────────────────────────────────
 export interface CustomerListItem {
   id: number;
-  customer_type: CustomerType;
-  display_name: string;
-  short_name?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  is_active: boolean;
-  created_at: string;
-}
-
-// ─── Detail — cá nhân (GET /customers/:id, customer_type = "individual") ──────
-export interface IndividualCustomer {
-  id: number;
-  customer_type: "individual";
-  is_active: boolean;
-  full_name: string;
-  date_of_birth?: string | null;
-  gender?: "male" | "female" | "other" | null;
-  nationality?: string | null;
-  cccd: string;
-  cccd_issue_date?: string | null;
-  cccd_issue_place?: string | null;
-  hometown?: string | null;
-  permanent_address?: string | null;
+  customerType: CustomerType;
+  displayName: string;
+  shortName?: string | null;
   phone: string;
   email?: string | null;
-  created_at: string;
-  updated_at: string;
+  isActive: boolean;
+  createdAt: string;
 }
 
-// ─── Detail — doanh nghiệp (GET /customers/:id, customer_type = "business") ───
+// ─── Detail — cá nhân (GET /customers/:id, customerType = "individual") ──────
+export interface IndividualCustomer {
+  id: number;
+  customerType: "individual";
+  isActive: boolean;
+  fullName: string;
+  dateOfBirth?: string | null;
+  gender?: "male" | "female" | "other" | null;
+  nationality?: string | null;
+  nationalId: string;
+  nationalIdIssueDate?: string | null;
+  nationalIdIssuePlace?: string | null;
+  hometown?: string | null;
+  permanentAddress?: string | null;
+  phone: string;
+  email?: string | null;
+  address?: string | null;
+  note?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Detail — doanh nghiệp (GET /customers/:id, customerType = "business") ───
 export interface BusinessCustomer {
   id: number;
-  customer_type: "business";
-  is_active: boolean;
-  international_name: string;
-  short_name: string;
-  tax_code: string;
-  tax_address?: string | null;
-  office_address?: string | null;
+  customerType: "business";
+  isActive: boolean;
+  internationalName: string;
+  shortName: string;
+  taxCode: string;
+  taxAddress?: string | null;
+  officeAddress?: string | null;
   representative?: string | null;
-  phone?: string | null;
+  representativeTitle?: string | null;
+  phone: string;
   email?: string | null;
-  created_at: string;
-  updated_at: string;
+  address?: string | null;
+  note?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type CustomerDetail = IndividualCustomer | BusinessCustomer;
@@ -54,10 +59,10 @@ export type CustomerDetail = IndividualCustomer | BusinessCustomer;
 // ─── Contract history item (GET /customers/:id/contracts) ─────────────────────
 export interface CustomerContractItem {
   id: number;
-  contract_number: string;
-  status: "active" | "completed" | "cancelled";
-  start_date: string;
-  end_date: string;
-  total_amount: number;
-  created_at: string;
+  contractNumber: string;
+  status: string;
+  startDate: string;
+  endDate: string;
+  totalAmount: number;
+  createdAt: string;
 }

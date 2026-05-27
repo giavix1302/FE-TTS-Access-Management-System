@@ -7,6 +7,11 @@ import { z } from "zod";
 import { toast } from "sonner";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
 import { Plus, Search, Building2, User } from "lucide-react";
+import {
+  getCustomers,
+  createIndividualCustomer,
+  createBusinessCustomer,
+} from "@/api/customers.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { useDebounce } from "@/hooks/useDebounce";
 import { usePermission } from "@/hooks/usePermission";
@@ -47,86 +52,34 @@ import {
 } from "@/constants/customerType";
 import type { CustomerListItem, CustomerType } from "@/types/customer.types";
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-const MOCK_CUSTOMERS: CustomerListItem[] = [
-  {
-    id: 1,
-    customer_type: "individual",
-    display_name: "Nguyễn Văn A",
-    phone: "0901234567",
-    email: "vana@gmail.com",
-    is_active: true,
-    created_at: "2025-01-05T08:00:00Z",
-  },
-  {
-    id: 2,
-    customer_type: "business",
-    display_name: "Công ty TNHH Đô Thành",
-    short_name: "DOTHANH",
-    phone: "0281234567",
-    email: "contact@dothanh.vn",
-    is_active: true,
-    created_at: "2025-01-10T08:00:00Z",
-  },
-  {
-    id: 3,
-    customer_type: "business",
-    display_name: "Công ty CP Đại Phong",
-    short_name: "DAIPHONG",
-    phone: "0251234567",
-    email: "contact@daiphong.vn",
-    is_active: true,
-    created_at: "2025-02-01T08:00:00Z",
-  },
-  {
-    id: 4,
-    customer_type: "individual",
-    display_name: "Trần Thị Bích",
-    phone: "0912345678",
-    email: null,
-    is_active: false,
-    created_at: "2025-03-15T08:00:00Z",
-  },
-  {
-    id: 5,
-    customer_type: "business",
-    display_name: "Bệnh viện Hoàn Mỹ",
-    short_name: "HOANMY",
-    phone: "0289012345",
-    email: "contact@hoanmy.vn",
-    is_active: true,
-    created_at: "2025-04-20T08:00:00Z",
-  },
-];
-
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 const individualSchema = z.object({
   type: z.literal("individual"),
-  full_name: z.string().min(1, "Bắt buộc"),
+  fullName: z.string().min(1, "Bắt buộc"),
   phone: z.string().min(1, "Bắt buộc"),
-  cccd: z.string().regex(/^\d{12}$/, "Phải là 12 số"),
+  nationalId: z.string().regex(/^\d{12}$/, "Phải là 12 số"),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
-  date_of_birth: z.string().optional(),
+  dateOfBirth: z.string().optional(),
   gender: z.enum(["male", "female", "other"]).optional(),
   nationality: z.string().optional(),
-  cccd_issue_date: z.string().optional(),
-  cccd_issue_place: z.string().optional(),
+  nationalIdIssueDate: z.string().optional(),
+  nationalIdIssuePlace: z.string().optional(),
   hometown: z.string().optional(),
-  permanent_address: z.string().optional(),
+  permanentAddress: z.string().optional(),
 });
 
 const businessSchema = z.object({
   type: z.literal("business"),
-  international_name: z.string().min(1, "Bắt buộc"),
-  short_name: z
+  internationalName: z.string().min(1, "Bắt buộc"),
+  shortName: z
     .string()
     .min(1, "Bắt buộc")
     .regex(/^[A-Z0-9]+$/, "Chỉ chữ in hoa A–Z và số 0–9, không dấu cách"),
-  tax_code: z
+  taxCode: z
     .string()
     .regex(/^\d{10}(\d{3})?$/, "Phải là 10 hoặc 13 số"),
-  tax_address: z.string().optional(),
-  office_address: z.string().optional(),
+  taxAddress: z.string().optional(),
+  officeAddress: z.string().optional(),
   representative: z.string().optional(),
   phone: z.string().optional(),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
@@ -155,12 +108,12 @@ function BusinessFormFields({
           Tên doanh nghiệp <span className="text-error">*</span>
         </Label>
         <input
-          {...register("international_name")}
+          {...register("internationalName")}
           placeholder="Công ty TNHH ABC"
           className={`${fieldClass} mt-1`}
         />
-        {errors.international_name && (
-          <p className={errClass}>{errors.international_name.message}</p>
+        {errors.internationalName && (
+          <p className={errClass}>{errors.internationalName.message}</p>
         )}
       </div>
 
@@ -170,17 +123,17 @@ function BusinessFormFields({
             Tên viết tắt <span className="text-error">*</span>
           </Label>
           <input
-            {...register("short_name")}
+            {...register("shortName")}
             placeholder="ABC"
             onChange={(e) =>
-              setValue("short_name", e.target.value.toUpperCase(), {
+              setValue("shortName", e.target.value.toUpperCase(), {
                 shouldValidate: true,
               })
             }
             className={`${fieldClass} mt-1 uppercase`}
           />
-          {errors.short_name && (
-            <p className={errClass}>{errors.short_name.message}</p>
+          {errors.shortName && (
+            <p className={errClass}>{errors.shortName.message}</p>
           )}
         </div>
         <div>
@@ -188,12 +141,12 @@ function BusinessFormFields({
             Mã số thuế <span className="text-error">*</span>
           </Label>
           <input
-            {...register("tax_code")}
+            {...register("taxCode")}
             placeholder="0123456789"
             className={`${fieldClass} mt-1`}
           />
-          {errors.tax_code && (
-            <p className={errClass}>{errors.tax_code.message}</p>
+          {errors.taxCode && (
+            <p className={errClass}>{errors.taxCode.message}</p>
           )}
         </div>
       </div>
@@ -240,7 +193,7 @@ function BusinessFormFields({
           Địa chỉ đăng ký thuế
         </Label>
         <input
-          {...register("tax_address")}
+          {...register("taxAddress")}
           placeholder="123 Đường ABC, Quận 1..."
           className={`${fieldClass} mt-1`}
         />
@@ -251,7 +204,7 @@ function BusinessFormFields({
           Địa chỉ văn phòng
         </Label>
         <input
-          {...register("office_address")}
+          {...register("officeAddress")}
           placeholder="456 Đường XYZ, Quận 7..."
           className={`${fieldClass} mt-1`}
         />
@@ -274,12 +227,12 @@ function IndividualFormFields({
           Họ và tên <span className="text-error">*</span>
         </Label>
         <input
-          {...register("full_name")}
+          {...register("fullName")}
           placeholder="Nguyễn Văn A"
           className={`${fieldClass} mt-1`}
         />
-        {errors.full_name && (
-          <p className={errClass}>{errors.full_name.message}</p>
+        {errors.fullName && (
+          <p className={errClass}>{errors.fullName.message}</p>
         )}
       </div>
 
@@ -317,13 +270,13 @@ function IndividualFormFields({
           Số CCCD <span className="text-error">*</span>
         </Label>
         <input
-          {...register("cccd")}
+          {...register("nationalId")}
           placeholder="012345678901"
           maxLength={12}
           className={`${fieldClass} mt-1`}
         />
-        {errors.cccd && (
-          <p className={errClass}>{errors.cccd.message}</p>
+        {errors.nationalId && (
+          <p className={errClass}>{errors.nationalId.message}</p>
         )}
       </div>
 
@@ -334,7 +287,7 @@ function IndividualFormFields({
           </Label>
           <Controller
             control={control}
-            name="cccd_issue_date"
+            name="nationalIdIssueDate"
             render={({ field }) => (
               <DatePicker
                 value={field.value}
@@ -350,7 +303,7 @@ function IndividualFormFields({
           </Label>
           <Controller
             control={control}
-            name="date_of_birth"
+            name="dateOfBirth"
             render={({ field }) => (
               <DatePicker
                 value={field.value}
@@ -393,7 +346,7 @@ function IndividualFormFields({
           Nơi cấp CCCD
         </Label>
         <input
-          {...register("cccd_issue_place")}
+          {...register("nationalIdIssuePlace")}
           placeholder="Cục Cảnh sát QLHC về TTXH"
           className={`${fieldClass} mt-1`}
         />
@@ -415,7 +368,7 @@ function IndividualFormFields({
           Địa chỉ thường trú
         </Label>
         <input
-          {...register("permanent_address")}
+          {...register("permanentAddress")}
           placeholder="123 Đường ABC, Quận 1..."
           className={`${fieldClass} mt-1`}
         />
@@ -447,8 +400,15 @@ function CreateCustomerDialog({
   });
 
   const mutation = useMutation({
-    mutationFn: (_body: IndividualForm | BusinessForm) =>
-      new Promise<void>((res) => setTimeout(res, 600)),
+    mutationFn: (body: IndividualForm | BusinessForm) => {
+      if (body.type === "individual") {
+        const { type, ...rest } = body;
+        return createIndividualCustomer(rest);
+      } else {
+        const { type, ...rest } = body;
+        return createBusinessCustomer(rest);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.customers.all });
       toast.success("Thêm khách hàng thành công");
@@ -595,34 +555,19 @@ export default function CustomerListPage() {
       ...QUERY_KEYS.customers.all,
       { search: debouncedSearch, typeFilter, activeFilter, page },
     ],
-    queryFn: () => {
-      const filtered = MOCK_CUSTOMERS.filter((c) => {
-        const q = debouncedSearch.toLowerCase();
-        const matchSearch =
-          !q ||
-          c.display_name.toLowerCase().includes(q) ||
-          (c.phone ?? "").includes(q) ||
-          (c.email ?? "").toLowerCase().includes(q);
-        const matchType = !typeFilter || c.customer_type === typeFilter;
-        const matchActive =
-          activeFilter === ""
+    queryFn: () =>
+      getCustomers({
+        search: debouncedSearch || undefined,
+        customer_type: typeFilter || undefined,
+        is_active:
+          activeFilter === "active"
             ? true
-            : activeFilter === "active"
-              ? c.is_active
-              : !c.is_active;
-        return matchSearch && matchType && matchActive;
-      });
-      const start = (page - 1) * PAGE_SIZE;
-      return Promise.resolve({
-        data: filtered.slice(start, start + PAGE_SIZE),
-        meta: {
-          total: filtered.length,
-          page,
-          page_size: PAGE_SIZE,
-          total_pages: Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
-        },
-      });
-    },
+            : activeFilter === "inactive"
+              ? false
+              : undefined,
+        page,
+        page_size: PAGE_SIZE,
+      }),
   });
 
   const customers = data?.data ?? [];
@@ -641,10 +586,10 @@ export default function CustomerListPage() {
           <div className="flex items-center gap-2.5">
             <div
               className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                c.customer_type === "business" ? "bg-[#FFF7ED]" : "bg-[#EEF2FF]"
+                c.customerType === "business" ? "bg-[#FFF7ED]" : "bg-[#EEF2FF]"
               }`}
             >
-              {c.customer_type === "business" ? (
+              {c.customerType === "business" ? (
                 <Building2 className="h-4 w-4 text-[#C2410C]" />
               ) : (
                 <User className="h-4 w-4 text-[#4F46E5]" />
@@ -652,11 +597,11 @@ export default function CustomerListPage() {
             </div>
             <div className="min-w-0">
               <p className="font-medium text-text-primary truncate">
-                {c.display_name}
+                {c.displayName}
               </p>
-              {c.short_name && (
+              {c.shortName && (
                 <p className="text-[length:var(--fs-xs)] text-text-secondary">
-                  {c.short_name}
+                  {c.shortName}
                 </p>
               )}
             </div>
@@ -668,7 +613,7 @@ export default function CustomerListPage() {
       id: "type",
       header: "Loại",
       cell: ({ row }) => {
-        const { label, className } = getCustomerTypeBadge(row.original.customer_type);
+        const { label, className } = getCustomerTypeBadge(row.original.customerType);
         return (
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-xs)] font-medium ${className}`}
@@ -700,13 +645,13 @@ export default function CustomerListPage() {
       id: "status",
       header: "Trạng thái",
       cell: ({ row }) => {
-        const { label, className } = getCustomerActiveBadge(row.original.is_active);
+        const { label, className } = getCustomerActiveBadge(row.original.isActive);
         return (
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[length:var(--fs-xs)] font-medium ${className}`}
           >
             <span
-              className={`h-1.5 w-1.5 rounded-full ${row.original.is_active ? "bg-success" : "bg-text-secondary"}`}
+              className={`h-1.5 w-1.5 rounded-full ${row.original.isActive ? "bg-success" : "bg-text-secondary"}`}
             />
             {label}
           </span>
@@ -792,7 +737,7 @@ export default function CustomerListPage() {
           data={customers}
           loading={isLoading}
           pagination={pagination}
-          pageCount={meta?.total_pages ?? 1}
+          pageCount={meta?.totalPages ?? 1}
           onPaginationChange={setPagination}
           onRowClick={(row) => navigate(`/customers/${row.id}`)}
           emptyTitle="Không tìm thấy khách hàng nào"
@@ -836,8 +781,8 @@ export default function CustomerListPage() {
           </div>
         ) : (
           customers.map((c) => {
-            const typeBadge = getCustomerTypeBadge(c.customer_type);
-            const activeBadge = getCustomerActiveBadge(c.is_active);
+            const typeBadge = getCustomerTypeBadge(c.customerType);
+            const activeBadge = getCustomerActiveBadge(c.isActive);
             return (
               <div
                 key={c.id}
@@ -848,10 +793,10 @@ export default function CustomerListPage() {
                 <div className="flex items-center gap-3">
                   <div
                     className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
-                      c.customer_type === "business" ? "bg-[#FFF7ED]" : "bg-[#EEF2FF]"
+                      c.customerType === "business" ? "bg-[#FFF7ED]" : "bg-[#EEF2FF]"
                     }`}
                   >
-                    {c.customer_type === "business" ? (
+                    {c.customerType === "business" ? (
                       <Building2 className="h-5 w-5 text-[#C2410C]" />
                     ) : (
                       <User className="h-5 w-5 text-[#4F46E5]" />
@@ -859,11 +804,11 @@ export default function CustomerListPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-[length:var(--fs-base)] text-text-primary truncate">
-                      {c.display_name}
+                      {c.displayName}
                     </p>
-                    {c.short_name && (
+                    {c.shortName && (
                       <p className="text-[length:var(--fs-xs)] text-text-secondary">
-                        {c.short_name}
+                        {c.shortName}
                       </p>
                     )}
                   </div>
@@ -877,7 +822,7 @@ export default function CustomerListPage() {
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${activeBadge.className}`}
                     >
                       <span
-                        className={`h-1.5 w-1.5 rounded-full ${c.is_active ? "bg-success" : "bg-text-secondary"}`}
+                        className={`h-1.5 w-1.5 rounded-full ${c.isActive ? "bg-success" : "bg-text-secondary"}`}
                       />
                       {activeBadge.label}
                     </span>
@@ -900,10 +845,10 @@ export default function CustomerListPage() {
         )}
 
         {/* Pagination mobile */}
-        {!isLoading && meta && meta.total_pages > 1 && (
+        {!isLoading && meta && meta.totalPages > 1 && (
           <div className="flex items-center justify-between px-1 pt-1">
             <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              Trang {meta.page}/{meta.total_pages} · {meta.total} KH
+              Trang {meta.page}/{meta.totalPages} · {meta.total} KH
             </p>
             <div className="flex gap-1">
               <Button
@@ -921,7 +866,7 @@ export default function CustomerListPage() {
                 variant="outline"
                 size="sm"
                 className="h-8 px-3 border-border cursor-pointer"
-                disabled={pagination.pageIndex + 1 >= meta.total_pages}
+                disabled={pagination.pageIndex + 1 >= meta.totalPages}
                 onClick={() =>
                   setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))
                 }

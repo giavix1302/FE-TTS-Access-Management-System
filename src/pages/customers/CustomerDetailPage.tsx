@@ -16,6 +16,14 @@ import {
   ShieldOff,
   ShieldCheck,
 } from "lucide-react";
+import {
+  getCustomerById,
+  getCustomerContracts,
+  updateIndividualCustomer,
+  updateBusinessCustomer,
+  activateCustomer,
+  deactivateCustomer,
+} from "@/api/customers.api";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -55,138 +63,32 @@ import type {
   CustomerContractItem,
 } from "@/types/customer.types";
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-const MOCK_CUSTOMERS: Record<number, CustomerDetail> = {
-  1: {
-    id: 1,
-    customer_type: "individual",
-    is_active: true,
-    full_name: "Nguyễn Văn A",
-    date_of_birth: "1990-05-15",
-    gender: "male",
-    nationality: "Việt Nam",
-    cccd: "012345678901",
-    cccd_issue_date: "2021-01-01",
-    cccd_issue_place: "Cục Cảnh sát QLHC về TTXH",
-    hometown: "Hà Nội",
-    permanent_address: "123 Đường ABC, Quận 1, TP.HCM",
-    phone: "0901234567",
-    email: "vana@gmail.com",
-    created_at: "2025-01-05T08:00:00Z",
-    updated_at: "2025-06-01T08:00:00Z",
-  },
-  2: {
-    id: 2,
-    customer_type: "business",
-    is_active: true,
-    international_name: "Công ty TNHH Đô Thành",
-    short_name: "DOTHANH",
-    tax_code: "0301234567",
-    tax_address: "123 Đường Hoàng Diệu, Quận 4, TP.HCM",
-    office_address: "456 Đường Nguyễn Văn Linh, Quận 7, TP.HCM",
-    representative: "Trần Văn Đô",
-    phone: "0281234567",
-    email: "contact@dothanh.vn",
-    created_at: "2025-01-10T08:00:00Z",
-    updated_at: "2025-06-01T08:00:00Z",
-  },
-  3: {
-    id: 3,
-    customer_type: "business",
-    is_active: true,
-    international_name: "Công ty CP Đại Phong",
-    short_name: "DAIPHONG",
-    tax_code: "3703116797",
-    tax_address: "789 Đường Lê Văn Việt, Q.9, TP.HCM",
-    office_address: null,
-    representative: "Nguyễn Thị C",
-    phone: "0251234567",
-    email: "contact@daiphong.vn",
-    created_at: "2025-02-01T08:00:00Z",
-    updated_at: "2025-06-01T08:00:00Z",
-  },
-  4: {
-    id: 4,
-    customer_type: "individual",
-    is_active: false,
-    full_name: "Trần Thị Bích",
-    date_of_birth: "1985-10-20",
-    gender: "female",
-    nationality: "Việt Nam",
-    cccd: "079185012345",
-    cccd_issue_date: "2020-05-01",
-    cccd_issue_place: "Cục Cảnh sát QLHC về TTXH",
-    hometown: "TP.HCM",
-    permanent_address: "99 Đường CMT8, Quận 3, TP.HCM",
-    phone: "0912345678",
-    email: null,
-    created_at: "2025-03-15T08:00:00Z",
-    updated_at: "2025-05-10T08:00:00Z",
-  },
-  5: {
-    id: 5,
-    customer_type: "business",
-    is_active: true,
-    international_name: "Bệnh viện Hoàn Mỹ",
-    short_name: "HOANMY",
-    tax_code: "0304567890",
-    tax_address: "60 Đường Phan Xích Long, Q.Phú Nhuận, TP.HCM",
-    office_address: null,
-    representative: "BS. Lê Hoàng Nam",
-    phone: "0289012345",
-    email: "contact@hoanmy.vn",
-    created_at: "2025-04-20T08:00:00Z",
-    updated_at: "2025-06-01T08:00:00Z",
-  },
-};
-
-const MOCK_CONTRACTS: CustomerContractItem[] = [
-  {
-    id: 1,
-    contract_number: "01012026/HĐTTB/TTS-DOTHANH",
-    status: "active",
-    start_date: "2026-01-05",
-    end_date: "2026-03-05",
-    total_amount: 64800000,
-    created_at: "2026-01-01T08:00:00Z",
-  },
-  {
-    id: 3,
-    contract_number: "03122025/HĐTTB/TTS-DOTHANH",
-    status: "completed",
-    start_date: "2025-12-01",
-    end_date: "2025-12-21",
-    total_amount: 18000000,
-    created_at: "2025-11-28T08:00:00Z",
-  },
-];
-
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 const individualEditSchema = z.object({
-  full_name: z.string().min(1, "Bắt buộc"),
+  fullName: z.string().min(1, "Bắt buộc"),
   phone: z.string().min(1, "Bắt buộc"),
   email: z.string().email("Không hợp lệ").or(z.literal("")).optional(),
-  cccd: z.string().regex(/^\d{12}$/, "Phải là 12 số"),
-  cccd_issue_date: z.string().optional(),
-  cccd_issue_place: z.string().optional(),
-  date_of_birth: z.string().optional(),
+  nationalId: z.string().regex(/^\d{12}$/, "Phải là 12 số"),
+  nationalIdIssueDate: z.string().optional(),
+  nationalIdIssuePlace: z.string().optional(),
+  dateOfBirth: z.string().optional(),
   gender: z.enum(["male", "female", "other"]).or(z.literal("")).optional(),
   nationality: z.string().optional(),
   hometown: z.string().optional(),
-  permanent_address: z.string().optional(),
+  permanentAddress: z.string().optional(),
 });
 
 const businessEditSchema = z.object({
-  international_name: z.string().min(1, "Bắt buộc"),
-  short_name: z
+  internationalName: z.string().min(1, "Bắt buộc"),
+  shortName: z
     .string()
     .min(1, "Bắt buộc")
     .regex(/^[A-Z0-9]+$/, "Chỉ chữ in hoa A–Z và số 0–9"),
-  tax_code: z
+  taxCode: z
     .string()
     .regex(/^\d{10}(\d{3})?$/, "Phải là 10 hoặc 13 số"),
-  tax_address: z.string().optional(),
-  office_address: z.string().optional(),
+  taxAddress: z.string().optional(),
+  officeAddress: z.string().optional(),
   representative: z.string().optional(),
   phone: z.string().optional(),
   email: z.string().email("Không hợp lệ").or(z.literal("")).optional(),
@@ -239,23 +141,23 @@ function IndividualEditDialog({
   } = useForm<IndividualEditForm>({
     resolver: zodResolver(individualEditSchema),
     defaultValues: {
-      full_name: customer.full_name,
+      fullName: customer.fullName,
       phone: customer.phone,
       email: customer.email ?? "",
-      cccd: customer.cccd,
-      cccd_issue_date: customer.cccd_issue_date ?? "",
-      cccd_issue_place: customer.cccd_issue_place ?? "",
-      date_of_birth: customer.date_of_birth ?? "",
+      nationalId: customer.nationalId,
+      nationalIdIssueDate: customer.nationalIdIssueDate ?? "",
+      nationalIdIssuePlace: customer.nationalIdIssuePlace ?? "",
+      dateOfBirth: customer.dateOfBirth ?? "",
       gender: customer.gender ?? "",
       nationality: customer.nationality ?? "Việt Nam",
       hometown: customer.hometown ?? "",
-      permanent_address: customer.permanent_address ?? "",
+      permanentAddress: customer.permanentAddress ?? "",
     },
   });
 
   const mutation = useMutation({
-    mutationFn: (_body: IndividualEditForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (body: IndividualEditForm) =>
+      updateIndividualCustomer(customer.id, body),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.customers.detail(customer.id),
@@ -281,8 +183,8 @@ function IndividualEditDialog({
         <Label className="text-xs font-medium text-text-secondary">
           Họ và tên <span className="text-error">*</span>
         </Label>
-        <input {...register("full_name")} className={`${fieldClass} mt-1`} />
-        {errors.full_name && <p className={errClass}>{errors.full_name.message}</p>}
+        <input {...register("fullName")} className={`${fieldClass} mt-1`} />
+        {errors.fullName && <p className={errClass}>{errors.fullName.message}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -304,8 +206,8 @@ function IndividualEditDialog({
         <Label className="text-xs font-medium text-text-secondary">
           Số CCCD <span className="text-error">*</span>
         </Label>
-        <input {...register("cccd")} maxLength={12} className={`${fieldClass} mt-1`} />
-        {errors.cccd && <p className={errClass}>{errors.cccd.message}</p>}
+        <input {...register("nationalId")} maxLength={12} className={`${fieldClass} mt-1`} />
+        {errors.nationalId && <p className={errClass}>{errors.nationalId.message}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -313,7 +215,7 @@ function IndividualEditDialog({
           <Label className="text-xs font-medium text-text-secondary">Ngày cấp CCCD</Label>
           <Controller
             control={control}
-            name="cccd_issue_date"
+            name="nationalIdIssueDate"
             render={({ field }) => (
               <DatePicker value={field.value} onChange={field.onChange} className="mt-1 w-full" />
             )}
@@ -323,7 +225,7 @@ function IndividualEditDialog({
           <Label className="text-xs font-medium text-text-secondary">Ngày sinh</Label>
           <Controller
             control={control}
-            name="date_of_birth"
+            name="dateOfBirth"
             render={({ field }) => (
               <DatePicker value={field.value} onChange={field.onChange} className="mt-1 w-full" />
             )}
@@ -349,7 +251,7 @@ function IndividualEditDialog({
 
       <div>
         <Label className="text-xs font-medium text-text-secondary">Nơi cấp CCCD</Label>
-        <input {...register("cccd_issue_place")} className={`${fieldClass} mt-1`} />
+        <input {...register("nationalIdIssuePlace")} className={`${fieldClass} mt-1`} />
       </div>
 
       <div>
@@ -359,7 +261,7 @@ function IndividualEditDialog({
 
       <div>
         <Label className="text-xs font-medium text-text-secondary">Địa chỉ thường trú</Label>
-        <input {...register("permanent_address")} className={`${fieldClass} mt-1`} />
+        <input {...register("permanentAddress")} className={`${fieldClass} mt-1`} />
       </div>
     </form>
   );
@@ -385,7 +287,7 @@ function IndividualEditDialog({
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Chỉnh sửa — {customer.full_name}</DialogTitle>
+            <DialogTitle>Chỉnh sửa — {customer.fullName}</DialogTitle>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto pr-1 py-1">{formContent}</div>
           <Separator />
@@ -399,7 +301,7 @@ function IndividualEditDialog({
     <MobileSheetDialog open={open} onOpenChange={handleClose}>
       <MobileSheetContent mobileVariant="fullscreen" title="Chỉnh sửa khách hàng">
         <MobileSheetHeader>
-          <MobileSheetTitle>Chỉnh sửa — {customer.full_name}</MobileSheetTitle>
+          <MobileSheetTitle>Chỉnh sửa — {customer.fullName}</MobileSheetTitle>
         </MobileSheetHeader>
         <MobileSheetBody className="flex-1 overflow-y-auto">
           {formContent}
@@ -431,11 +333,11 @@ function BusinessEditDialog({
   } = useForm<BusinessEditForm>({
     resolver: zodResolver(businessEditSchema),
     defaultValues: {
-      international_name: customer.international_name,
-      short_name: customer.short_name,
-      tax_code: customer.tax_code,
-      tax_address: customer.tax_address ?? "",
-      office_address: customer.office_address ?? "",
+      internationalName: customer.internationalName,
+      shortName: customer.shortName,
+      taxCode: customer.taxCode,
+      taxAddress: customer.taxAddress ?? "",
+      officeAddress: customer.officeAddress ?? "",
       representative: customer.representative ?? "",
       phone: customer.phone ?? "",
       email: customer.email ?? "",
@@ -443,8 +345,8 @@ function BusinessEditDialog({
   });
 
   const mutation = useMutation({
-    mutationFn: (_body: BusinessEditForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (body: BusinessEditForm) =>
+      updateBusinessCustomer(customer.id, body),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.customers.detail(customer.id),
@@ -470,8 +372,8 @@ function BusinessEditDialog({
         <Label className="text-xs font-medium text-text-secondary">
           Tên doanh nghiệp <span className="text-error">*</span>
         </Label>
-        <input {...register("international_name")} className={`${fieldClass} mt-1`} />
-        {errors.international_name && <p className={errClass}>{errors.international_name.message}</p>}
+        <input {...register("internationalName")} className={`${fieldClass} mt-1`} />
+        {errors.internationalName && <p className={errClass}>{errors.internationalName.message}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -480,20 +382,20 @@ function BusinessEditDialog({
             Tên viết tắt <span className="text-error">*</span>
           </Label>
           <input
-            {...register("short_name")}
+            {...register("shortName")}
             onChange={(e) =>
-              setValue("short_name", e.target.value.toUpperCase(), { shouldValidate: true })
+              setValue("shortName", e.target.value.toUpperCase(), { shouldValidate: true })
             }
             className={`${fieldClass} mt-1 uppercase`}
           />
-          {errors.short_name && <p className={errClass}>{errors.short_name.message}</p>}
+          {errors.shortName && <p className={errClass}>{errors.shortName.message}</p>}
         </div>
         <div>
           <Label className="text-xs font-medium text-text-secondary">
             Mã số thuế <span className="text-error">*</span>
           </Label>
-          <input {...register("tax_code")} className={`${fieldClass} mt-1`} />
-          {errors.tax_code && <p className={errClass}>{errors.tax_code.message}</p>}
+          <input {...register("taxCode")} className={`${fieldClass} mt-1`} />
+          {errors.taxCode && <p className={errClass}>{errors.taxCode.message}</p>}
         </div>
       </div>
 
@@ -516,12 +418,12 @@ function BusinessEditDialog({
 
       <div>
         <Label className="text-xs font-medium text-text-secondary">Địa chỉ đăng ký thuế</Label>
-        <input {...register("tax_address")} className={`${fieldClass} mt-1`} />
+        <input {...register("taxAddress")} className={`${fieldClass} mt-1`} />
       </div>
 
       <div>
         <Label className="text-xs font-medium text-text-secondary">Địa chỉ văn phòng</Label>
-        <input {...register("office_address")} className={`${fieldClass} mt-1`} />
+        <input {...register("officeAddress")} className={`${fieldClass} mt-1`} />
       </div>
     </form>
   );
@@ -547,7 +449,7 @@ function BusinessEditDialog({
       <Dialog open={open} onOpenChange={handleClose}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Chỉnh sửa — {customer.international_name}</DialogTitle>
+            <DialogTitle>Chỉnh sửa — {customer.internationalName}</DialogTitle>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto pr-1 py-1">{formContent}</div>
           <Separator />
@@ -561,7 +463,7 @@ function BusinessEditDialog({
     <MobileSheetDialog open={open} onOpenChange={handleClose}>
       <MobileSheetContent mobileVariant="fullscreen" title="Chỉnh sửa doanh nghiệp">
         <MobileSheetHeader>
-          <MobileSheetTitle>Chỉnh sửa — {customer.international_name}</MobileSheetTitle>
+          <MobileSheetTitle>Chỉnh sửa — {customer.internationalName}</MobileSheetTitle>
         </MobileSheetHeader>
         <MobileSheetBody className="flex-1 overflow-y-auto">
           {formContent}
@@ -587,48 +489,56 @@ export default function CustomerDetailPage() {
   const [confirmToggle, setConfirmToggle] = useState(false);
 
   // ── Queries ──────────────────────────────────────────────────────────────
-  const { data: customer, isLoading } = useQuery<CustomerDetail>({
+  const { data: customerResponse, isLoading } = useQuery({
     queryKey: QUERY_KEYS.customers.detail(customerId),
-    queryFn: () =>
-      Promise.resolve(MOCK_CUSTOMERS[customerId]).then((c) => {
-        if (!c) throw new Error("not found");
-        return c;
-      }),
+    queryFn: () => getCustomerById(customerId),
     enabled: !!customerId,
   });
 
-  const { data: contracts = [], isLoading: contractsLoading } = useQuery<
-    CustomerContractItem[]
-  >({
+  const customer = customerResponse?.data;
+
+  const { data: contractsResponse, isLoading: contractsLoading } = useQuery({
     queryKey: QUERY_KEYS.customers.contracts(customerId),
-    queryFn: () => Promise.resolve(MOCK_CONTRACTS),
+    queryFn: () => getCustomerContracts(customerId),
     enabled: !!customerId,
   });
+
+  const contracts = contractsResponse?.data ?? [];
 
   // ── Toggle active mutation ────────────────────────────────────────────────
   const toggleMutation = useMutation({
-    mutationFn: () => new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: () =>
+      customer?.isActive
+        ? deactivateCustomer(customerId)
+        : activateCustomer(customerId),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.customers.detail(customerId),
       });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.customers.all });
       toast.success(
-        customer?.is_active ? "Đã vô hiệu hóa khách hàng" : "Đã kích hoạt khách hàng",
+        customer?.isActive ? "Đã vô hiệu hóa khách hàng" : "Đã kích hoạt khách hàng",
       );
       setConfirmToggle(false);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (error: unknown) => {
+      const axiosError = error as { response?: { data?: { error?: { code?: string } } } };
+      if (axiosError.response?.data?.error?.code === "CUSTOMER_HAS_ACTIVE_CONTRACTS") {
+        toast.error("Không thể vô hiệu hóa: khách hàng đang có hợp đồng active");
+      } else {
+        toast.error("Có lỗi xảy ra");
+      }
+    },
   });
 
   // ── Contract table columns ────────────────────────────────────────────────
   const contractColumns: ColumnDef<CustomerContractItem>[] = [
     {
-      id: "contract_number",
+      id: "contractNumber",
       header: "Số hợp đồng",
       cell: ({ row }) => (
         <p className="font-mono font-semibold text-text-primary text-[length:var(--fs-sm)]">
-          {row.original.contract_number}
+          {row.original.contractNumber}
         </p>
       ),
     },
@@ -637,16 +547,16 @@ export default function CustomerDetailPage() {
       header: "Thời gian",
       cell: ({ row }) => (
         <span className="text-[length:var(--fs-sm)] text-text-secondary">
-          {formatDate(row.original.start_date)} → {formatDate(row.original.end_date)}
+          {formatDate(row.original.startDate)} → {formatDate(row.original.endDate)}
         </span>
       ),
     },
     {
-      id: "total_amount",
+      id: "totalAmount",
       header: "Giá trị",
       cell: ({ row }) => (
         <span className="font-semibold text-[length:var(--fs-sm)] text-text-primary">
-          {formatCurrency(row.original.total_amount)}
+          {formatCurrency(row.original.totalAmount)}
         </span>
       ),
     },
@@ -706,14 +616,14 @@ export default function CustomerDetailPage() {
     );
   }
 
-  const isIndividual = customer.customer_type === "individual";
-  const isBusiness = customer.customer_type === "business";
+  const isIndividual = customer.customerType === "individual";
+  const isBusiness = customer.customerType === "business";
   const ind = isIndividual ? (customer as IndividualCustomer) : null;
   const biz = isBusiness ? (customer as BusinessCustomer) : null;
 
-  const typeBadge = getCustomerTypeBadge(customer.customer_type);
-  const activeBadge = getCustomerActiveBadge(customer.is_active);
-  const displayName = isIndividual ? ind!.full_name : biz!.international_name;
+  const typeBadge = getCustomerTypeBadge(customer.customerType);
+  const activeBadge = getCustomerActiveBadge(customer.isActive);
+  const displayName = isIndividual ? ind!.fullName : biz!.internationalName;
 
   return (
     <div className="flex flex-col gap-[var(--sp-section)]">
@@ -746,9 +656,9 @@ export default function CustomerDetailPage() {
                 <h1 className="text-[length:var(--fs-heading)] font-semibold text-text-primary">
                   {displayName}
                 </h1>
-                {biz?.short_name && (
+                {biz?.shortName && (
                   <span className="text-[length:var(--fs-xs)] font-mono text-text-secondary bg-bg-page px-1.5 py-0.5 rounded">
-                    {biz.short_name}
+                    {biz.shortName}
                   </span>
                 )}
               </div>
@@ -762,7 +672,7 @@ export default function CustomerDetailPage() {
                   className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[length:var(--fs-xs)] font-medium ${activeBadge.className}`}
                 >
                   <span
-                    className={`h-1.5 w-1.5 rounded-full ${customer.is_active ? "bg-success" : "bg-text-secondary"}`}
+                    className={`h-1.5 w-1.5 rounded-full ${customer.isActive ? "bg-success" : "bg-text-secondary"}`}
                   />
                   {activeBadge.label}
                 </span>
@@ -800,13 +710,13 @@ export default function CustomerDetailPage() {
                 variant="outline"
                 size="sm"
                 className={`cursor-pointer flex-1 sm:flex-none gap-1.5 ${
-                  customer.is_active
+                  customer.isActive
                     ? "border-error text-error hover:bg-error hover:text-white"
                     : "border-success text-success hover:bg-success hover:text-white"
                 }`}
                 onClick={() => setConfirmToggle(true)}
               >
-                {customer.is_active ? (
+                {customer.isActive ? (
                   <>
                     <ShieldOff size={14} />
                     Vô hiệu hóa
@@ -858,23 +768,23 @@ export default function CustomerDetailPage() {
 
             {isIndividual && ind && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-                <InfoRow label="Họ và tên" value={ind.full_name} />
+                <InfoRow label="Họ và tên" value={ind.fullName} />
                 <InfoRow
                   label="Giới tính"
                   value={ind.gender ? GENDER_LABELS[ind.gender] : undefined}
                 />
                 <InfoRow
                   label="Ngày sinh"
-                  value={ind.date_of_birth ? formatDate(ind.date_of_birth) : undefined}
+                  value={ind.dateOfBirth ? formatDate(ind.dateOfBirth) : undefined}
                 />
                 <InfoRow label="Quốc tịch" value={ind.nationality} />
-                <InfoRow label="Số CCCD" value={ind.cccd} />
+                <InfoRow label="Số CCCD" value={ind.nationalId} />
                 <InfoRow
                   label="Ngày cấp CCCD"
-                  value={ind.cccd_issue_date ? formatDate(ind.cccd_issue_date) : undefined}
+                  value={ind.nationalIdIssueDate ? formatDate(ind.nationalIdIssueDate) : undefined}
                 />
                 <div className="sm:col-span-2">
-                  <InfoRow label="Nơi cấp CCCD" value={ind.cccd_issue_place} />
+                  <InfoRow label="Nơi cấp CCCD" value={ind.nationalIdIssuePlace} />
                 </div>
               </div>
             )}
@@ -882,10 +792,10 @@ export default function CustomerDetailPage() {
             {isBusiness && biz && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
                 <div className="sm:col-span-2">
-                  <InfoRow label="Tên doanh nghiệp" value={biz.international_name} />
+                  <InfoRow label="Tên doanh nghiệp" value={biz.internationalName} />
                 </div>
-                <InfoRow label="Tên viết tắt" value={biz.short_name} />
-                <InfoRow label="Mã số thuế" value={biz.tax_code} />
+                <InfoRow label="Tên viết tắt" value={biz.shortName} />
+                <InfoRow label="Mã số thuế" value={biz.taxCode} />
                 <div className="sm:col-span-2">
                   <InfoRow label="Người đại diện" value={biz.representative} />
                 </div>
@@ -905,7 +815,7 @@ export default function CustomerDetailPage() {
                 <>
                   <InfoRow label="Quê quán" value={ind.hometown} />
                   <div className="sm:col-span-2">
-                    <InfoRow label="Địa chỉ thường trú" value={ind.permanent_address} />
+                    <InfoRow label="Địa chỉ thường trú" value={ind.permanentAddress} />
                   </div>
                 </>
               )}
@@ -913,10 +823,10 @@ export default function CustomerDetailPage() {
               {isBusiness && biz && (
                 <>
                   <div className="sm:col-span-2">
-                    <InfoRow label="Địa chỉ đăng ký thuế" value={biz.tax_address} />
+                    <InfoRow label="Địa chỉ đăng ký thuế" value={biz.taxAddress} />
                   </div>
                   <div className="sm:col-span-2">
-                    <InfoRow label="Địa chỉ văn phòng" value={biz.office_address} />
+                    <InfoRow label="Địa chỉ văn phòng" value={biz.officeAddress} />
                   </div>
                 </>
               )}
@@ -928,8 +838,8 @@ export default function CustomerDetailPage() {
               Thông tin hệ thống
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-              <InfoRow label="Ngày tạo" value={formatDate(customer.created_at)} />
-              <InfoRow label="Cập nhật lần cuối" value={formatDate(customer.updated_at)} />
+              <InfoRow label="Ngày tạo" value={formatDate(customer.createdAt)} />
+              <InfoRow label="Cập nhật lần cuối" value={formatDate(customer.updatedAt)} />
             </div>
           </div>
         </TabsContent>
@@ -969,7 +879,7 @@ export default function CustomerDetailPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-mono font-semibold text-[length:var(--fs-sm)] text-text-primary truncate flex-1">
-                        {c.contract_number}
+                        {c.contractNumber}
                       </p>
                       <span
                         className={`shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${className}`}
@@ -979,10 +889,10 @@ export default function CustomerDetailPage() {
                     </div>
                     <div className="flex items-center justify-between text-[length:var(--fs-xs)] text-text-secondary">
                       <span>
-                        {formatDate(c.start_date)} → {formatDate(c.end_date)}
+                        {formatDate(c.startDate)} → {formatDate(c.endDate)}
                       </span>
                       <span className="font-semibold text-text-primary">
-                        {formatCurrency(c.total_amount)}
+                        {formatCurrency(c.totalAmount)}
                       </span>
                     </div>
                   </div>
@@ -1013,14 +923,14 @@ export default function CustomerDetailPage() {
       <ConfirmModal
         open={confirmToggle}
         onOpenChange={setConfirmToggle}
-        title={customer.is_active ? "Vô hiệu hóa khách hàng?" : "Kích hoạt khách hàng?"}
+        title={customer.isActive ? "Vô hiệu hóa khách hàng?" : "Kích hoạt khách hàng?"}
         description={
-          customer.is_active
+          customer.isActive
             ? `Khách hàng "${displayName}" sẽ không thể tạo hợp đồng mới. Dữ liệu lịch sử vẫn được giữ nguyên.`
             : `Khách hàng "${displayName}" sẽ được kích hoạt trở lại.`
         }
-        confirmLabel={customer.is_active ? "Vô hiệu hóa" : "Kích hoạt"}
-        variant={customer.is_active ? "danger" : "primary"}
+        confirmLabel={customer.isActive ? "Vô hiệu hóa" : "Kích hoạt"}
+        variant={customer.isActive ? "danger" : "primary"}
         loading={toggleMutation.isPending}
         onConfirm={() => toggleMutation.mutate()}
       />

@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { Plus, Truck, Search } from "lucide-react";
-import axiosInstance from "@/api/axios";
+import { getVehicles, createVehicle } from "@/api/vehicles.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { useDebounce } from "@/hooks/useDebounce";
 import { usePermission } from "@/hooks/usePermission";
@@ -42,19 +42,19 @@ import {
 interface Vehicle {
   id: number;
   model: string;
-  serial_number: string;
+  serialNumber: string;
   manufacturer: string;
-  manufacture_year: number;
-  engine_type: "Fuel" | "Electric";
-  work_height: number;
+  manufactureYear: number;
+  engineType: "Fuel" | "Electric";
+  workHeight: number | null;
   status: VehicleStatus;
-  primary_image_url: string | null;
-  created_at: string;
+  primaryImageUrl: string | null;
+  createdAt: string;
 }
 
 interface VehicleListResponse {
   data: Vehicle[];
-  meta: { total: number; page: number; page_size: number; total_pages: number };
+  meta: { total: number; page: number; pageSize: number; totalPages: number };
 }
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
@@ -95,779 +95,6 @@ export default function VehicleListPage() {
   const debouncedSearch = useDebounce(search, 400);
   const page = pagination.pageIndex + 1;
 
-  // ── Mock data ─────────────────────────────────────────────────────────────
-
-  const ALL_MOCK_VEHICLES: Vehicle[] = [
-    {
-      id: 1,
-      model: "Toyota 8FBN25",
-      serial_number: "TT-2021-0042",
-      manufacturer: "Toyota",
-      manufacture_year: 2021,
-      engine_type: "Electric",
-      work_height: 5.5,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX1",
-      created_at: "2024-03-15T08:00:00Z",
-    },
-    {
-      id: 2,
-      model: "Komatsu FB20M",
-      serial_number: "KM-2020-0018",
-      manufacturer: "Komatsu",
-      manufacture_year: 2020,
-      engine_type: "Electric",
-      work_height: 4.8,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-04-10T08:00:00Z",
-    },
-    {
-      id: 3,
-      model: "Crown WS2300",
-      serial_number: "CR-2022-0005",
-      manufacturer: "Crown",
-      manufacture_year: 2022,
-      engine_type: "Electric",
-      work_height: 6.2,
-      status: "maintenance",
-      primary_image_url: "https://placehold.co/80x80?text=TX3",
-      created_at: "2024-05-01T08:00:00Z",
-    },
-    {
-      id: 4,
-      model: "Linde E20",
-      serial_number: "LD-2019-0031",
-      manufacturer: "Linde",
-      manufacture_year: 2019,
-      engine_type: "Fuel",
-      work_height: 5.0,
-      status: "broken",
-      primary_image_url: null,
-      created_at: "2023-11-20T08:00:00Z",
-    },
-    {
-      id: 5,
-      model: "Jungheinrich EFG216",
-      serial_number: "JH-2023-0009",
-      manufacturer: "Jungheinrich",
-      manufacture_year: 2023,
-      engine_type: "Electric",
-      work_height: 7.0,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX5",
-      created_at: "2024-07-08T08:00:00Z",
-    },
-    {
-      id: 6,
-      model: "Hyster H2.5FT",
-      serial_number: "HY-2018-0022",
-      manufacturer: "Hyster",
-      manufacture_year: 2018,
-      engine_type: "Fuel",
-      work_height: 4.5,
-      status: "sold",
-      primary_image_url: null,
-      created_at: "2023-06-15T08:00:00Z",
-    },
-    {
-      id: 7,
-      model: "Yale GLC050",
-      serial_number: "YL-2021-0014",
-      manufacturer: "Yale",
-      manufacture_year: 2021,
-      engine_type: "Fuel",
-      work_height: 5.2,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX7",
-      created_at: "2024-02-28T08:00:00Z",
-    },
-    {
-      id: 8,
-      model: "Mitsubishi FD25N",
-      serial_number: "MT-2020-0037",
-      manufacturer: "Mitsubishi",
-      manufacture_year: 2020,
-      engine_type: "Fuel",
-      work_height: 4.7,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-01-12T08:00:00Z",
-    },
-    {
-      id: 9,
-      model: "Toyota 8FBN25",
-      serial_number: "TT-2021-0042",
-      manufacturer: "Toyota",
-      manufacture_year: 2021,
-      engine_type: "Electric",
-      work_height: 5.5,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX1",
-      created_at: "2024-03-15T08:00:00Z",
-    },
-    {
-      id: 10,
-      model: "Komatsu FB20M",
-      serial_number: "KM-2020-0018",
-      manufacturer: "Komatsu",
-      manufacture_year: 2020,
-      engine_type: "Electric",
-      work_height: 4.8,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-04-10T08:00:00Z",
-    },
-    {
-      id: 11,
-      model: "Crown WS2300",
-      serial_number: "CR-2022-0005",
-      manufacturer: "Crown",
-      manufacture_year: 2022,
-      engine_type: "Electric",
-      work_height: 6.2,
-      status: "maintenance",
-      primary_image_url: "https://placehold.co/80x80?text=TX3",
-      created_at: "2024-05-01T08:00:00Z",
-    },
-    {
-      id: 12,
-      model: "Linde E20",
-      serial_number: "LD-2019-0031",
-      manufacturer: "Linde",
-      manufacture_year: 2019,
-      engine_type: "Fuel",
-      work_height: 5.0,
-      status: "broken",
-      primary_image_url: null,
-      created_at: "2023-11-20T08:00:00Z",
-    },
-    {
-      id: 13,
-      model: "Jungheinrich EFG216",
-      serial_number: "JH-2023-0009",
-      manufacturer: "Jungheinrich",
-      manufacture_year: 2023,
-      engine_type: "Electric",
-      work_height: 7.0,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX5",
-      created_at: "2024-07-08T08:00:00Z",
-    },
-    {
-      id: 14,
-      model: "Hyster H2.5FT",
-      serial_number: "HY-2018-0022",
-      manufacturer: "Hyster",
-      manufacture_year: 2018,
-      engine_type: "Fuel",
-      work_height: 4.5,
-      status: "sold",
-      primary_image_url: null,
-      created_at: "2023-06-15T08:00:00Z",
-    },
-    {
-      id: 15,
-      model: "Yale GLC050",
-      serial_number: "YL-2021-0014",
-      manufacturer: "Yale",
-      manufacture_year: 2021,
-      engine_type: "Fuel",
-      work_height: 5.2,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX7",
-      created_at: "2024-02-28T08:00:00Z",
-    },
-    {
-      id: 16,
-      model: "Mitsubishi FD25N",
-      serial_number: "MT-2020-0037",
-      manufacturer: "Mitsubishi",
-      manufacture_year: 2020,
-      engine_type: "Fuel",
-      work_height: 4.7,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-01-12T08:00:00Z",
-    },
-    {
-      id: 17,
-      model: "Toyota 8FBN25",
-      serial_number: "TT-2021-0042",
-      manufacturer: "Toyota",
-      manufacture_year: 2021,
-      engine_type: "Electric",
-      work_height: 5.5,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX1",
-      created_at: "2024-03-15T08:00:00Z",
-    },
-    {
-      id: 2123,
-      model: "Komatsu FB20M",
-      serial_number: "KM-2020-0018",
-      manufacturer: "Komatsu",
-      manufacture_year: 2020,
-      engine_type: "Electric",
-      work_height: 4.8,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-04-10T08:00:00Z",
-    },
-    {
-      id: 31231,
-      model: "Crown WS2300",
-      serial_number: "CR-2022-0005",
-      manufacturer: "Crown",
-      manufacture_year: 2022,
-      engine_type: "Electric",
-      work_height: 6.2,
-      status: "maintenance",
-      primary_image_url: "https://placehold.co/80x80?text=TX3",
-      created_at: "2024-05-01T08:00:00Z",
-    },
-    {
-      id: 4341234,
-      model: "Linde E20",
-      serial_number: "LD-2019-0031",
-      manufacturer: "Linde",
-      manufacture_year: 2019,
-      engine_type: "Fuel",
-      work_height: 5.0,
-      status: "broken",
-      primary_image_url: null,
-      created_at: "2023-11-20T08:00:00Z",
-    },
-    {
-      id: 51234124,
-      model: "Jungheinrich EFG216",
-      serial_number: "JH-2023-0009",
-      manufacturer: "Jungheinrich",
-      manufacture_year: 2023,
-      engine_type: "Electric",
-      work_height: 7.0,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX5",
-      created_at: "2024-07-08T08:00:00Z",
-    },
-    {
-      id: 61234134,
-      model: "Hyster H2.5FT",
-      serial_number: "HY-2018-0022",
-      manufacturer: "Hyster",
-      manufacture_year: 2018,
-      engine_type: "Fuel",
-      work_height: 4.5,
-      status: "sold",
-      primary_image_url: null,
-      created_at: "2023-06-15T08:00:00Z",
-    },
-    {
-      id: 72134124,
-      model: "Yale GLC050",
-      serial_number: "YL-2021-0014",
-      manufacturer: "Yale",
-      manufacture_year: 2021,
-      engine_type: "Fuel",
-      work_height: 5.2,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX7",
-      created_at: "2024-02-28T08:00:00Z",
-    },
-    {
-      id: 812341243,
-      model: "Mitsubishi FD25N",
-      serial_number: "MT-2020-0037",
-      manufacturer: "Mitsubishi",
-      manufacture_year: 2020,
-      engine_type: "Fuel",
-      work_height: 4.7,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-01-12T08:00:00Z",
-    },
-    {
-      id: 143129,
-      model: "Toyota 8FBN25",
-      serial_number: "TT-2021-0042",
-      manufacturer: "Toyota",
-      manufacture_year: 2021,
-      engine_type: "Electric",
-      work_height: 5.5,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX1",
-      created_at: "2024-03-15T08:00:00Z",
-    },
-    {
-      id: 101241,
-      model: "Komatsu FB20M",
-      serial_number: "KM-2020-0018",
-      manufacturer: "Komatsu",
-      manufacture_year: 2020,
-      engine_type: "Electric",
-      work_height: 4.8,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-04-10T08:00:00Z",
-    },
-    {
-      id: 123412411,
-      model: "Crown WS2300",
-      serial_number: "CR-2022-0005",
-      manufacturer: "Crown",
-      manufacture_year: 2022,
-      engine_type: "Electric",
-      work_height: 6.2,
-      status: "maintenance",
-      primary_image_url: "https://placehold.co/80x80?text=TX3",
-      created_at: "2024-05-01T08:00:00Z",
-    },
-    {
-      id: 123412342,
-      model: "Linde E20",
-      serial_number: "LD-2019-0031",
-      manufacturer: "Linde",
-      manufacture_year: 2019,
-      engine_type: "Fuel",
-      work_height: 5.0,
-      status: "broken",
-      primary_image_url: null,
-      created_at: "2023-11-20T08:00:00Z",
-    },
-    {
-      id: 13234214,
-      model: "Jungheinrich EFG216",
-      serial_number: "JH-2023-0009",
-      manufacturer: "Jungheinrich",
-      manufacture_year: 2023,
-      engine_type: "Electric",
-      work_height: 7.0,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX5",
-      created_at: "2024-07-08T08:00:00Z",
-    },
-    {
-      id: 15343254,
-      model: "Hyster H2.5FT",
-      serial_number: "HY-2018-0022",
-      manufacturer: "Hyster",
-      manufacture_year: 2018,
-      engine_type: "Fuel",
-      work_height: 4.5,
-      status: "sold",
-      primary_image_url: null,
-      created_at: "2023-06-15T08:00:00Z",
-    },
-    {
-      id: 13253245,
-      model: "Yale GLC050",
-      serial_number: "YL-2021-0014",
-      manufacturer: "Yale",
-      manufacture_year: 2021,
-      engine_type: "Fuel",
-      work_height: 5.2,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX7",
-      created_at: "2024-02-28T08:00:00Z",
-    },
-    {
-      id: 12341246,
-      model: "Mitsubishi FD25N",
-      serial_number: "MT-2020-0037",
-      manufacturer: "Mitsubishi",
-      manufacture_year: 2020,
-      engine_type: "Fuel",
-      work_height: 4.7,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-01-12T08:00:00Z",
-    },
-    {
-      id: 1,
-      model: "Toyota 8FBN25",
-      serial_number: "TT-2021-0042",
-      manufacturer: "Toyota",
-      manufacture_year: 2021,
-      engine_type: "Electric",
-      work_height: 5.5,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX1",
-      created_at: "2024-03-15T08:00:00Z",
-    },
-    {
-      id: 2,
-      model: "Komatsu FB20M",
-      serial_number: "KM-2020-0018",
-      manufacturer: "Komatsu",
-      manufacture_year: 2020,
-      engine_type: "Electric",
-      work_height: 4.8,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-04-10T08:00:00Z",
-    },
-    {
-      id: 3,
-      model: "Crown WS2300",
-      serial_number: "CR-2022-0005",
-      manufacturer: "Crown",
-      manufacture_year: 2022,
-      engine_type: "Electric",
-      work_height: 6.2,
-      status: "maintenance",
-      primary_image_url: "https://placehold.co/80x80?text=TX3",
-      created_at: "2024-05-01T08:00:00Z",
-    },
-    {
-      id: 4,
-      model: "Linde E20",
-      serial_number: "LD-2019-0031",
-      manufacturer: "Linde",
-      manufacture_year: 2019,
-      engine_type: "Fuel",
-      work_height: 5.0,
-      status: "broken",
-      primary_image_url: null,
-      created_at: "2023-11-20T08:00:00Z",
-    },
-    {
-      id: 5,
-      model: "Jungheinrich EFG216",
-      serial_number: "JH-2023-0009",
-      manufacturer: "Jungheinrich",
-      manufacture_year: 2023,
-      engine_type: "Electric",
-      work_height: 7.0,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX5",
-      created_at: "2024-07-08T08:00:00Z",
-    },
-    {
-      id: 6,
-      model: "Hyster H2.5FT",
-      serial_number: "HY-2018-0022",
-      manufacturer: "Hyster",
-      manufacture_year: 2018,
-      engine_type: "Fuel",
-      work_height: 4.5,
-      status: "sold",
-      primary_image_url: null,
-      created_at: "2023-06-15T08:00:00Z",
-    },
-    {
-      id: 7,
-      model: "Yale GLC050",
-      serial_number: "YL-2021-0014",
-      manufacturer: "Yale",
-      manufacture_year: 2021,
-      engine_type: "Fuel",
-      work_height: 5.2,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX7",
-      created_at: "2024-02-28T08:00:00Z",
-    },
-    {
-      id: 8,
-      model: "Mitsubishi FD25N",
-      serial_number: "MT-2020-0037",
-      manufacturer: "Mitsubishi",
-      manufacture_year: 2020,
-      engine_type: "Fuel",
-      work_height: 4.7,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-01-12T08:00:00Z",
-    },
-    {
-      id: 9,
-      model: "Toyota 8FBN25",
-      serial_number: "TT-2021-0042",
-      manufacturer: "Toyota",
-      manufacture_year: 2021,
-      engine_type: "Electric",
-      work_height: 5.5,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX1",
-      created_at: "2024-03-15T08:00:00Z",
-    },
-    {
-      id: 10,
-      model: "Komatsu FB20M",
-      serial_number: "KM-2020-0018",
-      manufacturer: "Komatsu",
-      manufacture_year: 2020,
-      engine_type: "Electric",
-      work_height: 4.8,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-04-10T08:00:00Z",
-    },
-    {
-      id: 11,
-      model: "Crown WS2300",
-      serial_number: "CR-2022-0005",
-      manufacturer: "Crown",
-      manufacture_year: 2022,
-      engine_type: "Electric",
-      work_height: 6.2,
-      status: "maintenance",
-      primary_image_url: "https://placehold.co/80x80?text=TX3",
-      created_at: "2024-05-01T08:00:00Z",
-    },
-    {
-      id: 12,
-      model: "Linde E20",
-      serial_number: "LD-2019-0031",
-      manufacturer: "Linde",
-      manufacture_year: 2019,
-      engine_type: "Fuel",
-      work_height: 5.0,
-      status: "broken",
-      primary_image_url: null,
-      created_at: "2023-11-20T08:00:00Z",
-    },
-    {
-      id: 13,
-      model: "Jungheinrich EFG216",
-      serial_number: "JH-2023-0009",
-      manufacturer: "Jungheinrich",
-      manufacture_year: 2023,
-      engine_type: "Electric",
-      work_height: 7.0,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX5",
-      created_at: "2024-07-08T08:00:00Z",
-    },
-    {
-      id: 14,
-      model: "Hyster H2.5FT",
-      serial_number: "HY-2018-0022",
-      manufacturer: "Hyster",
-      manufacture_year: 2018,
-      engine_type: "Fuel",
-      work_height: 4.5,
-      status: "sold",
-      primary_image_url: null,
-      created_at: "2023-06-15T08:00:00Z",
-    },
-    {
-      id: 15,
-      model: "Yale GLC050",
-      serial_number: "YL-2021-0014",
-      manufacturer: "Yale",
-      manufacture_year: 2021,
-      engine_type: "Fuel",
-      work_height: 5.2,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX7",
-      created_at: "2024-02-28T08:00:00Z",
-    },
-    {
-      id: 134536,
-      model: "Mitsubishi FD25N",
-      serial_number: "MT-2020-0037",
-      manufacturer: "Mitsubishi",
-      manufacture_year: 2020,
-      engine_type: "Fuel",
-      work_height: 4.7,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-01-12T08:00:00Z",
-    },
-    {
-      id: 134537,
-      model: "Toyota 8FBN25",
-      serial_number: "TT-2021-0042",
-      manufacturer: "Toyota",
-      manufacture_year: 2021,
-      engine_type: "Electric",
-      work_height: 5.5,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX1",
-      created_at: "2024-03-15T08:00:00Z",
-    },
-    {
-      id: 253453123,
-      model: "Komatsu FB20M",
-      serial_number: "KM-2020-0018",
-      manufacturer: "Komatsu",
-      manufacture_year: 2020,
-      engine_type: "Electric",
-      work_height: 4.8,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-04-10T08:00:00Z",
-    },
-    {
-      id: 3345341231,
-      model: "Crown WS2300",
-      serial_number: "CR-2022-0005",
-      manufacturer: "Crown",
-      manufacture_year: 2022,
-      engine_type: "Electric",
-      work_height: 6.2,
-      status: "maintenance",
-      primary_image_url: "https://placehold.co/80x80?text=TX3",
-      created_at: "2024-05-01T08:00:00Z",
-    },
-    {
-      id: 43434531234,
-      model: "Linde E20",
-      serial_number: "LD-2019-0031",
-      manufacturer: "Linde",
-      manufacture_year: 2019,
-      engine_type: "Fuel",
-      work_height: 5.0,
-      status: "broken",
-      primary_image_url: null,
-      created_at: "2023-11-20T08:00:00Z",
-    },
-    {
-      id: 512343453124,
-      model: "Jungheinrich EFG216",
-      serial_number: "JH-2023-0009",
-      manufacturer: "Jungheinrich",
-      manufacture_year: 2023,
-      engine_type: "Electric",
-      work_height: 7.0,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX5",
-      created_at: "2024-07-08T08:00:00Z",
-    },
-    {
-      id: 612341345334,
-      model: "Hyster H2.5FT",
-      serial_number: "HY-2018-0022",
-      manufacturer: "Hyster",
-      manufacture_year: 2018,
-      engine_type: "Fuel",
-      work_height: 4.5,
-      status: "sold",
-      primary_image_url: null,
-      created_at: "2023-06-15T08:00:00Z",
-    },
-    {
-      id: 7213435124,
-      model: "Yale GLC050",
-      serial_number: "YL-2021-0014",
-      manufacturer: "Yale",
-      manufacture_year: 2021,
-      engine_type: "Fuel",
-      work_height: 5.2,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX7",
-      created_at: "2024-02-28T08:00:00Z",
-    },
-    {
-      id: 812344351243,
-      model: "Mitsubishi FD25N",
-      serial_number: "MT-2020-0037",
-      manufacturer: "Mitsubishi",
-      manufacture_year: 2020,
-      engine_type: "Fuel",
-      work_height: 4.7,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-01-12T08:00:00Z",
-    },
-    {
-      id: 141233129,
-      model: "Toyota 8FBN25",
-      serial_number: "TT-2021-0042",
-      manufacturer: "Toyota",
-      manufacture_year: 2021,
-      engine_type: "Electric",
-      work_height: 5.5,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX1",
-      created_at: "2024-03-15T08:00:00Z",
-    },
-    {
-      id: 1123101241,
-      model: "Komatsu FB20M",
-      serial_number: "KM-2020-0018",
-      manufacturer: "Komatsu",
-      manufacture_year: 2020,
-      engine_type: "Electric",
-      work_height: 4.8,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-04-10T08:00:00Z",
-    },
-    {
-      id: 123411231222411,
-      model: "Crown WS2300",
-      serial_number: "CR-2022-0005",
-      manufacturer: "Crown",
-      manufacture_year: 2022,
-      engine_type: "Electric",
-      work_height: 6.2,
-      status: "maintenance",
-      primary_image_url: "https://placehold.co/80x80?text=TX3",
-      created_at: "2024-05-01T08:00:00Z",
-    },
-    {
-      id: 121233412342,
-      model: "Linde E20",
-      serial_number: "LD-2019-0031",
-      manufacturer: "Linde",
-      manufacture_year: 2019,
-      engine_type: "Fuel",
-      work_height: 5.0,
-      status: "broken",
-      primary_image_url: null,
-      created_at: "2023-11-20T08:00:00Z",
-    },
-    {
-      id: 13231214214,
-      model: "Jungheinrich EFG216",
-      serial_number: "JH-2023-0009",
-      manufacturer: "Jungheinrich",
-      manufacture_year: 2023,
-      engine_type: "Electric",
-      work_height: 7.0,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX5",
-      created_at: "2024-07-08T08:00:00Z",
-    },
-    {
-      id: 1534323254,
-      model: "Hyster H2.5FT",
-      serial_number: "HY-2018-0022",
-      manufacturer: "Hyster",
-      manufacture_year: 2018,
-      engine_type: "Fuel",
-      work_height: 4.5,
-      status: "sold",
-      primary_image_url: null,
-      created_at: "2023-06-15T08:00:00Z",
-    },
-    {
-      id: 1325323245,
-      model: "Yale GLC050",
-      serial_number: "YL-2021-0014",
-      manufacturer: "Yale",
-      manufacture_year: 2021,
-      engine_type: "Fuel",
-      work_height: 5.2,
-      status: "at_yard",
-      primary_image_url: "https://placehold.co/80x80?text=TX7",
-      created_at: "2024-02-28T08:00:00Z",
-    },
-    {
-      id: 12312341246,
-      model: "Mitsubishi FD25N",
-      serial_number: "MT-2020-0037",
-      manufacturer: "Mitsubishi",
-      manufacture_year: 2020,
-      engine_type: "Fuel",
-      work_height: 4.7,
-      status: "renting",
-      primary_image_url: null,
-      created_at: "2024-01-12T08:00:00Z",
-    },
-  ];
-
   // ── Query ────────────────────────────────────────────────────────────────
 
   const { data, isLoading } = useQuery<VehicleListResponse>({
@@ -875,43 +102,30 @@ export default function VehicleListPage() {
       ...QUERY_KEYS.vehicles.all,
       { search: debouncedSearch, status: statusFilter, page },
     ],
-    queryFn: () => {
-      const filtered = ALL_MOCK_VEHICLES.filter((v) => {
-        const matchSearch =
-          !debouncedSearch ||
-          v.model.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-          v.serial_number
-            .toLowerCase()
-            .includes(debouncedSearch.toLowerCase()) ||
-          v.manufacturer.toLowerCase().includes(debouncedSearch.toLowerCase());
-        const matchStatus = !statusFilter || v.status === statusFilter;
-        return matchSearch && matchStatus;
-      });
-      const pageSize = pagination.pageSize;
-      const start = (page - 1) * pageSize;
-      const paged = filtered.slice(start, start + pageSize);
-      return Promise.resolve({
-        data: paged,
-        meta: {
-          total: filtered.length,
-          page,
-          page_size: pageSize,
-          total_pages: Math.max(1, Math.ceil(filtered.length / pageSize)),
-        },
-      });
-    },
+    queryFn: () =>
+      getVehicles({
+        search: debouncedSearch || undefined,
+        status: statusFilter || undefined,
+        page,
+        pageSize: pagination.pageSize,
+      }),
   });
 
   // ── Mutation ─────────────────────────────────────────────────────────────
 
   const addMutation = useMutation({
-    mutationFn: (_body: AddVehicleForm) =>
-      new Promise<void>((res) => setTimeout(res, 600)),
+    mutationFn: (body: AddVehicleForm) => createVehicle(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.vehicles.all });
       toast.success("Thêm xe thành công");
       setAddOpen(false);
       reset();
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
     },
   });
 
@@ -925,7 +139,20 @@ export default function VehicleListPage() {
     formState: { errors },
   } = useForm<AddVehicleForm>({ resolver: zodResolver(addVehicleSchema) });
 
-  const onSubmit = (values: AddVehicleForm) => addMutation.mutate(values);
+  const onSubmit = (values: AddVehicleForm) =>
+    addMutation.mutate({
+      serialNumber: values.serial_number,
+      model: values.model,
+      manufacturer: values.manufacturer,
+      manufactureYear: values.manufacture_year,
+      engineType: values.engine_type,
+      capacity: values.capacity,
+      occupancy: values.occupancy,
+      platformHeight: values.platform_height,
+      workHeight: values.work_height,
+      liftingSpeed: values.lifting_speed,
+      travelingSpeed: values.traveling_speed,
+    } as unknown as AddVehicleForm);
 
   // ── Columns ──────────────────────────────────────────────────────────────
 
@@ -934,9 +161,9 @@ export default function VehicleListPage() {
       id: "image",
       header: "Ảnh",
       cell: ({ row }) =>
-        row.original.primary_image_url ? (
+        row.original.primaryImageUrl ? (
           <img
-            src={row.original.primary_image_url}
+            src={row.original.primaryImageUrl}
             alt={row.original.model}
             className="h-12 w-12 rounded-lg object-cover border border-border"
           />
@@ -955,7 +182,7 @@ export default function VehicleListPage() {
             {row.original.model}
           </p>
           <p className="text-[length:var(--fs-sm)] text-text-secondary">
-            {row.original.serial_number}
+            {row.original.serialNumber}
           </p>
         </div>
       ),
@@ -967,7 +194,7 @@ export default function VehicleListPage() {
         <div>
           <p className="text-text-primary">{row.original.manufacturer}</p>
           <p className="text-[length:var(--fs-sm)] text-text-secondary">
-            {row.original.manufacture_year}
+            {row.original.manufactureYear}
           </p>
         </div>
       ),
@@ -976,7 +203,7 @@ export default function VehicleListPage() {
       id: "engine_type",
       header: "Động cơ",
       cell: ({ row }) => {
-        const isElectric = row.original.engine_type === "Electric";
+        const isElectric = row.original.engineType === "Electric";
         return (
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${
@@ -994,7 +221,9 @@ export default function VehicleListPage() {
       id: "work_height",
       header: "Cao LV",
       cell: ({ row }) => (
-        <span className="text-text-primary">{row.original.work_height}m</span>
+        <span className="text-text-primary">
+          {row.original.workHeight != null ? `${row.original.workHeight}m` : "—"}
+        </span>
       ),
     },
     {
@@ -1074,14 +303,14 @@ export default function VehicleListPage() {
             Tổng{" "}
             <span className="font-medium text-text-primary">{meta.total}</span>{" "}
             xe
-            {meta.total_pages > 1 && (
+            {meta.totalPages > 1 && (
               <>
                 {" "}
                 — Trang{" "}
                 <span className="font-medium text-text-primary">
                   {meta.page}
                 </span>{" "}
-                / {meta.total_pages}
+                / {meta.totalPages}
               </>
             )}
           </p>
@@ -1095,7 +324,7 @@ export default function VehicleListPage() {
           data={vehicles}
           loading={isLoading}
           pagination={pagination}
-          pageCount={meta?.total_pages ?? 1}
+          pageCount={meta?.totalPages ?? 1}
           onPaginationChange={setPagination}
           onRowClick={(row) => navigate(`/vehicles/${row.id}`)}
           emptyTitle="Không tìm thấy xe nào"
@@ -1151,7 +380,7 @@ export default function VehicleListPage() {
           vehicles.map((v) => {
             const { label: statusLabel, className: statusClass } =
               getVehicleStatusBadge(v.status);
-            const isElectric = v.engine_type === "Electric";
+            const isElectric = v.engineType === "Electric";
             return (
               <div
                 key={v.id}
@@ -1159,9 +388,9 @@ export default function VehicleListPage() {
                 className="bg-bg-card rounded-xl border border-border p-4 flex gap-3 cursor-pointer hover:border-primary hover:shadow-sm transition-all active:bg-bg-page"
               >
                 {/* Ảnh */}
-                {v.primary_image_url ? (
+                {v.primaryImageUrl ? (
                   <img
-                    src={v.primary_image_url}
+                    src={v.primaryImageUrl}
                     alt={v.model}
                     className="h-14 w-14 rounded-lg object-cover border border-border shrink-0"
                   />
@@ -1178,7 +407,7 @@ export default function VehicleListPage() {
                         {v.model}
                       </p>
                       <p className="text-[length:var(--fs-sm)] text-text-secondary truncate">
-                        {v.serial_number}
+                        {v.serialNumber}
                       </p>
                     </div>
                     <span
@@ -1189,7 +418,7 @@ export default function VehicleListPage() {
                   </div>
                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <span className="text-[length:var(--fs-sm)] text-text-secondary">
-                      {v.manufacturer} · {v.manufacture_year}
+                      {v.manufacturer} · {v.manufactureYear}
                     </span>
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${isElectric ? "bg-primary-light text-primary" : "bg-warning-light text-warning"}`}
@@ -1197,7 +426,7 @@ export default function VehicleListPage() {
                       {isElectric ? "Điện" : "Xăng/Dầu"}
                     </span>
                     <span className="text-[length:var(--fs-sm)] text-text-secondary">
-                      Cao LV: {v.work_height}m
+                      Cao LV: {v.workHeight != null ? `${v.workHeight}m` : "—"}
                     </span>
                   </div>
                 </div>
@@ -1207,10 +436,10 @@ export default function VehicleListPage() {
         )}
 
         {/* Pagination mobile */}
-        {!isLoading && meta && meta.total_pages > 1 && (
+        {!isLoading && meta && meta.totalPages > 1 && (
           <div className="flex items-center justify-between px-1 pt-1">
             <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              Trang {meta.page}/{meta.total_pages} · {meta.total} xe
+              Trang {meta.page}/{meta.totalPages} · {meta.total} xe
             </p>
             <div className="flex gap-1">
               <Button
@@ -1228,7 +457,7 @@ export default function VehicleListPage() {
                 variant="outline"
                 size="sm"
                 className="h-8 px-3 border-border"
-                disabled={pagination.pageIndex + 1 >= meta.total_pages}
+                disabled={pagination.pageIndex + 1 >= meta.totalPages}
                 onClick={() =>
                   setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))
                 }
@@ -1393,7 +622,7 @@ export default function VehicleListPage() {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label className="text-[length:var(--fs-base)] font-medium">
-                    Tốc độ nâng (m/s)
+                    Tốc độ nâng (m/ph)
                   </Label>
                   <Input
                     {...register("lifting_speed")}

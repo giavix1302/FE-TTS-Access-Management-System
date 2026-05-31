@@ -23,7 +23,13 @@ import {
   Loader2,
   ImagePlus,
 } from "lucide-react";
-import axiosInstance from "@/api/axios";
+import {
+  getVehicleById,
+  updateVehicle,
+  deleteVehicle,
+  changeVehicleStatus,
+  getVehicleStatusLogs,
+} from "@/api/vehicles.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { usePermission } from "@/hooks/usePermission";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
@@ -70,21 +76,21 @@ import {
 interface VehicleDetail {
   id: number;
   model: string;
-  serial_number: string;
+  serialNumber: string;
   manufacturer: string;
-  manufacture_year: number;
-  capacity: number;
-  occupancy: number;
-  platform_height: number;
-  work_height: number;
-  lifting_speed: number;
-  traveling_speed: number;
-  engine_type: "Fuel" | "Electric";
+  manufactureYear: number;
+  capacity: number | null;
+  occupancy: number | null;
+  platformHeight: number | null;
+  workHeight: number | null;
+  liftingSpeed: number | null;
+  travelingSpeed: number | null;
+  engineType: "Fuel" | "Electric";
   status: VehicleStatus;
-  primary_image_url: string | null;
-  created_at: string;
-  updated_at: string;
-  created_by: { id: number; full_name: string };
+  primaryImageUrl: string | null;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface DocumentRef {
@@ -144,16 +150,17 @@ interface ProfileItem {
 
 interface StatusLog {
   id: number;
-  old_status: VehicleStatus;
-  new_status: VehicleStatus;
+  fromStatus: VehicleStatus;
+  toStatus: VehicleStatus;
   reason: string | null;
-  changed_at: string;
-  changed_by: { id: number; full_name: string };
+  changedAt: string;
+  changedBy: number;
+  changedByName: string;
 }
 
 interface StatusLogsResponse {
   data: StatusLog[];
-  meta: { total: number; page: number; page_size: number; total_pages: number };
+  meta: { total: number; page: number; pageSize: number; totalPages: number };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -204,14 +211,15 @@ function formatFileSize(kb: number): string {
 const editSchema = z.object({
   model: z.string().min(1, "Bắt buộc"),
   manufacturer: z.string().min(1, "Bắt buộc"),
-  engine_type: z.enum(["Fuel", "Electric"]),
-  manufacture_year: z.coerce.number().int().min(1990).max(2100).optional(),
+  engineType: z.enum(["Fuel", "Electric"]),
+  manufactureYear: z.coerce.number().int().min(1990).max(2100).optional(),
   capacity: z.coerce.number().positive().optional(),
   occupancy: z.coerce.number().int().positive().optional(),
-  platform_height: z.coerce.number().positive().optional(),
-  work_height: z.coerce.number().positive().optional(),
-  lifting_speed: z.coerce.number().positive().optional(),
-  traveling_speed: z.coerce.number().positive().optional(),
+  platformHeight: z.coerce.number().positive().optional(),
+  workHeight: z.coerce.number().positive().optional(),
+  liftingSpeed: z.coerce.number().positive().optional(),
+  travelingSpeed: z.coerce.number().positive().optional(),
+  note: z.string().optional(),
 });
 type EditForm = z.infer<typeof editSchema>;
 
@@ -363,161 +371,11 @@ export default function VehicleDetailPage() {
   const [deleteInspecId, setDeleteInspecId] = useState<number | null>(null);
   const [viewInspec, setViewInspec] = useState<InspectionRecord | null>(null);
 
-  // ── Mock data ─────────────────────────────────────────────────────────────
-
-  const MOCK_VEHICLE: VehicleDetail = {
-    id: vehicleId,
-    model: "Toyota 8FBN25",
-    serial_number: "TT-2021-0042",
-    manufacturer: "Toyota",
-    manufacture_year: 2021,
-    capacity: 2500,
-    occupancy: 1,
-    platform_height: 3.3,
-    work_height: 5.5,
-    lifting_speed: 0.45,
-    traveling_speed: 16,
-    engine_type: "Electric",
-    status: "at_yard",
-    primary_image_url: "https://placehold.co/320x240?text=Toyota+8FBN25",
-    created_at: "2024-03-15T08:00:00Z",
-    updated_at: "2025-01-20T14:30:00Z",
-    created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-  };
-
-  const MOCK_INSURANCE: InsuranceRecord[] = [
-    {
-      id: 1,
-      insurance_number: "BH-2024-001",
-      provider: "Bảo Việt",
-      issue_date: "2024-01-01",
-      expiry_date: "2025-12-31",
-      document: {
-        id: 10,
-        file_name: "bao-hiem-2024.pdf",
-        sas_url: "#",
-        sas_expires_at: "2025-12-31T23:59:59Z",
-      },
-      created_at: "2024-01-05T09:00:00Z",
-      created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-    },
-    {
-      id: 2,
-      insurance_number: "BH-2023-007",
-      provider: "PVI",
-      issue_date: "2023-01-01",
-      expiry_date: "2023-12-31",
-      document: null,
-      created_at: "2023-01-10T09:00:00Z",
-      created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-    },
-  ];
-
-  const MOCK_INSPECTION: InspectionRecord[] = [
-    {
-      id: 1,
-      inspection_number: "DK-2024-001",
-      inspection_date: "2024-06-15",
-      expiry_date: "2026-06-14",
-      result: "passed",
-      document: {
-        id: 20,
-        file_name: "dang-kiem-2024.pdf",
-        sas_url: "#",
-        sas_expires_at: "2026-06-14T23:59:59Z",
-      },
-      created_at: "2024-06-16T10:00:00Z",
-      created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-    },
-  ];
-
-  const MOCK_IMAGES: ImagesResponse = {
-    primary_image_id: 1,
-    total: 3,
-    remaining_slots: 2,
-    images: [
-      {
-        id: 1,
-        file_name: "xe-chinh.jpg",
-        sas_url: "https://placehold.co/320x240?text=Anh+1",
-        sas_expires_at: "2026-12-31T23:59:59Z",
-        is_primary: true,
-        uploaded_at: "2024-03-15T08:00:00Z",
-      },
-      {
-        id: 2,
-        file_name: "xe-ben-canh.jpg",
-        sas_url: "https://placehold.co/320x240?text=Anh+2",
-        sas_expires_at: "2026-12-31T23:59:59Z",
-        is_primary: false,
-        uploaded_at: "2024-03-15T08:05:00Z",
-      },
-      {
-        id: 3,
-        file_name: "xe-phia-sau.jpg",
-        sas_url: "https://placehold.co/320x240?text=Anh+3",
-        sas_expires_at: "2026-12-31T23:59:59Z",
-        is_primary: false,
-        uploaded_at: "2024-03-15T08:10:00Z",
-      },
-    ],
-  };
-
-  const MOCK_PROFILE: ProfileItem[] = [
-    {
-      id: 1,
-      file_name: "ly-lich-xe-TT2021-0042.pdf",
-      sas_url: "#",
-      sas_expires_at: "2026-12-31T23:59:59Z",
-      file_size_kb: 1240,
-      uploaded_at: "2024-03-15T09:00:00Z",
-      uploaded_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-    },
-  ];
-
-  const MOCK_STATUS_LOGS: StatusLogsResponse = {
-    data: [
-      {
-        id: 4,
-        old_status: "maintenance",
-        new_status: "at_yard",
-        reason: "Bảo dưỡng định kỳ hoàn thành",
-        changed_at: "2025-01-20T14:30:00Z",
-        changed_by: { id: 2, full_name: "Trần Thị Manager" },
-      },
-      {
-        id: 3,
-        old_status: "renting",
-        new_status: "maintenance",
-        reason: "Xe trả về — cần kiểm tra định kỳ",
-        changed_at: "2024-12-10T09:15:00Z",
-        changed_by: { id: 2, full_name: "Trần Thị Manager" },
-      },
-      {
-        id: 2,
-        old_status: "at_yard",
-        new_status: "renting",
-        reason: null,
-        changed_at: "2024-10-01T08:00:00Z",
-        changed_by: { id: 3, full_name: "Lê Văn Staff" },
-      },
-      {
-        id: 1,
-        old_status: "at_yard",
-        new_status: "at_yard",
-        reason: "Nhập kho lần đầu",
-        changed_at: "2024-03-15T08:00:00Z",
-        changed_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-      },
-    ],
-    meta: { total: 4, page: 1, page_size: 20, total_pages: 1 },
-  };
-
   // ── Queries ──────────────────────────────────────────────────────────────
 
   const vehicleQuery = useQuery<VehicleDetail>({
     queryKey: QUERY_KEYS.vehicles.detail(vehicleId),
-    queryFn: () => Promise.resolve(MOCK_VEHICLE),
+    queryFn: () => getVehicleById(vehicleId).then((r) => r.data),
     enabled: !!vehicleId,
   });
 
@@ -547,7 +405,8 @@ export default function VehicleDetailPage() {
 
   const statusLogsQuery = useQuery<StatusLogsResponse>({
     queryKey: [...QUERY_KEYS.vehicles.statusLogs(vehicleId), statusLogsPage],
-    queryFn: () => Promise.resolve(MOCK_STATUS_LOGS),
+    queryFn: () =>
+      getVehicleStatusLogs(vehicleId, { page: statusLogsPage, pageSize: 20 }),
     enabled: activeTab === "documents",
   });
 
@@ -556,14 +415,20 @@ export default function VehicleDetailPage() {
   // ── Edit mutation ────────────────────────────────────────────────────────
 
   const editMutation = useMutation({
-    mutationFn: (_body: EditForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (body: EditForm) => updateVehicle(vehicleId, body),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.detail(vehicleId),
       });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.vehicles.all });
       toast.success("Cập nhật xe thành công");
       setEditOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
     },
   });
 
@@ -574,14 +439,15 @@ export default function VehicleDetailPage() {
     editForm.reset({
       model: vehicle.model,
       manufacturer: vehicle.manufacturer,
-      engine_type: vehicle.engine_type,
-      manufacture_year: vehicle.manufacture_year,
-      capacity: vehicle.capacity,
-      occupancy: vehicle.occupancy,
-      platform_height: vehicle.platform_height,
-      work_height: vehicle.work_height,
-      lifting_speed: vehicle.lifting_speed,
-      traveling_speed: vehicle.traveling_speed,
+      engineType: vehicle.engineType,
+      manufactureYear: vehicle.manufactureYear,
+      capacity: vehicle.capacity ?? undefined,
+      occupancy: vehicle.occupancy ?? undefined,
+      platformHeight: vehicle.platformHeight ?? undefined,
+      workHeight: vehicle.workHeight ?? undefined,
+      liftingSpeed: vehicle.liftingSpeed ?? undefined,
+      travelingSpeed: vehicle.travelingSpeed ?? undefined,
+      note: vehicle.note ?? undefined,
     });
     setEditOpen(true);
   };
@@ -589,27 +455,46 @@ export default function VehicleDetailPage() {
   // ── Status mutation ──────────────────────────────────────────────────────
 
   const statusMutation = useMutation({
-    mutationFn: () => new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: () =>
+      changeVehicleStatus(vehicleId, {
+        newStatus: newStatus as string,
+        reason: statusReason || undefined,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.detail(vehicleId),
       });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.vehicles.all });
+      queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.vehicles.statusLogs(vehicleId),
+      });
       toast.success("Đổi trạng thái thành công");
       setStatusOpen(false);
       setNewStatus("");
       setStatusReason("");
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
     },
   });
 
   // ── Delete mutation ──────────────────────────────────────────────────────
 
   const deleteMutation = useMutation({
-    mutationFn: () => new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: () => deleteVehicle(vehicleId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.vehicles.all });
       toast.success("Đã xóa xe");
       navigate("/vehicles");
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
     },
   });
 
@@ -817,9 +702,9 @@ export default function VehicleDetailPage() {
       <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-6">
         {/* Row 1: ảnh + info */}
         <div className="flex gap-3 lg:gap-5">
-          {vehicle.primary_image_url ? (
+          {vehicle.primaryImageUrl ? (
             <img
-              src={vehicle.primary_image_url}
+              src={vehicle.primaryImageUrl}
               alt={vehicle.model}
               className="h-16 w-16 lg:h-24 lg:w-24 rounded-lg object-cover border border-border shrink-0"
             />
@@ -844,11 +729,11 @@ export default function VehicleDetailPage() {
             {/* Serial */}
             <p className="flex items-center gap-1 text-[length:var(--fs-sm)] text-text-secondary mb-0.5">
               <Barcode className="h-3.5 w-3.5 shrink-0" />
-              {vehicle.serial_number}
+              {vehicle.serialNumber}
             </p>
             {/* Hãng · năm */}
             <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              {vehicle.manufacturer} · {vehicle.manufacture_year}
+              {vehicle.manufacturer} · {vehicle.manufactureYear}
             </p>
           </div>
         </div>
@@ -921,29 +806,29 @@ export default function VehicleDetailPage() {
                 label="Loại động cơ"
                 value={
                   <span
-                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${vehicle.engine_type === "Electric" ? "bg-info-light text-info" : "bg-warning-light text-warning"}`}
+                    className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${vehicle.engineType === "Electric" ? "bg-info-light text-info" : "bg-warning-light text-warning"}`}
                   >
-                    {vehicle.engine_type === "Electric" ? "Điện" : "Xăng/Dầu"}
+                    {vehicle.engineType === "Electric" ? "Điện" : "Xăng/Dầu"}
                   </span>
                 }
               />
-              <InfoRow label="Tải trọng" value={`${vehicle.capacity} kg`} />
-              <InfoRow label="Số người" value={`${vehicle.occupancy} người`} />
+              <InfoRow label="Tải trọng" value={vehicle.capacity != null ? `${vehicle.capacity} kg` : "—"} />
+              <InfoRow label="Số người" value={vehicle.occupancy != null ? `${vehicle.occupancy} người` : "—"} />
               <InfoRow
                 label="Chiều cao sàn"
-                value={`${vehicle.platform_height} m`}
+                value={vehicle.platformHeight != null ? `${vehicle.platformHeight} m` : "—"}
               />
               <InfoRow
                 label="Chiều cao làm việc"
-                value={`${vehicle.work_height} m`}
+                value={vehicle.workHeight != null ? `${vehicle.workHeight} m` : "—"}
               />
               <InfoRow
                 label="Tốc độ nâng"
-                value={`${vehicle.lifting_speed} m/s`}
+                value={vehicle.liftingSpeed != null ? `${vehicle.liftingSpeed} m/ph` : "—"}
               />
               <InfoRow
                 label="Tốc độ di chuyển"
-                value={`${vehicle.traveling_speed} km/h`}
+                value={vehicle.travelingSpeed != null ? `${vehicle.travelingSpeed} km/h` : "—"}
               />
             </div>
 
@@ -964,13 +849,12 @@ export default function VehicleDetailPage() {
               />
               <InfoRow
                 label="Ngày tạo"
-                value={format(new Date(vehicle.created_at), "dd/MM/yyyy")}
+                value={format(new Date(vehicle.createdAt), "dd/MM/yyyy")}
               />
               <InfoRow
                 label="Cập nhật lần cuối"
-                value={format(new Date(vehicle.updated_at), "dd/MM/yyyy HH:mm")}
+                value={format(new Date(vehicle.updatedAt), "dd/MM/yyyy HH:mm")}
               />
-              <InfoRow label="Người tạo" value={vehicle.created_by.full_name} />
             </div>
           </div>
         </TabsContent>
@@ -1441,9 +1325,9 @@ export default function VehicleDetailPage() {
 
                   <div className="flex flex-col gap-0">
                     {statusLogsQuery.data.data.map((log, idx) => {
-                      const newCfg = VEHICLE_STATUS_CONFIG[log.new_status];
-                      const oldCfg = VEHICLE_STATUS_CONFIG[log.old_status];
-                      const dotColor = DOT_COLOR[log.new_status];
+                      const newCfg = VEHICLE_STATUS_CONFIG[log.toStatus];
+                      const oldCfg = VEHICLE_STATUS_CONFIG[log.fromStatus];
+                      const dotColor = DOT_COLOR[log.toStatus];
                       return (
                         <div
                           key={log.id}
@@ -1464,7 +1348,7 @@ export default function VehicleDetailPage() {
                               <span
                                 className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${oldCfg?.className ?? "bg-bg-page text-text-secondary"}`}
                               >
-                                {oldCfg?.label ?? log.old_status}
+                                {oldCfg?.label ?? log.fromStatus}
                               </span>
                               <span className="text-text-secondary text-[length:var(--fs-sm)]">
                                 →
@@ -1472,7 +1356,7 @@ export default function VehicleDetailPage() {
                               <span
                                 className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${newCfg?.className ?? "bg-bg-page text-text-secondary"}`}
                               >
-                                {newCfg?.label ?? log.new_status}
+                                {newCfg?.label ?? log.toStatus}
                               </span>
                             </div>
                             {log.reason && (
@@ -1482,10 +1366,10 @@ export default function VehicleDetailPage() {
                             )}
                             <p className="text-[length:var(--fs-sm)] text-text-secondary mt-0.5">
                               {format(
-                                new Date(log.changed_at),
+                                new Date(log.changedAt),
                                 "HH:mm dd/MM/yyyy",
                               )}{" "}
-                              · {log.changed_by.full_name}
+                              · {log.changedByName}
                             </p>
                           </div>
                         </div>
@@ -1494,11 +1378,11 @@ export default function VehicleDetailPage() {
                   </div>
 
                   {/* Pagination */}
-                  {statusLogsQuery.data.meta.total_pages > 1 && (
+                  {statusLogsQuery.data.meta.totalPages > 1 && (
                     <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
                       <p className="text-[length:var(--fs-sm)] text-text-secondary">
                         Trang {statusLogsQuery.data.meta.page} /{" "}
-                        {statusLogsQuery.data.meta.total_pages}
+                        {statusLogsQuery.data.meta.totalPages}
                       </p>
                       <div className="flex gap-1">
                         <Button
@@ -1516,7 +1400,7 @@ export default function VehicleDetailPage() {
                           className="border-border h-8 px-3"
                           disabled={
                             statusLogsPage >=
-                            statusLogsQuery.data.meta.total_pages
+                            statusLogsQuery.data.meta.totalPages
                           }
                           onClick={() => setStatusLogsPage((p) => p + 1)}
                         >
@@ -1573,7 +1457,7 @@ export default function VehicleDetailPage() {
                       Năm SX
                     </Label>
                     <Input
-                      {...editForm.register("manufacture_year")}
+                      {...editForm.register("manufactureYear")}
                       type="number"
                       className="border-border"
                     />
@@ -1583,10 +1467,10 @@ export default function VehicleDetailPage() {
                       Loại động cơ <span className="text-error">*</span>
                     </Label>
                     <Select
-                      defaultValue={vehicle.engine_type}
+                      defaultValue={vehicle.engineType}
                       onValueChange={(v) =>
                         editForm.setValue(
-                          "engine_type",
+                          "engineType",
                           v as "Fuel" | "Electric",
                         )
                       }
@@ -1627,7 +1511,7 @@ export default function VehicleDetailPage() {
                       Chiều cao sàn (m)
                     </Label>
                     <Input
-                      {...editForm.register("platform_height")}
+                      {...editForm.register("platformHeight")}
                       type="number"
                       step="0.1"
                       className="border-border"
@@ -1641,7 +1525,7 @@ export default function VehicleDetailPage() {
                     Cao LV (m)
                   </Label>
                   <Input
-                    {...editForm.register("work_height")}
+                    {...editForm.register("workHeight")}
                     type="number"
                     step="0.1"
                     className="border-border"
@@ -1652,7 +1536,7 @@ export default function VehicleDetailPage() {
                     Tốc độ nâng (m/s)
                   </Label>
                   <Input
-                    {...editForm.register("lifting_speed")}
+                    {...editForm.register("liftingSpeed")}
                     type="number"
                     step="0.01"
                     className="border-border"
@@ -1663,7 +1547,7 @@ export default function VehicleDetailPage() {
                     Tốc độ di chuyển (km/h)
                   </Label>
                   <Input
-                    {...editForm.register("traveling_speed")}
+                    {...editForm.register("travelingSpeed")}
                     type="number"
                     step="0.1"
                     className="border-border"
@@ -2021,7 +1905,7 @@ export default function VehicleDetailPage() {
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="Xóa xe này?"
-        description={`Xe ${vehicle.model} (${vehicle.serial_number}) sẽ bị ẩn khỏi hệ thống. Dữ liệu lịch sử vẫn được giữ lại.`}
+        description={`Xe ${vehicle.model} (${vehicle.serialNumber}) sẽ bị ẩn khỏi hệ thống. Dữ liệu lịch sử vẫn được giữ lại.`}
         variant="danger"
         confirmLabel="Xóa"
         loading={deleteMutation.isPending}

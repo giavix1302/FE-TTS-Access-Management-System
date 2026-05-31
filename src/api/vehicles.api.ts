@@ -14,3 +14,16 @@ export const updateVehicle = (id: number, body: unknown) =>
 
 export const deleteVehicle = (id: number) =>
   axiosInstance.delete(`/vehicles/${id}`).then((r) => r.data);
+
+export const changeVehicleStatus = (
+  id: number,
+  body: { newStatus: string; reason?: string }
+) => axiosInstance.patch(`/vehicles/${id}/status`, body).then((r) => r.data);
+
+export const getVehicleStatusLogs = (
+  id: number,
+  params?: { page?: number; pageSize?: number }
+) =>
+  axiosInstance
+    .get(`/vehicles/${id}/status-logs`, { params })
+    .then((r) => r.data);

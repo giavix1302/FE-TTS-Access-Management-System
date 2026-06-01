@@ -29,6 +29,19 @@ import {
   deleteVehicle,
   changeVehicleStatus,
   getVehicleStatusLogs,
+  getVehicleInsurance,
+  createVehicleInsurance,
+  deleteVehicleInsurance,
+  getVehicleInspection,
+  createVehicleInspection,
+  deleteVehicleInspection,
+  getVehicleImages,
+  setPrimaryImage,
+  deleteDocument,
+  uploadDocuments,
+  getVehicleProfile,
+  upsertVehicleProfile,
+  deleteVehicleProfile,
 } from "@/api/vehicles.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { usePermission } from "@/hooks/usePermission";
@@ -95,57 +108,64 @@ interface VehicleDetail {
 
 interface DocumentRef {
   id: number;
-  file_name: string;
-  sas_url: string;
-  sas_expires_at: string;
+  fileName: string;
+  sasUrl: string;
+  sasExpiresAt: string;
+  mimeType: string;
+  fileSizeKb: number;
+  note: string | null;
+  uploadedAt: string;
 }
 
 interface InsuranceRecord {
   id: number;
-  insurance_number: string;
-  provider: string;
-  issue_date: string;
-  expiry_date: string;
+  insuranceNumber: string | null;
+  provider: string | null;
+  issueDate: string | null;
+  expiryDate: string;
   document: DocumentRef | null;
-  created_at: string;
-  created_by: { id: number; full_name: string };
+  createdAt: string;
+  createdById: number | null;
+  createdByName: string | null;
 }
 
 interface InspectionRecord {
   id: number;
-  inspection_number: string;
-  inspection_date: string;
-  expiry_date: string;
-  result: "passed" | "failed";
+  inspectionNumber: string | null;
+  inspectionDate: string | null;
+  expiryDate: string;
+  result: "passed" | "failed" | null;
   document: DocumentRef | null;
-  created_at: string;
-  created_by: { id: number; full_name: string };
+  createdAt: string;
+  createdById: number | null;
+  createdByName: string | null;
 }
 
 interface ImageItem {
   id: number;
-  file_name: string;
-  sas_url: string;
-  sas_expires_at: string;
-  is_primary: boolean;
-  uploaded_at: string;
+  fileName: string;
+  sasUrl: string;
+  sasExpiresAt: string;
+  isPrimary: boolean;
+  uploadedAt: string;
 }
 
 interface ImagesResponse {
-  primary_image_id: number | null;
+  primaryImageId: number | null;
   images: ImageItem[];
   total: number;
-  remaining_slots: number;
+  remainingSlots: number;
 }
 
 interface ProfileItem {
   id: number;
-  file_name: string;
-  sas_url: string;
-  sas_expires_at: string;
-  file_size_kb: number;
-  uploaded_at: string;
-  uploaded_by: { id: number; full_name: string };
+  fileName: string;
+  sasUrl: string;
+  sasExpiresAt: string;
+  fileSizeKb: number;
+  uploadedAt: string;
+  uploadedById: number | null;
+  uploadedByName: string | null;
 }
 
 interface StatusLog {
@@ -224,17 +244,17 @@ const editSchema = z.object({
 type EditForm = z.infer<typeof editSchema>;
 
 const insuranceSchema = z.object({
-  insurance_number: z.string().optional(),
+  insuranceNumber: z.string().optional(),
   provider: z.string().optional(),
-  issue_date: z.string().optional(),
-  expiry_date: z.string().min(1, "Bắt buộc"),
+  issueDate: z.string().optional(),
+  expiryDate: z.string().min(1, "Bắt buộc"),
 });
 type InsuranceForm = z.infer<typeof insuranceSchema>;
 
 const inspectionSchema = z.object({
-  inspection_number: z.string().optional(),
-  inspection_date: z.string().optional(),
-  expiry_date: z.string().min(1, "Bắt buộc"),
+  inspectionNumber: z.string().optional(),
+  inspectionDate: z.string().optional(),
+  expiryDate: z.string().min(1, "Bắt buộc"),
   result: z.enum(["passed", "failed"]).optional(),
 });
 type InspectionForm = z.infer<typeof inspectionSchema>;
@@ -279,8 +299,8 @@ function InsuranceFileCard({
     );
   return (
     <FileCard
-      fileName={document.file_name}
-      url={document.sas_url}
+      fileName={document.fileName}
+      url={document.sasUrl}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
@@ -312,8 +332,8 @@ function InspectionFileCard({
     );
   return (
     <FileCard
-      fileName={document.file_name}
-      url={document.sas_url}
+      fileName={document.fileName}
+      url={document.sasUrl}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
@@ -381,25 +401,25 @@ export default function VehicleDetailPage() {
 
   const insuranceQuery = useQuery<InsuranceRecord[]>({
     queryKey: QUERY_KEYS.vehicles.insurance(vehicleId),
-    queryFn: () => Promise.resolve(MOCK_INSURANCE),
+    queryFn: () => getVehicleInsurance(vehicleId).then((r) => r.data),
     enabled: activeTab === "insurance",
   });
 
   const inspectionQuery = useQuery<InspectionRecord[]>({
     queryKey: QUERY_KEYS.vehicles.inspection(vehicleId),
-    queryFn: () => Promise.resolve(MOCK_INSPECTION),
+    queryFn: () => getVehicleInspection(vehicleId).then((r) => r.data),
     enabled: activeTab === "inspection",
   });
 
   const imagesQuery = useQuery<ImagesResponse>({
     queryKey: QUERY_KEYS.vehicles.images(vehicleId),
-    queryFn: () => Promise.resolve(MOCK_IMAGES),
+    queryFn: () => getVehicleImages(vehicleId).then((r) => r.data),
     enabled: activeTab === "documents",
   });
 
   const profileQuery = useQuery<ProfileItem[]>({
     queryKey: QUERY_KEYS.vehicles.profile(vehicleId),
-    queryFn: () => Promise.resolve(MOCK_PROFILE),
+    queryFn: () => getVehicleProfile(vehicleId).then((r) => r.data),
     enabled: activeTab === "documents",
   });
 
@@ -504,16 +524,30 @@ export default function VehicleDetailPage() {
     resolver: zodResolver(insuranceSchema),
   });
 
-  const uploadInsFile = async (_file: File) => {
+  const uploadInsFile = async (file: File) => {
     setInsUploading(true);
-    await new Promise((res) => setTimeout(res, 800));
-    setInsDocId(99);
-    setInsUploading(false);
+    try {
+      const fd = new FormData();
+      fd.append("files[]", file);
+      fd.append("doc_type", "insurance");
+      const res = await uploadDocuments(fd);
+      setInsDocId(res.data[0].id);
+    } catch {
+      toast.error("Upload file thất bại");
+    } finally {
+      setInsUploading(false);
+    }
   };
 
   const addInsMutation = useMutation({
-    mutationFn: (_body: InsuranceForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (body: InsuranceForm) =>
+      createVehicleInsurance(vehicleId, {
+        insuranceNumber: body.insuranceNumber || undefined,
+        provider: body.provider || undefined,
+        issueDate: body.issueDate || undefined,
+        expiryDate: body.expiryDate,
+        documentId: insDocId ?? undefined,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.insurance(vehicleId),
@@ -524,17 +558,28 @@ export default function VehicleDetailPage() {
       setInsFile(null);
       setInsDocId(null);
     },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
+    },
   });
 
   const deleteInsMutation = useMutation({
-    mutationFn: (_insId: number) =>
-      new Promise<void>((res) => setTimeout(res, 400)),
+    mutationFn: (insId: number) => deleteVehicleInsurance(vehicleId, insId),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.insurance(vehicleId),
       });
       toast.success("Đã xóa bảo hiểm");
       setDeleteInsId(null);
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
     },
   });
 
@@ -544,16 +589,30 @@ export default function VehicleDetailPage() {
     resolver: zodResolver(inspectionSchema),
   });
 
-  const uploadInspecFile = async (_file: File) => {
+  const uploadInspecFile = async (file: File) => {
     setInspecUploading(true);
-    await new Promise((res) => setTimeout(res, 800));
-    setInspecDocId(98);
-    setInspecUploading(false);
+    try {
+      const fd = new FormData();
+      fd.append("files[]", file);
+      fd.append("doc_type", "inspection");
+      const res = await uploadDocuments(fd);
+      setInspecDocId(res.data[0].id);
+    } catch {
+      toast.error("Upload file thất bại");
+    } finally {
+      setInspecUploading(false);
+    }
   };
 
   const addInspecMutation = useMutation({
-    mutationFn: (_body: InspectionForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (body: InspectionForm) =>
+      createVehicleInspection(vehicleId, {
+        inspectionNumber: body.inspectionNumber || undefined,
+        inspectionDate: body.inspectionDate || undefined,
+        expiryDate: body.expiryDate,
+        result: body.result,
+        documentId: inspecDocId ?? undefined,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.inspection(vehicleId),
@@ -564,17 +623,29 @@ export default function VehicleDetailPage() {
       setInspecFile(null);
       setInspecDocId(null);
     },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
+    },
   });
 
   const deleteInspecMutation = useMutation({
-    mutationFn: (_inspecId: number) =>
-      new Promise<void>((res) => setTimeout(res, 400)),
+    mutationFn: (inspecId: number) =>
+      deleteVehicleInspection(vehicleId, inspecId),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.inspection(vehicleId),
       });
       toast.success("Đã xóa đăng kiểm");
       setDeleteInspecId(null);
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
     },
   });
 
@@ -583,8 +654,11 @@ export default function VehicleDetailPage() {
   const uploadImagesMutation = useMutation({
     mutationFn: async (files: File[]) => {
       setImgUploading(true);
-      await new Promise((res) => setTimeout(res, 800));
-      return files;
+      const fd = new FormData();
+      files.forEach((f) => fd.append("files[]", f));
+      fd.append("doc_type", "vehicle_image");
+      fd.append("vehicle_id", String(vehicleId));
+      return uploadDocuments(fd);
     },
     onSuccess: (_, files) => {
       queryClient.invalidateQueries({
@@ -597,12 +671,17 @@ export default function VehicleDetailPage() {
       setImgModalOpen(false);
       setImgFiles([]);
     },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
+    },
     onSettled: () => setImgUploading(false),
   });
 
   const setPrimaryMutation = useMutation({
-    mutationFn: (_docId: number) =>
-      new Promise<void>((res) => setTimeout(res, 400)),
+    mutationFn: (docId: number) => setPrimaryImage(vehicleId, docId),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.images(vehicleId),
@@ -612,11 +691,16 @@ export default function VehicleDetailPage() {
       });
       toast.success("Đã đặt ảnh đại diện");
     },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
+    },
   });
 
   const deleteImageMutation = useMutation({
-    mutationFn: (_docId: number) =>
-      new Promise<void>((res) => setTimeout(res, 400)),
+    mutationFn: (docId: number) => deleteDocument(docId),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.images(vehicleId),
@@ -627,33 +711,48 @@ export default function VehicleDetailPage() {
       toast.success("Đã xóa ảnh");
       setDeleteImgId(null);
     },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
+    },
   });
 
   // ── Tab 4: Profile mutations ─────────────────────────────────────────────
 
-  const uploadProfile = async (_file: File) => {
+  const uploadProfile = async (file: File) => {
     setProfileUploading(true);
     try {
-      await new Promise((res) => setTimeout(res, 800));
+      await upsertVehicleProfile(vehicleId, file);
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.profile(vehicleId),
       });
       toast.success("Đã cập nhật lý lịch xe");
-    } catch {
-      toast.error("Có lỗi xảy ra");
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
     } finally {
       setProfileUploading(false);
     }
   };
 
   const deleteProfileMutation = useMutation({
-    mutationFn: () => new Promise<void>((res) => setTimeout(res, 400)),
+    mutationFn: () => deleteVehicleProfile(vehicleId),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.profile(vehicleId),
       });
       toast.success("Đã xóa lý lịch xe");
       setDeleteProfileOpen(false);
+    },
+    onError: (err: unknown) => {
+      const msg =
+        (err as { response?: { data?: { error?: { message?: string } } } })
+          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
+      toast.error(msg);
     },
   });
 
@@ -891,7 +990,7 @@ export default function VehicleDetailPage() {
               </div>
             ) : (
               insuranceQuery.data.map((ins) => {
-                const expiry = getExpiryBadge(ins.expiry_date);
+                const expiry = getExpiryBadge(ins.expiryDate);
                 return (
                   <div
                     key={ins.id}
@@ -903,18 +1002,18 @@ export default function VehicleDetailPage() {
                         <Shield className="h-8 w-8 text-primary shrink-0" />
                         <div className="min-w-0">
                           <p className="font-semibold text-text-primary truncate">
-                            {ins.insurance_number || "—"}
+                            {ins.insuranceNumber || "—"}
                           </p>
                           <p className="text-[length:var(--fs-sm)] text-text-secondary truncate">
                             {ins.provider || "—"}
                           </p>
                           <div className="flex flex-wrap gap-1.5 mt-1.5">
                             <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                              {ins.issue_date
-                                ? format(new Date(ins.issue_date), "dd/MM/yyyy")
+                              {ins.issueDate
+                                ? format(new Date(ins.issueDate), "dd/MM/yyyy")
                                 : "—"}{" "}
                               →{" "}
-                              {format(new Date(ins.expiry_date), "dd/MM/yyyy")}
+                              {format(new Date(ins.expiryDate), "dd/MM/yyyy")}
                             </span>
                             <span
                               className={`text-xs px-2.5 py-1 rounded-full ${expiry.className}`}
@@ -997,7 +1096,7 @@ export default function VehicleDetailPage() {
               </div>
             ) : (
               inspectionQuery.data.map((ins) => {
-                const expiry = getExpiryBadge(ins.expiry_date);
+                const expiry = getExpiryBadge(ins.expiryDate);
                 const resultBadge =
                   ins.result === "passed"
                     ? {
@@ -1019,19 +1118,19 @@ export default function VehicleDetailPage() {
                         <CheckCircle2 className="h-8 w-8 text-success shrink-0" />
                         <div className="min-w-0">
                           <p className="font-semibold text-text-primary truncate">
-                            {ins.inspection_number || "—"}
+                            {ins.inspectionNumber || "—"}
                           </p>
                           <div className="flex flex-wrap gap-1.5 mt-1.5">
                             <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
                               Ngày kiểm:{" "}
-                              {ins.inspection_date
+                              {ins.inspectionDate
                                 ? format(
-                                    new Date(ins.inspection_date),
+                                    new Date(ins.inspectionDate),
                                     "dd/MM/yyyy",
                                   )
                                 : "—"}{" "}
                               →{" "}
-                              {format(new Date(ins.expiry_date), "dd/MM/yyyy")}
+                              {format(new Date(ins.expiryDate), "dd/MM/yyyy")}
                             </span>
                             {ins.result && (
                               <span
@@ -1110,7 +1209,7 @@ export default function VehicleDetailPage() {
                     }}
                     disabled={
                       imagesQuery.isLoading ||
-                      (imagesQuery.data?.remaining_slots ?? 1) <= 0
+                      (imagesQuery.data?.remainingSlots ?? 1) <= 0
                     }
                   >
                     <ImagePlus className="h-4 w-4 mr-1" /> Thêm ảnh
@@ -1136,20 +1235,20 @@ export default function VehicleDetailPage() {
                   {imagesQuery.data.images.map((img) => (
                     <div key={img.id} className="relative group aspect-square">
                       <img
-                        src={img.sas_url}
-                        alt={img.file_name}
+                        src={img.sasUrl}
+                        alt={img.fileName}
                         className={`w-full h-full object-cover rounded-lg border-2 transition-colors ${
-                          img.is_primary ? "border-primary" : "border-border"
+                          img.isPrimary ? "border-primary" : "border-border"
                         }`}
                       />
-                      {img.is_primary && (
+                      {img.isPrimary && (
                         <span className="absolute top-1 left-1 flex items-center gap-0.5 bg-primary text-white text-[10px] font-semibold px-1.5 py-0.5 rounded-full">
                           <Star className="h-2.5 w-2.5 fill-white" /> Chính
                         </span>
                       )}
                       {isAdminOrManager && (
                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
-                          {!img.is_primary && (
+                          {!img.isPrimary && (
                             <button
                               onClick={() => setPrimaryMutation.mutate(img.id)}
                               disabled={setPrimaryMutation.isPending}
@@ -1176,7 +1275,7 @@ export default function VehicleDetailPage() {
               {imagesQuery.data && (
                 <p className="mt-3 text-[length:var(--fs-sm)] text-text-secondary">
                   {imagesQuery.data.total} ảnh · còn{" "}
-                  {imagesQuery.data.remaining_slots} slot trống
+                  {imagesQuery.data.remainingSlots} slot trống
                 </p>
               )}
             </div>
@@ -1241,17 +1340,17 @@ export default function VehicleDetailPage() {
                     <FileText className="h-8 w-8 text-primary shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-[length:var(--fs-base)] font-medium text-text-primary truncate">
-                        {profile.file_name}
+                        {profile.fileName}
                       </p>
                       <p className="text-[length:var(--fs-sm)] text-text-secondary">
-                        {formatFileSize(profile.file_size_kb)} · Cập nhật:{" "}
-                        {format(new Date(profile.uploaded_at), "dd/MM/yyyy")}{" "}
-                        bởi {profile.uploaded_by.full_name}
+                        {formatFileSize(profile.fileSizeKb)} · Cập nhật:{" "}
+                        {format(new Date(profile.uploadedAt), "dd/MM/yyyy")}
+                        {profile.uploadedByName ? ` bởi ${profile.uploadedByName}` : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <a
-                        href={profile.sas_url}
+                        href={profile.sasUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
@@ -1686,7 +1785,7 @@ export default function VehicleDetailPage() {
               Số bảo hiểm
             </Label>
             <Input
-              {...insForm.register("insurance_number")}
+              {...insForm.register("insuranceNumber")}
               placeholder="VD: BH-2024-001"
               className="border-border"
             />
@@ -1708,7 +1807,7 @@ export default function VehicleDetailPage() {
               </Label>
               <Controller
                 control={insForm.control}
-                name="issue_date"
+                name="issueDate"
                 render={({ field }) => (
                   <DatePicker
                     value={field.value ?? undefined}
@@ -1723,7 +1822,7 @@ export default function VehicleDetailPage() {
               </Label>
               <Controller
                 control={insForm.control}
-                name="expiry_date"
+                name="expiryDate"
                 render={({ field }) => (
                   <DatePicker
                     value={field.value ?? undefined}
@@ -1731,9 +1830,9 @@ export default function VehicleDetailPage() {
                   />
                 )}
               />
-              {insForm.formState.errors.expiry_date && (
+              {insForm.formState.errors.expiryDate && (
                 <p className="text-[length:var(--fs-sm)] text-error">
-                  {insForm.formState.errors.expiry_date.message}
+                  {insForm.formState.errors.expiryDate.message}
                 </p>
               )}
             </div>
@@ -1806,7 +1905,7 @@ export default function VehicleDetailPage() {
               Số kiểm định
             </Label>
             <Input
-              {...inspecForm.register("inspection_number")}
+              {...inspecForm.register("inspectionNumber")}
               placeholder="VD: DK-2024-001"
               className="border-border"
             />
@@ -1818,7 +1917,7 @@ export default function VehicleDetailPage() {
               </Label>
               <Controller
                 control={inspecForm.control}
-                name="inspection_date"
+                name="inspectionDate"
                 render={({ field }) => (
                   <DatePicker
                     value={field.value ?? undefined}
@@ -1833,7 +1932,7 @@ export default function VehicleDetailPage() {
               </Label>
               <Controller
                 control={inspecForm.control}
-                name="expiry_date"
+                name="expiryDate"
                 render={({ field }) => (
                   <DatePicker
                     value={field.value ?? undefined}
@@ -1841,9 +1940,9 @@ export default function VehicleDetailPage() {
                   />
                 )}
               />
-              {inspecForm.formState.errors.expiry_date && (
+              {inspecForm.formState.errors.expiryDate && (
                 <p className="text-[length:var(--fs-sm)] text-error">
-                  {inspecForm.formState.errors.expiry_date.message}
+                  {inspecForm.formState.errors.expiryDate.message}
                 </p>
               )}
             </div>
@@ -1993,7 +2092,7 @@ export default function VehicleDetailPage() {
                 const files = Array.from(e.target.files ?? []);
                 setImgFiles((prev) => {
                   const merged = [...prev, ...files];
-                  const maxSlots = imagesQuery.data?.remaining_slots ?? 10;
+                  const maxSlots = imagesQuery.data?.remainingSlots ?? 10;
                   return merged.slice(0, maxSlots);
                 });
                 e.target.value = "";
@@ -2009,7 +2108,7 @@ export default function VehicleDetailPage() {
                 Chọn ảnh (JPEG, PNG)
               </span>
               <span className="text-[length:var(--fs-sm)]">
-                Tối đa {imagesQuery.data?.remaining_slots ?? 10} ảnh
+                Tối đa {imagesQuery.data?.remainingSlots ?? 10} ảnh
               </span>
             </button>
 

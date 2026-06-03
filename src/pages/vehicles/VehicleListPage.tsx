@@ -599,7 +599,7 @@ export default function VehicleListPage() {
                     <Input
                       {...register("platform_height")}
                       type="number"
-                      step="0.1"
+                      step="any"
                       placeholder="VD: 7.79"
                       className="border-border"
                     />
@@ -615,7 +615,7 @@ export default function VehicleListPage() {
                   <Input
                     {...register("work_height")}
                     type="number"
-                    step="0.1"
+                    step="any"
                     placeholder="VD: 9.8"
                     className="border-border"
                   />
@@ -627,7 +627,7 @@ export default function VehicleListPage() {
                   <Input
                     {...register("lifting_speed")}
                     type="number"
-                    step="0.01"
+                    step="any"
                     placeholder="VD: 0.20"
                     className="border-border"
                   />
@@ -639,7 +639,7 @@ export default function VehicleListPage() {
                   <Input
                     {...register("traveling_speed")}
                     type="number"
-                    step="0.1"
+                    step="any"
                     placeholder="VD: 4.0"
                     className="border-border"
                   />

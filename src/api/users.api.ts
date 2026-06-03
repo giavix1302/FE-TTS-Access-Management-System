@@ -23,3 +23,9 @@ export const resetPassword = (id: number) =>
 
 export const updateUserRoles = (id: number, roleIds: number[]) =>
   axiosInstance.put(`/users/${id}/roles`, { roleIds }).then((r) => r.data);
+
+export const uploadAvatar = (id: number, file: File) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return axiosInstance.post(`/users/${id}/avatar`, fd).then((r) => r.data);
+};

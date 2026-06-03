@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { changePassword as changePasswordApi } from "@/api/auth.api";
+import { updateUser, uploadAvatar } from "@/api/users.api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -116,14 +117,21 @@ export default function ProfilePage() {
     formState: { errors: pwdErrors },
   } = useForm<PasswordForm>({ resolver: zodResolver(passwordSchema) });
 
-  // Mutation: update info
+  // Mutation: update info + avatar
   const { mutate: saveInfo, isPending: isSavingInfo } = useMutation({
-    mutationFn: (_body: InfoForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
-    // --- REAL API ---
-    // mutationFn: (body) => updateUser(user!.id, body),
-    onSuccess: (_, data) => {
-      if (user) setUser({ ...user, ...data, email: data.email ?? user.email });
+    mutationFn: async (body: InfoForm) => {
+      // Upload avatar trước nếu có file mới
+      let newAvatarUrl = user?.avatarUrl;
+      if (avatarFile && user) {
+        const res = await uploadAvatar(user.id, avatarFile);
+        newAvatarUrl = res.data?.avatarUrl ?? newAvatarUrl;
+      }
+      // Update thông tin
+      const res = await updateUser(user!.id, { fullName: body.full_name, email: body.email || null });
+      return { ...res.data, avatarUrl: newAvatarUrl };
+    },
+    onSuccess: (data) => {
+      if (user) setUser({ ...user, fullName: data.fullName, email: data.email, avatarUrl: data.avatarUrl });
       toast.success("Đã cập nhật thông tin");
       setIsEditingInfo(false);
       setAvatarFile(null);

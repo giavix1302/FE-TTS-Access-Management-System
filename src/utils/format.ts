@@ -6,16 +6,29 @@ export const formatCurrency = (value: number): string => {
   }).format(value);
 };
 
-// Format ngày: "2026-01-05" → "05/01/2026"
-export const formatDate = (date: string | null): string => {
-  if (!date) return "—";
-  return new Date(date).toLocaleDateString("vi-VN");
+// Đảm bảo parse đúng UTC — BE trả ISO không có Z suffix
+const parseUtc = (date: string): Date => {
+  const s = date.endsWith("Z") || date.includes("+") ? date : date + "Z";
+  return new Date(s);
 };
 
-// Format datetime: ISO → "05/01/2026 08:00"
+// Format ngày: "2026-01-05" → "05/01/2026" (giờ VN UTC+7)
+export const formatDate = (date: string | null): string => {
+  if (!date) return "—";
+  return parseUtc(date).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+};
+
+// Format datetime: ISO → "05/01/2026 08:00" (giờ VN UTC+7)
 export const formatDateTime = (date: string | null): string => {
   if (!date) return "—";
-  return new Date(date).toLocaleString("vi-VN");
+  return parseUtc(date).toLocaleString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
 };
 
 // Tính số ngày còn lại đến hạn

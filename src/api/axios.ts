@@ -7,9 +7,6 @@ const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
   withCredentials: true, // gửi HttpOnly cookie theo mọi request
-  headers: {
-    "Content-Type": "application/json",
-  },
 });
 
 // Request interceptor — đính accessToken từ Zustand in-memory

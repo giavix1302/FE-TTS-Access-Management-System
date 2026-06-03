@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { differenceInDays, format } from "date-fns";
+import { formatDateTime } from "@/utils/format";
 import {
   Pencil,
   RefreshCw,
@@ -22,6 +23,10 @@ import {
   History,
   Loader2,
   ImagePlus,
+  ZoomIn,
+  X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import {
   getVehicleById,
@@ -369,6 +374,8 @@ export default function VehicleDetailPage() {
   const [imgUploading, setImgUploading] = useState(false);
   const [deleteImgId, setDeleteImgId] = useState<number | null>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
+  // Lightbox
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   // Profile (Tab 4)
   const [profileUploading, setProfileUploading] = useState(false);
   const [deleteProfileOpen, setDeleteProfileOpen] = useState(false);
@@ -1232,7 +1239,7 @@ export default function VehicleDetailPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
-                  {imagesQuery.data.images.map((img) => (
+                  {imagesQuery.data.images.map((img, idx) => (
                     <div key={img.id} className="relative group aspect-square">
                       <img
                         src={img.sasUrl}
@@ -1246,18 +1253,25 @@ export default function VehicleDetailPage() {
                           <Star className="h-2.5 w-2.5 fill-white" /> Chính
                         </span>
                       )}
-                      {isAdminOrManager && (
-                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
-                          {!img.isPrimary && (
-                            <button
-                              onClick={() => setPrimaryMutation.mutate(img.id)}
-                              disabled={setPrimaryMutation.isPending}
-                              className="p-1.5 bg-white rounded-full text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
-                              title="Đặt làm ảnh chính"
-                            >
-                              <Star className="h-3.5 w-3.5" />
-                            </button>
-                          )}
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setLightboxIndex(idx)}
+                          className="p-1.5 bg-white rounded-full text-text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
+                          title="Xem ảnh"
+                        >
+                          <ZoomIn className="h-3.5 w-3.5" />
+                        </button>
+                        {isAdminOrManager && !img.isPrimary && (
+                          <button
+                            onClick={() => setPrimaryMutation.mutate(img.id)}
+                            disabled={setPrimaryMutation.isPending}
+                            className="p-1.5 bg-white rounded-full text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
+                            title="Đặt làm ảnh chính"
+                          >
+                            <Star className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {isAdminOrManager && (
                           <button
                             onClick={() => setDeleteImgId(img.id)}
                             className="p-1.5 bg-white rounded-full text-error hover:bg-error hover:text-white transition-colors cursor-pointer"
@@ -1265,8 +1279,8 @@ export default function VehicleDetailPage() {
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1464,11 +1478,7 @@ export default function VehicleDetailPage() {
                               </p>
                             )}
                             <p className="text-[length:var(--fs-sm)] text-text-secondary mt-0.5">
-                              {format(
-                                new Date(log.changedAt),
-                                "HH:mm dd/MM/yyyy",
-                              )}{" "}
-                              · {log.changedByName}
+                              {formatDateTime(log.changedAt)} · {log.changedByName}
                             </p>
                           </div>
                         </div>
@@ -1612,7 +1622,7 @@ export default function VehicleDetailPage() {
                     <Input
                       {...editForm.register("platformHeight")}
                       type="number"
-                      step="0.1"
+                      step="any"
                       className="border-border"
                     />
                   </div>
@@ -1626,7 +1636,7 @@ export default function VehicleDetailPage() {
                   <Input
                     {...editForm.register("workHeight")}
                     type="number"
-                    step="0.1"
+                    step="any"
                     className="border-border"
                   />
                 </div>
@@ -1637,7 +1647,7 @@ export default function VehicleDetailPage() {
                   <Input
                     {...editForm.register("liftingSpeed")}
                     type="number"
-                    step="0.01"
+                    step="any"
                     className="border-border"
                   />
                 </div>
@@ -1648,7 +1658,7 @@ export default function VehicleDetailPage() {
                   <Input
                     {...editForm.register("travelingSpeed")}
                     type="number"
-                    step="0.1"
+                    step="any"
                     className="border-border"
                   />
                 </div>
@@ -2068,6 +2078,50 @@ export default function VehicleDetailPage() {
         loading={deleteProfileMutation.isPending}
         onConfirm={() => deleteProfileMutation.mutate()}
       />
+
+      {/* Lightbox */}
+      {lightboxIndex !== null && imagesQuery.data?.images && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={() => setLightboxIndex(null)}
+        >
+          <button
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+            onClick={() => setLightboxIndex(null)}
+          >
+            <X className="h-5 w-5" />
+          </button>
+
+          {lightboxIndex > 0 && (
+            <button
+              className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); setLightboxIndex(lightboxIndex - 1); }}
+            >
+              <ChevronLeft className="h-6 w-6" />
+            </button>
+          )}
+
+          <img
+            src={imagesQuery.data.images[lightboxIndex].sasUrl}
+            alt={imagesQuery.data.images[lightboxIndex].fileName}
+            className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {lightboxIndex < imagesQuery.data.images.length - 1 && (
+            <button
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              onClick={(e) => { e.stopPropagation(); setLightboxIndex(lightboxIndex + 1); }}
+            >
+              <ChevronRight className="h-6 w-6" />
+            </button>
+          )}
+
+          <span className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/60 text-sm">
+            {lightboxIndex + 1} / {imagesQuery.data.images.length}
+          </span>
+        </div>
+      )}
 
       {/* Modal thêm ảnh */}
       <MobileSheetDialog

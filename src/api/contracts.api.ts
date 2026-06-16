@@ -20,6 +20,9 @@ export const updateContract = (id: number, body: unknown) =>
 export const changeContractStatus = (id: number, body: unknown) =>
   axiosInstance.patch(`/contracts/${id}/status`, body).then((r) => r.data);
 
+export const updateExcludedDays = (id: number, body: unknown) =>
+  axiosInstance.patch(`/contracts/${id}/excluded-days`, body).then((r) => r.data);
+
 // Line items
 export const createLineItem = (contractId: number, body: unknown) =>
   axiosInstance.post(`/contracts/${contractId}/line-items`, body).then((r) => r.data);

@@ -3,7 +3,7 @@ import type { ContractDocument } from "@/types/contract.types";
 
 export interface UploadDocumentPayload {
   file: File;
-  doc_type: "contract" | "addendum" | "acceptance" | "invoice" | "insurance" | "inspection" | "vehicle_image" | "other";
+  doc_type: "contract" | "addendum" | "acceptance" | "invoice" | "insurance" | "inspection" | "vehicle_image" | "logo" | "other";
   note?: string;
 }
 

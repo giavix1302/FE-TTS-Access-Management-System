@@ -56,133 +56,7 @@ import type {
   ContractStatus,
 } from "@/types/contract.types";
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-const MOCK_CONTRACT: ContractDetail = {
-  id: 1,
-  contract_number: "01012026/HĐTTB/TTS-DOTHANH",
-  status: "active",
-  customer: {
-    id: 1,
-    customer_type: "business",
-    display_name: "Công ty TNHH Đô Thành",
-    international_name: "Công ty TNHH Đô Thành",
-    short_name: "DOTHANH",
-    tax_code: "0301234567",
-    tax_address: "123 Đường Hoàng Diệu, Quận 4, TP.HCM",
-    office_address: "456 Đường Nguyễn Văn Linh, Quận 7, TP.HCM",
-    representative: "Trần Văn Đô",
-    phone: "0281234567",
-    email: "contact@dothanh.vn",
-  },
-  start_date: "2026-01-05",
-  planned_days: 59,
-  end_date: "2026-03-05",
-  total_amount: 64800000,
-  created_at: "2026-01-01T08:00:00Z",
-  site_address: "Lô B5, KCN Tân Bình, Quận Tân Phú, TP.HCM",
-  subtotal: 60000000,
-  tax_amount: 4800000,
-  excluded_days: 2,
-  excluded_reason: "Nghỉ Tết Âm lịch theo quy định",
-  document: {
-    id: 1,
-    doc_type: "contract",
-    file_name: "HỢP ĐỒNG THUÊ XE TTS-DOTHANH.docx",
-    mime_type:
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    file_size_kb: 842,
-    note: "Bản scan có đóng dấu",
-    uploaded_at: "2026-01-05T09:30:00Z",
-    sas_url:
-      "https://giavixblob1302.blob.core.windows.net/documents/H%E1%BB%A2P%20%C4%90%E1%BB%92NG%20THU%C3%8A%20XE%20TTS-DOTHANH.docx",
-    sas_expires_at: "2026-12-31T23:59:59Z",
-  },
-  line_items: [
-    {
-      id: 1,
-      service: { id: 1, name: "Cho thuê xe nâng người AWP 20S", unit: "ngày" },
-      vehicle_id: 1,
-      unit_price: 1500000,
-      quantity: 30,
-      line_total: 45000000,
-      sort_order: 1,
-    },
-    {
-      id: 2,
-      service: {
-        id: 1,
-        name: "Cho thuê xe nâng người JLG 260MRT",
-        unit: "ngày",
-      },
-      vehicle_id: 2,
-      unit_price: 1800000,
-      quantity: 15,
-      line_total: 27000000,
-      sort_order: 2,
-    },
-    {
-      id: 3,
-      service: { id: 2, name: "Phí vận chuyển đưa xe", unit: "chuyến" },
-      vehicle_id: null,
-      unit_price: 4000000,
-      quantity: 2,
-      line_total: 8000000,
-      sort_order: 3,
-    },
-    {
-      id: 4,
-      service: { id: 3, name: "Phí lắp đặt & kiểm tra an toàn", unit: "lần" },
-      vehicle_id: null,
-      unit_price: 2000000,
-      quantity: 1,
-      line_total: 2000000,
-      sort_order: 4,
-    },
-  ],
-  vehicles: [
-    {
-      id: 1,
-      vehicle: {
-        id: 1,
-        model: "AWP 20S",
-        serial_number: "SN-2021-001",
-        status: "renting",
-      },
-      deploy_date: "2026-01-05",
-      return_date: null,
-      extra_days: 0,
-    },
-    {
-      id: 2,
-      vehicle: {
-        id: 2,
-        model: "JLG 260MRT",
-        serial_number: "SN-2022-002",
-        status: "renting",
-      },
-      deploy_date: "2026-01-10",
-      return_date: null,
-      extra_days: 0,
-    },
-  ],
-  created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-};
-
-const MOCK_SUMMARY: ContractSummary = {
-  contract_id: 1,
-  start_date: "2026-01-05",
-  actual_end_date: null,
-  total_days: null,
-  amount_payable: 64800000,
-  amount_paid: 32400000,
-  amount_remaining: 32400000,
-  total_addendums: 2,
-  acceptance_record_count: 1,
-  addendum_count: 2,
-  invoice_count: 2,
-};
-
-// ─── Mock sub-data (dùng trong các Tab khi query key khớp) ─────────────────────
+// ─── Mock sub-data P2/P3 (các Tab Addendums/Acceptance/Invoices/Incidents — chưa connect BE) ──
 export const MOCK_ADDENDUMS = [
   {
     id: 1,
@@ -451,7 +325,7 @@ function StatusChangeDropdown({
         ? { status: "completed" }
         : confirmType === "cancel"
           ? { status: "cancelled", reason }
-          : { status: "active", reopen_reason: reason };
+          : { status: "active", reopenReason: reason };
     mutation.mutate(body);
   };
 
@@ -601,22 +475,21 @@ export default function ContractDetailPage() {
 
   const canEdit = hasPermission("contracts.update");
 
-  // --- REAL API ---
-  // const { data: contract, isLoading } = useQuery({
-  //   queryKey: QUERY_KEYS.contracts.detail(contractId),
-  //   queryFn: () => getContractById(contractId),
-  // })
-  // const { data: summary } = useQuery({
-  //   queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'],
-  //   queryFn: () => getContractSummary(contractId),
-  // })
-
   const [activeTab, setActiveTab] = useState("contract");
 
-  // Mock
-  const contract: ContractDetail | undefined = MOCK_CONTRACT;
-  const summary: ContractSummary | undefined = MOCK_SUMMARY;
-  const isLoading = false;
+  const { data: contractRes, isLoading } = useQuery({
+    queryKey: QUERY_KEYS.contracts.detail(contractId),
+    queryFn: () => getContractById(contractId),
+    enabled: !Number.isNaN(contractId),
+  });
+  const { data: summaryRes } = useQuery({
+    queryKey: [...QUERY_KEYS.contracts.detail(contractId), "summary"],
+    queryFn: () => getContractSummary(contractId),
+    enabled: !Number.isNaN(contractId),
+  });
+
+  const contract: ContractDetail | undefined = contractRes?.data;
+  const summary: ContractSummary | undefined = summaryRes?.data;
 
   if (isLoading) {
     return (
@@ -661,7 +534,7 @@ export default function ContractDetailPage() {
         {/* Title row */}
         <div className="flex items-center gap-2 flex-wrap mb-3">
           <h1 className="font-mono font-bold text-base text-text-primary leading-tight">
-            {contract.contract_number}
+            {contract.contractNumber}
           </h1>
           <span
             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusClass}`}
@@ -677,28 +550,28 @@ export default function ContractDetailPage() {
           <div className="col-span-2">
             <p className="text-xs text-text-secondary">Khách hàng</p>
             <div className="flex items-center gap-1.5 mt-0.5">
-              {contract.customer.customer_type === "business" ? (
+              {contract.customer.customerType === "business" ? (
                 <Building2 size={13} className="text-text-secondary shrink-0" />
               ) : (
                 <User size={13} className="text-text-secondary shrink-0" />
               )}
               <p className="text-sm font-medium text-text-primary">
-                {contract.customer.display_name}
+                {contract.customer.displayName}
               </p>
             </div>
           </div>
 
-          {contract.customer.customer_type === "business" &&
-            contract.customer.tax_code && (
+          {contract.customer.customerType === "business" &&
+            contract.customer.taxCode && (
               <div>
                 <p className="text-xs text-text-secondary">Mã số thuế</p>
                 <p className="text-sm font-medium text-text-primary">
-                  {contract.customer.tax_code}
+                  {contract.customer.taxCode}
                 </p>
               </div>
             )}
 
-          {contract.customer.customer_type === "business" &&
+          {contract.customer.customerType === "business" &&
             contract.customer.representative && (
               <div>
                 <p className="text-xs text-text-secondary">Người đại diện</p>
@@ -726,24 +599,24 @@ export default function ContractDetailPage() {
             </div>
           )}
 
-          {contract.customer.customer_type === "business" &&
-            contract.customer.office_address && (
+          {contract.customer.customerType === "business" &&
+            contract.customer.officeAddress && (
               <div className="col-span-2">
                 <p className="text-xs text-text-secondary">Địa chỉ văn phòng</p>
                 <p className="text-sm font-medium text-text-primary">
-                  {contract.customer.office_address}
+                  {contract.customer.officeAddress}
                 </p>
               </div>
             )}
 
-          {contract.customer.customer_type === "individual" &&
-            contract.customer.permanent_address && (
+          {contract.customer.customerType === "individual" &&
+            contract.customer.permanentAddress && (
               <div className="col-span-2">
                 <p className="text-xs text-text-secondary">
                   Địa chỉ thường trú
                 </p>
                 <p className="text-sm font-medium text-text-primary">
-                  {contract.customer.permanent_address}
+                  {contract.customer.permanentAddress}
                 </p>
               </div>
             )}
@@ -769,40 +642,40 @@ export default function ContractDetailPage() {
               Icon={CalendarDays}
               iconClass="text-primary"
               label="Kế hoạch"
-              value={`${contract.planned_days} ngày`}
-              sub={`${formatDate(contract.start_date)} → ${formatDate(contract.end_date)}`}
+              value={`${contract.plannedDays} ngày`}
+              sub={`${formatDate(contract.startDate)} → ${formatDate(contract.endDate)}`}
             />
             <SummaryCard
               Icon={DollarSign}
               iconClass="text-text-secondary"
               label="Phải thanh toán"
-              value={formatCurrency(summary.amount_payable)}
-              sub={`${summary.invoice_count} hóa đơn`}
+              value={formatCurrency(summary.amountPayable)}
+              sub={`${summary.invoiceCount} hóa đơn`}
             />
             <SummaryCard
               Icon={CheckCircle2}
               iconClass="text-success"
               label="Đã thanh toán"
-              value={formatCurrency(summary.amount_paid)}
+              value={formatCurrency(summary.amountPaid)}
               valueClass="text-success"
               sub={
-                summary.amount_paid > 0
-                  ? `${Math.round((summary.amount_paid / summary.amount_payable) * 100)}% tổng giá trị`
+                summary.amountPaid > 0
+                  ? `${Math.round((summary.amountPaid / summary.amountPayable) * 100)}% tổng giá trị`
                   : "—"
               }
             />
             <SummaryCard
               Icon={AlertCircle}
               iconClass={
-                summary.amount_remaining > 0 ? "text-error" : "text-success"
+                summary.amountRemaining > 0 ? "text-error" : "text-success"
               }
               label="Còn lại"
-              value={formatCurrency(summary.amount_remaining)}
+              value={formatCurrency(summary.amountRemaining)}
               valueClass={
-                summary.amount_remaining > 0 ? "text-error" : "text-success"
+                summary.amountRemaining > 0 ? "text-error" : "text-success"
               }
               sub={
-                summary.amount_remaining > 0
+                summary.amountRemaining > 0
                   ? "Chưa thanh toán đủ"
                   : "Đã thanh toán đủ"
               }

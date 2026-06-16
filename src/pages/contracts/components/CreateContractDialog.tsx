@@ -47,9 +47,14 @@ import {
   MobileSheetFooter,
 } from "@/components/shared/MobileSheet";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import { createContract } from "@/api/contracts.api";
+import {
+  createContract,
+  createLineItem,
+  addContractVehicle,
+} from "@/api/contracts.api";
 import { uploadDocument } from "@/api/documents.api";
 import { getCustomers } from "@/api/customers.api";
+import { getVehicles } from "@/api/vehicles.api";
 import { getServiceCatalog } from "@/api/service-catalog.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { cn } from "@/lib/utils";
@@ -57,10 +62,11 @@ import { cn } from "@/lib/utils";
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface CustomerOption {
   id: number;
-  customer_type: "business" | "individual";
-  display_name: string;
-  tax_code?: string;
+  customerType: "business" | "individual";
+  displayName: string;
+  shortName?: string;
   phone?: string;
+  isActive?: boolean;
 }
 
 interface ServiceOption {
@@ -74,7 +80,7 @@ interface ServiceOption {
 interface VehicleOption {
   id: number;
   model: string;
-  serial_number: string;
+  serialNumber: string;
   status: string;
 }
 
@@ -92,47 +98,6 @@ interface VehicleDraft {
   vehicle_id: number | null;
   deploy_date: string;
 }
-
-// ─── Mock customers ───────────────────────────────────────────────────────────
-const MOCK_CUSTOMERS: CustomerOption[] = [
-  {
-    id: 1,
-    customer_type: "business",
-    display_name: "Công ty TNHH Đô Thành",
-    tax_code: "0301234567",
-    phone: "0281234567",
-  },
-  {
-    id: 2,
-    customer_type: "business",
-    display_name: "Công ty CP Đại Phong",
-    tax_code: "3703116797",
-    phone: "0251234567",
-  },
-  {
-    id: 3,
-    customer_type: "individual",
-    display_name: "Nguyễn Văn A",
-    phone: "0901234567",
-  },
-  {
-    id: 4,
-    customer_type: "business",
-    display_name: "Bệnh viện Hoàn Mỹ",
-    tax_code: "0304567890",
-    phone: "0289012345",
-  },
-];
-
-
-// ─── Mock vehicles ────────────────────────────────────────────────────────────
-const MOCK_VEHICLES: VehicleOption[] = [
-  { id: 1, model: "Xcmg QY25K5-I", serial_number: "51C-123.45", status: "available" },
-  { id: 2, model: "Liebherr LTM 1050-3.1", serial_number: "51C-678.90", status: "available" },
-  { id: 3, model: "Tadano GR-700EX", serial_number: "51D-234.56", status: "available" },
-  { id: 4, model: "Kato SR-250R", serial_number: "51D-789.01", status: "in_use" },
-  { id: 5, model: "Kobelco CKE2500G", serial_number: "51E-345.67", status: "available" },
-];
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 const contractSchema = z.object({
@@ -308,19 +273,9 @@ function CreateCustomerModal({
 
   function handleSubmit() {
     if (!validate()) return;
-    // Mock — thực tế gọi POST /customers/business hoặc /customers/individual
-    const newId = Math.max(...MOCK_CUSTOMERS.map((c) => c.id)) + 1;
-    const newCustomer: CustomerOption = {
-      id: newId,
-      customer_type: type,
-      display_name:
-        type === "business" ? internationalName.trim() : fullName.trim(),
-      tax_code: type === "business" ? taxCode || undefined : undefined,
-      phone: (type === "business" ? bizPhone : phone) || undefined,
-    };
-    MOCK_CUSTOMERS.push(newCustomer);
-    toast.success("Đã thêm khách hàng mới");
-    onCreated(newId);
+    // Tạo khách hàng là chức năng của module Khách hàng — không tạo inline ở đây.
+    toast.info("Vui lòng tạo khách hàng tại trang Khách hàng, sau đó chọn lại");
+    onClose();
   }
 
   const fieldClass =
@@ -615,23 +570,25 @@ function CustomerPicker({
   onChange,
   error,
   onOpenCreateModal,
+  options,
 }: {
   value: number | undefined;
   onChange: (id: number) => void;
   error?: string;
   onOpenCreateModal: () => void;
+  options: CustomerOption[];
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  const customers = MOCK_CUSTOMERS.filter(
+  const customers = options.filter(
     (c) =>
       !search ||
-      c.display_name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.tax_code ?? "").includes(search),
+      c.displayName.toLowerCase().includes(search.toLowerCase()) ||
+      (c.shortName ?? "").toLowerCase().includes(search.toLowerCase()),
   );
 
-  const selected = MOCK_CUSTOMERS.find((c) => c.id === value);
+  const selected = options.find((c) => c.id === value);
 
   function handleSelect(c: CustomerOption) {
     onChange(c.id);
@@ -653,17 +610,17 @@ function CustomerPicker({
       >
         {selected ? (
           <>
-            {selected.customer_type === "business" ? (
+            {selected.customerType === "business" ? (
               <Building2 className="h-4 w-4 text-primary shrink-0" />
             ) : (
               <User className="h-4 w-4 text-primary shrink-0" />
             )}
             <span className="flex-1 truncate text-text-primary">
-              {selected.display_name}
+              {selected.displayName}
             </span>
-            {selected.tax_code && (
+            {selected.shortName && (
               <span className="text-xs text-text-secondary shrink-0">
-                {selected.tax_code}
+                {selected.shortName}
               </span>
             )}
           </>
@@ -713,18 +670,18 @@ function CustomerPicker({
                     value === c.id && "bg-primary-light",
                   )}
                 >
-                  {c.customer_type === "business" ? (
+                  {c.customerType === "business" ? (
                     <Building2 className="h-4 w-4 text-primary shrink-0" />
                   ) : (
                     <User className="h-4 w-4 text-text-secondary shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-text-primary truncate">
-                      {c.display_name}
+                      {c.displayName}
                     </p>
-                    {c.tax_code && (
+                    {c.shortName && (
                       <p className="text-xs text-text-secondary">
-                        MST: {c.tax_code}
+                        {c.shortName}
                       </p>
                     )}
                   </div>
@@ -779,6 +736,24 @@ export function CreateContractDialog({
   });
   const activeServices: ServiceOption[] = (serviceCatalogRes?.data ?? []).filter((s: ServiceOption) => s.isActive);
 
+  // Query customers (active) cho picker
+  const { data: customersRes } = useQuery({
+    queryKey: [...QUERY_KEYS.customers.all, { forContract: true }],
+    queryFn: () => getCustomers({ status: "active", page_size: 100 }),
+    enabled: open,
+    staleTime: 60 * 1000,
+  });
+  const customerOptions: CustomerOption[] = customersRes?.data ?? [];
+
+  // Query vehicles at_yard cho dropdown gán xe
+  const { data: vehiclesRes } = useQuery({
+    queryKey: [...QUERY_KEYS.vehicles.all, { status: "at_yard", forContract: true }],
+    queryFn: () => getVehicles({ status: "at_yard", page_size: 100 }),
+    enabled: open,
+    staleTime: 60 * 1000,
+  });
+  const vehicleOptions: VehicleOption[] = vehiclesRes?.data ?? [];
+
   const hasPreview = !!file || !!mockUrl;
 
   const {
@@ -815,30 +790,44 @@ export function CreateContractDialog({
 
   const mutation = useMutation({
     mutationFn: async (data: ContractForm) => {
-      // Step 1: upload file if any
-      let document_id: number | undefined;
+      // Step 1: upload file hợp đồng nếu có → lấy documentId
+      let documentId: number | undefined;
       if (file) {
         const doc = await uploadDocument({ file, doc_type: "contract" });
-        document_id = doc.id;
+        documentId = doc.id;
       }
-      // Step 2: create contract
-      return createContract({
-        ...data,
-        document_id,
-        line_items: lineItems
-          .filter((li) => li.service_id)
-          .map((li) => ({
-            service_id: li.service_id,
-            unit_price: li.unit_price,
-            quantity: li.quantity,
-          })),
-        vehicles: vehicles
-          .filter((v) => v.vehicle_id)
-          .map((v) => ({
-            vehicle_id: v.vehicle_id,
-            deploy_date: v.deploy_date || null,
-          })),
+      // Step 2: tạo contract (BE chỉ nhận field cơ bản, camelCase)
+      const created = await createContract({
+        customerId: data.customer_id,
+        startDate: data.start_date,
+        plannedDays: data.planned_days,
+        siteAddress: data.site_address,
+        documentId,
       });
+      const contractId: number = created?.data?.id;
+
+      // Step 3: thêm line items tuần tự (mỗi cái 1 endpoint)
+      const validItems = lineItems.filter((li) => li.service_id);
+      for (let i = 0; i < validItems.length; i++) {
+        const li = validItems[i];
+        await createLineItem(contractId, {
+          serviceId: li.service_id,
+          unitPrice: li.unit_price,
+          quantity: li.quantity,
+          sortOrder: i + 1,
+        });
+      }
+
+      // Step 4: gán xe tuần tự
+      const validVehicles = vehicles.filter((v) => v.vehicle_id);
+      for (const v of validVehicles) {
+        await addContractVehicle(contractId, {
+          vehicleId: v.vehicle_id,
+          deployDate: v.deploy_date || null,
+        });
+      }
+
+      return created;
     },
     onSuccess: (res) => {
       queryClient.invalidateQueries({
@@ -890,6 +879,7 @@ export function CreateContractDialog({
                       onChange={field.onChange}
                       error={errors.customer_id?.message}
                       onOpenCreateModal={() => setShowCreateCustomer(true)}
+                      options={customerOptions}
                     />
                   )}
                 />
@@ -1171,7 +1161,7 @@ export function CreateContractDialog({
                 ) : (
                   <div className="space-y-2">
                     {vehicles.map((v) => {
-                      const selected = MOCK_VEHICLES.find(
+                      const selected = vehicleOptions.find(
                         (mv) => mv.id === v.vehicle_id,
                       );
                       return (
@@ -1198,14 +1188,9 @@ export function CreateContractDialog({
                               className="flex-1 text-sm border border-input rounded-md px-2 py-1.5 outline-none focus:border-primary bg-background"
                             >
                               <option value="">-- Chọn xe --</option>
-                              {MOCK_VEHICLES.map((mv) => (
-                                <option
-                                  key={mv.id}
-                                  value={mv.id}
-                                  disabled={mv.status === "in_use"}
-                                >
-                                  {mv.model} — {mv.serial_number}
-                                  {mv.status === "in_use" ? " (đang dùng)" : ""}
+                              {vehicleOptions.map((mv) => (
+                                <option key={mv.id} value={mv.id}>
+                                  {mv.model} — {mv.serialNumber}
                                 </option>
                               ))}
                             </select>
@@ -1241,9 +1226,9 @@ export function CreateContractDialog({
                           </div>
                           {selected && (
                             <p className="text-xs text-text-secondary">
-                              Biển số:{" "}
+                              Số serial:{" "}
                               <span className="font-medium text-text-primary">
-                                {selected.serial_number}
+                                {selected.serialNumber}
                               </span>
                             </p>
                           )}

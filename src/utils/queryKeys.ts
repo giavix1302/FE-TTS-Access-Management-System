@@ -22,6 +22,7 @@ export const QUERY_KEYS = {
   },
   notifications: {
     all: ["notifications"] as const,
+    unreadCount: ["notifications", "unread-count"] as const,
   },
   companySettings: ["company-settings"] as const,
   serviceCatalog: {

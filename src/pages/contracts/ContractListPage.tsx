@@ -19,6 +19,7 @@ import {
 import { DatePicker } from "@/components/shared/DatePicker";
 import { DataTable } from "@/components/shared/DataTable";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { getContracts } from "@/api/contracts.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatCurrency, formatDate } from "@/utils/format";
 import { useDebounce } from "@/hooks/useDebounce";
@@ -27,85 +28,6 @@ import {
   CONTRACT_STATUS_OPTIONS,
 } from "@/constants/contractStatus";
 import type { ContractListItem } from "@/types/contract.types";
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-const MOCK_CONTRACTS: ContractListItem[] = [
-  {
-    id: 1,
-    contract_number: "01012026/HĐTTB/TTS-DOTHANH",
-    status: "active",
-    customer: {
-      id: 1,
-      customer_type: "business",
-      display_name: "Công ty TNHH Đô Thành",
-    },
-    start_date: "2026-01-05",
-    planned_days: 59,
-    end_date: "2026-03-05",
-    total_amount: 64800000,
-    created_at: "2026-01-01T08:00:00Z",
-  },
-  {
-    id: 2,
-    contract_number: "02012026/HĐTTB/TTS-DAIPHONG",
-    status: "active",
-    customer: {
-      id: 2,
-      customer_type: "business",
-      display_name: "Công ty CP Đại Phong",
-    },
-    start_date: "2026-01-10",
-    planned_days: 30,
-    end_date: "2026-02-09",
-    total_amount: 27000000,
-    created_at: "2026-01-08T08:00:00Z",
-  },
-  {
-    id: 3,
-    contract_number: "03122025/HĐTTB/TTS-VIETTIN",
-    status: "completed",
-    customer: {
-      id: 3,
-      customer_type: "individual",
-      display_name: "Nguyễn Văn A",
-    },
-    start_date: "2025-12-01",
-    planned_days: 20,
-    end_date: "2025-12-21",
-    total_amount: 18000000,
-    created_at: "2025-11-28T08:00:00Z",
-  },
-  {
-    id: 4,
-    contract_number: "04112025/HĐTTB/TTS-HOANMY",
-    status: "cancelled",
-    customer: {
-      id: 4,
-      customer_type: "business",
-      display_name: "Bệnh viện Hoàn Mỹ",
-    },
-    start_date: "2025-11-01",
-    planned_days: 45,
-    end_date: "2025-12-16",
-    total_amount: 40500000,
-    created_at: "2025-10-25T08:00:00Z",
-  },
-  {
-    id: 5,
-    contract_number: "05102025/HĐTTB/TTS-THANHCONG",
-    status: "completed",
-    customer: {
-      id: 5,
-      customer_type: "business",
-      display_name: "Công ty Thành Công",
-    },
-    start_date: "2025-10-01",
-    planned_days: 60,
-    end_date: "2025-11-30",
-    total_amount: 72000000,
-    created_at: "2025-09-25T08:00:00Z",
-  },
-];
 
 const CUSTOMER_TYPE_LABELS: Record<string, string> = {
   individual: "Cá nhân",
@@ -132,47 +54,23 @@ export default function ContractListPage() {
   const debouncedSearch = useDebounce(search, 400);
   const page = pagination.pageIndex + 1;
 
-  // --- REAL API ---
-  // const { data, isLoading } = useQuery({
-  //   queryKey: [...QUERY_KEYS.contracts.all, { search: debouncedSearch, status: statusFilter, fromDate, toDate, page }],
-  //   queryFn: () => getContracts({ search: debouncedSearch, status: statusFilter, from_date: fromDate, to_date: toDate, page }),
-  // })
-
-  // Mock: filter client-side
   const { data, isLoading } = useQuery({
     queryKey: [
       ...QUERY_KEYS.contracts.all,
       { search: debouncedSearch, status: statusFilter, fromDate, toDate, page },
     ],
-    queryFn: () => {
-      const filtered = MOCK_CONTRACTS.filter((c) => {
-        const matchSearch =
-          !debouncedSearch ||
-          c.contract_number
-            .toLowerCase()
-            .includes(debouncedSearch.toLowerCase()) ||
-          c.customer.display_name
-            .toLowerCase()
-            .includes(debouncedSearch.toLowerCase());
-        const matchStatus = !statusFilter || c.status === statusFilter;
-        const matchFrom = !fromDate || c.start_date >= fromDate;
-        const matchTo = !toDate || c.end_date <= toDate;
-        return matchSearch && matchStatus && matchFrom && matchTo;
-      });
-      const start = (page - 1) * PAGE_SIZE;
-      return Promise.resolve({
-        data: filtered.slice(start, start + PAGE_SIZE),
-        meta: {
-          total: filtered.length,
-          page,
-          page_size: PAGE_SIZE,
-          total_pages: Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)),
-        },
-      });
-    },
+    queryFn: () =>
+      getContracts({
+        search: debouncedSearch || undefined,
+        status: statusFilter || undefined,
+        from_date: fromDate || undefined,
+        to_date: toDate || undefined,
+        page,
+        page_size: PAGE_SIZE,
+      }),
   });
 
-  const contracts = data?.data ?? [];
+  const contracts: ContractListItem[] = data?.data ?? [];
   const meta = data?.meta;
 
   const resetPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
@@ -185,10 +83,10 @@ export default function ContractListPage() {
       cell: ({ row }) => (
         <div>
           <p className="font-mono font-semibold text-text-primary">
-            {row.original.contract_number}
+            {row.original.contractNumber}
           </p>
           <p className="text-[length:var(--fs-sm)] text-text-secondary mt-0.5">
-            {formatDate(row.original.created_at)}
+            {formatDate(row.original.createdAt)}
           </p>
         </div>
       ),
@@ -199,11 +97,11 @@ export default function ContractListPage() {
       cell: ({ row }) => (
         <div>
           <p className="font-medium text-text-primary">
-            {row.original.customer.display_name}
+            {row.original.customer.displayName}
           </p>
           <span className="inline-block rounded-full bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5 mt-0.5">
-            {CUSTOMER_TYPE_LABELS[row.original.customer.customer_type] ??
-              row.original.customer.customer_type}
+            {CUSTOMER_TYPE_LABELS[row.original.customer.customerType] ??
+              row.original.customer.customerType}
           </span>
         </div>
       ),
@@ -214,7 +112,7 @@ export default function ContractListPage() {
       cell: ({ row }) => {
         const c = row.original;
         const daysLeft = Math.ceil(
-          (new Date(c.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
+          (new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
         );
         const isNearEnd = c.status === "active" && daysLeft <= 7;
         return (
@@ -227,10 +125,10 @@ export default function ContractListPage() {
               }`}
             >
               <CalendarIcon size={10} />
-              {formatDate(c.start_date)} → {formatDate(c.end_date)}
+              {formatDate(c.startDate)} → {formatDate(c.endDate)}
             </span>
             <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              {c.planned_days} ngày
+              {c.plannedDays} ngày
             </p>
           </div>
         );
@@ -241,7 +139,7 @@ export default function ContractListPage() {
       header: "Giá trị",
       cell: ({ row }) => (
         <span className="font-semibold text-text-primary">
-          {formatCurrency(row.original.total_amount)}
+          {formatCurrency(row.original.totalAmount)}
         </span>
       ),
     },
@@ -345,14 +243,14 @@ export default function ContractListPage() {
             Tổng{" "}
             <span className="font-medium text-text-primary">{meta.total}</span>{" "}
             hợp đồng
-            {meta.total_pages > 1 && (
+            {meta.totalPages > 1 && (
               <>
                 {" "}
                 — Trang{" "}
                 <span className="font-medium text-text-primary">
                   {meta.page}
                 </span>{" "}
-                / {meta.total_pages}
+                / {meta.totalPages}
               </>
             )}
           </p>
@@ -366,7 +264,7 @@ export default function ContractListPage() {
           data={contracts}
           loading={isLoading}
           pagination={pagination}
-          pageCount={meta?.total_pages ?? 1}
+          pageCount={meta?.totalPages ?? 1}
           onPaginationChange={setPagination}
           onRowClick={(row) => navigate(`/contracts/${row.id}`)}
           emptyTitle="Không tìm thấy hợp đồng nào"
@@ -419,7 +317,7 @@ export default function ContractListPage() {
             const { label: statusLabel, className: statusClass } =
               getContractStatusBadge(c.status);
             const daysLeft = Math.ceil(
-              (new Date(c.end_date).getTime() - new Date().getTime()) /
+              (new Date(c.endDate).getTime() - new Date().getTime()) /
                 (1000 * 60 * 60 * 24),
             );
             const isNearEnd = c.status === "active" && daysLeft <= 7;
@@ -432,10 +330,10 @@ export default function ContractListPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-mono font-semibold text-text-primary text-[length:var(--fs-base)] truncate">
-                      {c.contract_number}
+                      {c.contractNumber}
                     </p>
                     <p className="text-[length:var(--fs-sm)] text-text-secondary mt-0.5 truncate">
-                      {c.customer.display_name}
+                      {c.customer.displayName}
                     </p>
                   </div>
                   <span
@@ -447,8 +345,8 @@ export default function ContractListPage() {
                 <Separator />
                 <div className="flex flex-wrap gap-2">
                   <span className="rounded-full bg-gray-100 text-gray-600 text-[10px] px-2 py-0.5">
-                    {CUSTOMER_TYPE_LABELS[c.customer.customer_type] ??
-                      c.customer.customer_type}
+                    {CUSTOMER_TYPE_LABELS[c.customer.customerType] ??
+                      c.customer.customerType}
                   </span>
                   <span
                     className={`rounded-full text-[10px] px-2 py-0.5 flex items-center gap-1 ${
@@ -458,13 +356,13 @@ export default function ContractListPage() {
                     }`}
                   >
                     <CalendarIcon size={9} />
-                    {formatDate(c.start_date)} → {formatDate(c.end_date)}
+                    {formatDate(c.startDate)} → {formatDate(c.endDate)}
                   </span>
                   <span className="rounded-full bg-primary-light text-primary text-[10px] px-2 py-0.5">
-                    {c.planned_days} ngày
+                    {c.plannedDays} ngày
                   </span>
                   <span className="rounded-full bg-primary-light text-primary text-[10px] px-2 py-0.5 font-semibold">
-                    {formatCurrency(c.total_amount)}
+                    {formatCurrency(c.totalAmount)}
                   </span>
                 </div>
               </div>
@@ -473,10 +371,10 @@ export default function ContractListPage() {
         )}
 
         {/* Pagination mobile */}
-        {!isLoading && meta && meta.total_pages > 1 && (
+        {!isLoading && meta && meta.totalPages > 1 && (
           <div className="flex items-center justify-between px-1 pt-1">
             <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              Trang {meta.page}/{meta.total_pages} · {meta.total} HĐ
+              Trang {meta.page}/{meta.totalPages} · {meta.total} HĐ
             </p>
             <div className="flex gap-1">
               <Button
@@ -494,7 +392,7 @@ export default function ContractListPage() {
                 variant="outline"
                 size="sm"
                 className="h-8 px-3 border-border cursor-pointer"
-                disabled={pagination.pageIndex + 1 >= meta.total_pages}
+                disabled={pagination.pageIndex + 1 >= meta.totalPages}
                 onClick={() =>
                   setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))
                 }

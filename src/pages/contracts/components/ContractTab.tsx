@@ -32,10 +32,12 @@ import { FileCard } from "@/components/shared/FileCard";
 import { MobileTwoColDialog } from "@/components/shared/MobileTwoColDialog";
 import {
   updateContract,
+  updateExcludedDays,
   createLineItem,
   updateLineItem,
   deleteLineItem,
 } from "@/api/contracts.api";
+import { uploadDocument } from "@/api/documents.api";
 import { getServiceCatalog } from "@/api/service-catalog.api";
 import { useReplaceDocument } from "@/hooks/useReplaceDocument";
 import { QUERY_KEYS } from "@/utils/queryKeys";
@@ -45,14 +47,14 @@ import type { ContractDetail, LineItem } from "@/types/contract.types";
 
 // ─── ContractInfoDialog ────────────────────────────────────────────────────────
 const contractInfoSchema = z.object({
-  contract_number: z.string().min(1, "Bắt buộc"),
-  start_date: z.string().min(1, "Bắt buộc"),
-  planned_days: z
+  contractNumber: z.string().min(1, "Bắt buộc"),
+  startDate: z.string().min(1, "Bắt buộc"),
+  plannedDays: z
     .number({ invalid_type_error: "Bắt buộc" })
     .min(1, "Phải >= 1"),
-  site_address: z.string().min(1, "Bắt buộc"),
-  excluded_days: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
-  excluded_reason: z.string().optional(),
+  siteAddress: z.string().min(1, "Bắt buộc"),
+  excludedDays: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
+  excludedReason: z.string().optional(),
 });
 
 type ContractInfoForm = z.infer<typeof contractInfoSchema>;
@@ -81,16 +83,16 @@ function ContractInfoDialog({
   } = useForm<ContractInfoForm>({
     resolver: zodResolver(contractInfoSchema),
     defaultValues: {
-      contract_number: contract.contract_number,
-      start_date: contract.start_date,
-      planned_days: contract.planned_days,
-      site_address: contract.site_address,
-      excluded_days: contract.excluded_days,
-      excluded_reason: contract.excluded_reason ?? "",
+      contractNumber: contract.contractNumber,
+      startDate: contract.startDate,
+      plannedDays: contract.plannedDays,
+      siteAddress: contract.siteAddress,
+      excludedDays: contract.excludedDays,
+      excludedReason: contract.excludedReason ?? "",
     },
   });
 
-  const excludedDays = watch("excluded_days");
+  const excludedDays = watch("excludedDays");
 
   function handleClose(v: boolean) {
     if (!v) { reset(); setDocFile(null) }
@@ -98,7 +100,27 @@ function ContractInfoDialog({
   }
 
   const mutation = useMutation({
-    mutationFn: (body: ContractInfoForm) => updateContract(contractId, body),
+    mutationFn: async (form: ContractInfoForm) => {
+      // Step 1: upload file HĐ mới nếu có
+      let documentId: number | undefined;
+      if (docFile) {
+        const doc = await uploadDocument({ file: docFile, doc_type: "contract" });
+        documentId = doc.id;
+      }
+      // Step 2: cập nhật field cơ bản
+      await updateContract(contractId, {
+        contractNumber: form.contractNumber,
+        startDate: form.startDate,
+        plannedDays: form.plannedDays,
+        siteAddress: form.siteAddress,
+        documentId,
+      });
+      // Step 3: excluded-days là endpoint riêng (BE tách)
+      await updateExcludedDays(contractId, {
+        excludedDays: form.excludedDays,
+        excludedReason: form.excludedReason || "",
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.contracts.detail(contractId),
@@ -117,8 +139,8 @@ function ContractInfoDialog({
       file={docFile}
       onFileChange={setDocFile}
       isEdit
-      existingFileName={contract.document?.file_name}
-      existingFileUrl={contract.document?.sas_url}
+      existingFileName={contract.document?.fileName}
+      existingFileUrl={contract.document?.sasUrl}
       uploadLabel="Kéo thả hoặc nhấp để chọn file hợp đồng mới"
     >
       <form
@@ -132,9 +154,9 @@ function ContractInfoDialog({
 
         <div className="space-y-1">
           <Label>Số hợp đồng <span className="text-error">*</span></Label>
-          <Input {...register('contract_number')} placeholder="01012026/HĐTTB/TTS-..." />
-          {errors.contract_number && (
-            <p className="text-xs text-error">{errors.contract_number.message}</p>
+          <Input {...register('contractNumber')} placeholder="01012026/HĐTTB/TTS-..." />
+          {errors.contractNumber && (
+            <p className="text-xs text-error">{errors.contractNumber.message}</p>
           )}
         </div>
 
@@ -143,13 +165,13 @@ function ContractInfoDialog({
             <Label>Ngày bắt đầu <span className="text-error">*</span></Label>
             <Controller
               control={control}
-              name="start_date"
+              name="startDate"
               render={({ field }) => (
                 <DatePicker value={field.value} onChange={field.onChange} />
               )}
             />
-            {errors.start_date && (
-              <p className="text-xs text-error">{errors.start_date.message}</p>
+            {errors.startDate && (
+              <p className="text-xs text-error">{errors.startDate.message}</p>
             )}
           </div>
           <div className="space-y-1">
@@ -157,19 +179,19 @@ function ContractInfoDialog({
             <Input
               type="number"
               min={1}
-              {...register("planned_days", { valueAsNumber: true })}
+              {...register("plannedDays", { valueAsNumber: true })}
             />
-            {errors.planned_days && (
-              <p className="text-xs text-error">{errors.planned_days.message}</p>
+            {errors.plannedDays && (
+              <p className="text-xs text-error">{errors.plannedDays.message}</p>
             )}
           </div>
         </div>
 
         <div className="space-y-1">
           <Label>Địa chỉ công trường <span className="text-error">*</span></Label>
-          <Textarea rows={2} className="resize-none" {...register("site_address")} />
-          {errors.site_address && (
-            <p className="text-xs text-error">{errors.site_address.message}</p>
+          <Textarea rows={2} className="resize-none" {...register("siteAddress")} />
+          {errors.siteAddress && (
+            <p className="text-xs text-error">{errors.siteAddress.message}</p>
           )}
         </div>
 
@@ -178,14 +200,14 @@ function ContractInfoDialog({
           <Input
             type="number"
             min={0}
-            {...register("excluded_days", { valueAsNumber: true })}
+            {...register("excludedDays", { valueAsNumber: true })}
           />
         </div>
 
         {excludedDays > 0 && (
           <div className="space-y-1">
             <Label>Lý do loại trừ</Label>
-            <Textarea rows={2} className="resize-none" {...register("excluded_reason")} />
+            <Textarea rows={2} className="resize-none" {...register("excludedReason")} />
           </div>
         )}
       </form>
@@ -214,11 +236,11 @@ function ContractInfoDialog({
 
 // ─── LineItemDialog ────────────────────────────────────────────────────────────
 const lineItemSchema = z.object({
-  service_id: z.number({ invalid_type_error: "Bắt buộc" }).min(1, "Bắt buộc"),
-  vehicle_id: z.number().nullable().optional(),
-  unit_price: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
+  serviceId: z.number({ invalid_type_error: "Bắt buộc" }).min(1, "Bắt buộc"),
+  vehicleId: z.number().nullable().optional(),
+  unitPrice: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
   quantity: z.number({ invalid_type_error: "Bắt buộc" }).min(1),
-  sort_order: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
+  sortOrder: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
 });
 
 type LineItemForm = z.infer<typeof lineItemSchema>;
@@ -257,8 +279,8 @@ function LineItemDialog({
   const activeServices = allServices.filter((s) => s.isActive)
 
   const maxOrder =
-    contract.line_items.length > 0
-      ? Math.max(...contract.line_items.map((li) => li.sort_order)) + 1
+    contract.lineItems.length > 0
+      ? Math.max(...contract.lineItems.map((li) => li.sortOrder)) + 1
       : 1;
 
   const {
@@ -271,13 +293,13 @@ function LineItemDialog({
     resolver: zodResolver(lineItemSchema),
     defaultValues: isEdit
       ? {
-          service_id: editItem.service.id,
-          vehicle_id: editItem.vehicle_id,
-          unit_price: editItem.unit_price,
+          serviceId: editItem.service.id,
+          vehicleId: editItem.vehicleId,
+          unitPrice: editItem.unitPrice,
           quantity: editItem.quantity,
-          sort_order: editItem.sort_order,
+          sortOrder: editItem.sortOrder,
         }
-      : { sort_order: maxOrder },
+      : { sortOrder: maxOrder },
   });
 
   const mutation = useMutation({
@@ -309,7 +331,7 @@ function LineItemDialog({
               <Label>Dịch vụ <span className="text-error">*</span></Label>
               <Controller
                 control={control}
-                name="service_id"
+                name="serviceId"
                 render={({ field }) => (
                   <Select
                     value={field.value?.toString()}
@@ -318,7 +340,7 @@ function LineItemDialog({
                       field.onChange(id)
                       if (!isEdit) {
                         const svc = activeServices.find((s) => s.id === id)
-                        if (svc) setValue("unit_price", svc.defaultPrice)
+                        if (svc) setValue("unitPrice", svc.defaultPrice)
                       }
                     }}
                   >
@@ -338,14 +360,14 @@ function LineItemDialog({
                   </Select>
                 )}
               />
-              {errors.service_id && <p className="text-xs text-error">{errors.service_id.message}</p>}
+              {errors.serviceId && <p className="text-xs text-error">{errors.serviceId.message}</p>}
             </div>
 
             <div className="space-y-1">
               <Label>Xe gán (tùy chọn)</Label>
               <Controller
                 control={control}
-                name="vehicle_id"
+                name="vehicleId"
                 render={({ field }) => (
                   <Select
                     value={field.value?.toString() ?? ""}
@@ -358,7 +380,7 @@ function LineItemDialog({
                       <SelectItem value="none">Không gán xe</SelectItem>
                       {contract.vehicles.map((cv) => (
                         <SelectItem key={cv.id} value={cv.vehicle.id.toString()}>
-                          {cv.vehicle.model} · {cv.vehicle.serial_number}
+                          {cv.vehicle.model} · {cv.vehicle.serialNumber}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -370,8 +392,8 @@ function LineItemDialog({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1">
                 <Label>Đơn giá <span className="text-error">*</span></Label>
-                <Input type="number" min={0} {...register("unit_price", { valueAsNumber: true })} />
-                {errors.unit_price && <p className="text-xs text-error">{errors.unit_price.message}</p>}
+                <Input type="number" min={0} {...register("unitPrice", { valueAsNumber: true })} />
+                {errors.unitPrice && <p className="text-xs text-error">{errors.unitPrice.message}</p>}
               </div>
               <div className="space-y-1">
                 <Label>Số lượng <span className="text-error">*</span></Label>
@@ -382,7 +404,7 @@ function LineItemDialog({
 
             <div className="space-y-1">
               <Label>Thứ tự</Label>
-              <Input type="number" min={0} {...register("sort_order", { valueAsNumber: true })} />
+              <Input type="number" min={0} {...register("sortOrder", { valueAsNumber: true })} />
             </div>
           </MobileSheetBody>
           <MobileSheetFooter>
@@ -469,38 +491,38 @@ export function ContractTab({
           <div>
             <p className="text-xs text-text-secondary">Ngày bắt đầu</p>
             <p className="text-sm font-medium text-text-primary">
-              {formatDate(contract.start_date)}
+              {formatDate(contract.startDate)}
             </p>
           </div>
           <div>
             <p className="text-xs text-text-secondary">Số ngày kế hoạch</p>
             <p className="text-sm font-medium text-text-primary">
-              {contract.planned_days} ngày
+              {contract.plannedDays} ngày
             </p>
           </div>
           <div>
             <p className="text-xs text-text-secondary">Ngày kết thúc</p>
             <p className="text-sm font-medium text-text-primary">
-              {formatDate(contract.end_date)}
+              {formatDate(contract.endDate)}
             </p>
           </div>
           <div>
             <p className="text-xs text-text-secondary">Ngày loại trừ</p>
             <p className="text-sm font-medium text-text-primary">
-              {contract.excluded_days} ngày
+              {contract.excludedDays} ngày
             </p>
           </div>
           <div className="col-span-2">
             <p className="text-xs text-text-secondary">Địa chỉ công trường</p>
             <p className="text-sm font-medium text-text-primary">
-              {contract.site_address || "—"}
+              {contract.siteAddress || "—"}
             </p>
           </div>
-          {contract.excluded_days > 0 && (
+          {contract.excludedDays > 0 && (
             <div className="col-span-2">
               <p className="text-xs text-text-secondary">Lý do loại trừ</p>
               <p className="text-sm font-medium text-text-primary">
-                {contract.excluded_reason || "—"}
+                {contract.excludedReason || "—"}
               </p>
             </div>
           )}
@@ -511,10 +533,10 @@ export function ContractTab({
           <p className="text-xs text-text-secondary mb-2">File HĐ đã ký</p>
           {contract.document ? (
             <FileCard
-              fileName={contract.document.file_name}
-              url={contract.document.sas_url}
-              fileSize={contract.document.file_size_kb * 1024}
-              createdAt={contract.document.uploaded_at}
+              fileName={contract.document?.fileName}
+              url={contract.document?.sasUrl}
+              fileSize={contract.document.fileSizeKb * 1024}
+              createdAt={contract.document.uploadedAt}
               onReplace={
                 canEdit ? (file) => replaceContractDoc.mutate(file) : undefined
               }
@@ -557,7 +579,7 @@ export function ContractTab({
           )}
         </div>
 
-        {contract.line_items.length === 0 ? (
+        {contract.lineItems.length === 0 ? (
           <p className="text-sm text-text-secondary py-6 text-center">
             Chưa có dịch vụ nào
           </p>
@@ -577,8 +599,8 @@ export function ContractTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {contract.line_items.map((item) => {
-                    const cv = contract.vehicles.find((v) => v.vehicle.id === item.vehicle_id);
+                  {contract.lineItems.map((item) => {
+                    const cv = contract.vehicles.find((v) => v.vehicle.id === item.vehicleId);
                     const vehicleBadge = cv ? getVehicleStatusBadge(cv.vehicle.status) : null;
                     return (
                       <tr key={item.id} className="border-b border-border last:border-0 hover:bg-bg-subtle/50 transition-colors">
@@ -586,10 +608,10 @@ export function ContractTab({
                         <td className="px-4 py-3">
                           {cv ? (
                             <div className="flex flex-col gap-0.5">
-                              <span className="text-text-primary">{cv.vehicle.model} · {cv.vehicle.serial_number}</span>
+                              <span className="text-text-primary">{cv.vehicle.model} · {cv.vehicle.serialNumber}</span>
                               <div className="flex items-center gap-1.5">
                                 {vehicleBadge && <span className={`text-xs px-2 py-0.5 rounded-full ${vehicleBadge.className}`}>{vehicleBadge.label}</span>}
-                                <span className="text-xs text-text-secondary">{formatDate(cv.deploy_date)} → {cv.return_date ? formatDate(cv.return_date) : "Chưa thu"}</span>
+                                <span className="text-xs text-text-secondary">{formatDate(cv.deployDate)} → {cv.returnDate ? formatDate(cv.returnDate) : "Chưa thu"}</span>
                               </div>
                             </div>
                           ) : (
@@ -597,10 +619,10 @@ export function ContractTab({
                           )}
                         </td>
                         <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap">
-                          {formatCurrency(item.unit_price)}<span className="text-text-disabled">/{item.service.unit}</span>
+                          {formatCurrency(item.unitPrice)}<span className="text-text-disabled">/{item.service.unit}</span>
                         </td>
                         <td className="px-4 py-3 text-right text-text-secondary whitespace-nowrap">{item.quantity} {item.service.unit}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-text-primary whitespace-nowrap">{formatCurrency(item.line_total)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-text-primary whitespace-nowrap">{formatCurrency(item.lineTotal)}</td>
                         {canEdit && contract.status === "active" && (
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-0.5">
@@ -621,12 +643,12 @@ export function ContractTab({
                   </tr>
                   <tr>
                     <td colSpan={4} className="px-4 py-2.5 text-right text-xs text-text-secondary">VAT</td>
-                    <td className="px-4 py-2.5 text-right text-sm font-medium text-text-primary whitespace-nowrap">{formatCurrency(contract.tax_amount)}</td>
+                    <td className="px-4 py-2.5 text-right text-sm font-medium text-text-primary whitespace-nowrap">{formatCurrency(contract.taxAmount)}</td>
                     {canEdit && contract.status === "active" && <td />}
                   </tr>
                   <tr className="border-t border-primary/20">
                     <td colSpan={4} className="px-4 py-3 text-right text-sm font-semibold text-text-primary">Tổng cộng sau thuế</td>
-                    <td className="px-4 py-3 text-right text-base font-bold text-primary whitespace-nowrap">{formatCurrency(contract.subtotal + contract.tax_amount)}</td>
+                    <td className="px-4 py-3 text-right text-base font-bold text-primary whitespace-nowrap">{formatCurrency(contract.subtotal + contract.taxAmount)}</td>
                     {canEdit && contract.status === "active" && <td />}
                   </tr>
                 </tfoot>
@@ -635,8 +657,8 @@ export function ContractTab({
 
             {/* Mobile card list */}
             <div className="sm:hidden divide-y divide-border">
-              {contract.line_items.map((item) => {
-                const cv = contract.vehicles.find((v) => v.vehicle.id === item.vehicle_id);
+              {contract.lineItems.map((item) => {
+                const cv = contract.vehicles.find((v) => v.vehicle.id === item.vehicleId);
                 const vehicleBadge = cv ? getVehicleStatusBadge(cv.vehicle.status) : null;
                 return (
                   <div key={item.id} className="px-4 py-3 space-y-2">
@@ -644,11 +666,11 @@ export function ContractTab({
                       <div className="flex-1 min-w-0">
                         <p className="font-medium text-sm text-text-primary">{item.service.name}</p>
                         <p className="text-xs text-text-secondary mt-0.5">
-                          {item.quantity} {item.service.unit} × {formatCurrency(item.unit_price)}/{item.service.unit}
+                          {item.quantity} {item.service.unit} × {formatCurrency(item.unitPrice)}/{item.service.unit}
                         </p>
                       </div>
                       <div className="flex items-center gap-0.5 shrink-0">
-                        <span className="text-sm font-semibold text-text-primary">{formatCurrency(item.line_total)}</span>
+                        <span className="text-sm font-semibold text-text-primary">{formatCurrency(item.lineTotal)}</span>
                         {canEdit && contract.status === "active" && (
                           <>
                             <Button variant="ghost" size="sm" onClick={() => openEditItem(item)} className="cursor-pointer h-7 w-7 p-0 ml-1"><Pencil size={13} /></Button>
@@ -659,9 +681,9 @@ export function ContractTab({
                     </div>
                     {cv ? (
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-xs text-text-secondary">{cv.vehicle.model} · {cv.vehicle.serial_number}</span>
+                        <span className="text-xs text-text-secondary">{cv.vehicle.model} · {cv.vehicle.serialNumber}</span>
                         {vehicleBadge && <span className={`text-xs px-2 py-0.5 rounded-full ${vehicleBadge.className}`}>{vehicleBadge.label}</span>}
-                        <span className="text-xs text-text-disabled">{formatDate(cv.deploy_date)} → {cv.return_date ? formatDate(cv.return_date) : "Chưa thu"}</span>
+                        <span className="text-xs text-text-disabled">{formatDate(cv.deployDate)} → {cv.returnDate ? formatDate(cv.returnDate) : "Chưa thu"}</span>
                       </div>
                     ) : (
                       <span className="text-xs text-text-disabled">Không gán xe</span>
@@ -675,11 +697,11 @@ export function ContractTab({
                   <span>Trước thuế</span><span className="font-medium text-text-primary">{formatCurrency(contract.subtotal)}</span>
                 </div>
                 <div className="flex justify-between text-xs text-text-secondary">
-                  <span>VAT</span><span className="font-medium text-text-primary">{formatCurrency(contract.tax_amount)}</span>
+                  <span>VAT</span><span className="font-medium text-text-primary">{formatCurrency(contract.taxAmount)}</span>
                 </div>
                 <div className="flex justify-between text-sm font-semibold border-t border-primary/20 pt-1.5">
                   <span className="text-text-primary">Tổng sau thuế</span>
-                  <span className="text-primary">{formatCurrency(contract.subtotal + contract.tax_amount)}</span>
+                  <span className="text-primary">{formatCurrency(contract.subtotal + contract.taxAmount)}</span>
                 </div>
               </div>
             </div>

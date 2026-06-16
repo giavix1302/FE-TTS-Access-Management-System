@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useLocation, useNavigate, matchPath } from "react-router-dom";
 import { Bell, ChevronDown, LogOut, Menu, UserCircle } from "lucide-react";
+import { QUERY_KEYS } from "@/utils/queryKeys";
+import { getUnreadCount } from "@/api/notifications.api";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -53,9 +56,23 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
   const navigate = useNavigate();
   const { user, clearAuth } = useAuthStore();
   const unreadCount = useNotificationStore((s) => s.unreadCount);
+  const setUnreadCount = useNotificationStore((s) => s.setUnreadCount);
   const pageTitle = usePageTitle();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
+
+  // Polling badge thông báo chưa đọc mỗi 60 giây
+  const { data: unreadData } = useQuery({
+    queryKey: QUERY_KEYS.notifications.unreadCount,
+    queryFn: getUnreadCount,
+    refetchInterval: 60_000,
+    enabled: !!user,
+  });
+
+  useEffect(() => {
+    const count = unreadData?.data?.[0]?.unreadCount;
+    if (typeof count === "number") setUnreadCount(count);
+  }, [unreadData, setUnreadCount]);
 
   const handleLogout = async () => {
     setLogoutLoading(true);

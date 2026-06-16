@@ -9,7 +9,6 @@ import {
   Pencil,
   Plus,
   Star,
-  StarOff,
   EyeOff,
   Landmark,
   X,
@@ -18,6 +17,13 @@ import { QUERY_KEYS } from "@/utils/queryKeys";
 import { usePermission } from "@/hooks/usePermission";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { formatDateTime } from "@/utils/format";
+import {
+  getCompanySettings,
+  updateCompanySettings,
+  createBankAccount,
+  updateBankAccount,
+} from "@/api/company.api";
+import { uploadDocument } from "@/api/documents.api";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { FileUpload } from "@/components/shared/FileUpload";
@@ -30,7 +36,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog";
 import {
   MobileSheetDialog,
@@ -44,95 +49,60 @@ import { cn } from "@/lib/utils";
 
 interface LogoDocument {
   id: number;
-  file_name: string;
-  sas_url: string;
-  sas_expires_at: string;
+  fileName: string;
+  sasUrl: string;
+  sasExpiresAt: string | null;
 }
 
 interface BankAccount {
   id: number;
-  bank_account_number: string;
-  bank_account_name: string;
-  bank_name: string;
-  bank_branch: string | null;
-  is_default: boolean;
-  is_active: boolean;
+  bankAccountNumber: string;
+  bankAccountName: string;
+  bankName: string;
+  bankBranch: string | null;
+  isDefault: boolean;
+  isActive: boolean;
 }
 
 interface CompanySettings {
-  full_name: string;
-  tax_code: string;
-  address: string;
-  phone: string;
-  email: string;
-  legal_representative: string;
-  representative_title: string;
-  vat_rate: number;
+  fullName: string;
+  taxCode: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  legalRepresentative: string | null;
+  representativeTitle: string | null;
+  vatRate: number;
   logo: LogoDocument | null;
-  bank_accounts: BankAccount[];
-  updated_at: string;
-  updated_by: { id: number; full_name: string } | null;
+  bankAccounts: BankAccount[];
+  updatedAt: string;
+  updatedBy: { id: number; fullName: string } | null;
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const MOCK_SETTINGS: CompanySettings = {
-  full_name: "CÔNG TY TNHH THƯƠNG MẠI DỊCH VỤ VẬN TẢI TTS",
-  tax_code: "3604019619",
-  address: "Số 48/27, Hẻm 48, Tổ 5, Khu phố Tân Phú, P. Tân Triều, Đồng Nai",
-  phone: "02513123456",
-  email: "info@tts.com.vn",
-  legal_representative: "Nguyễn Văn Sáu",
-  representative_title: "Giám đốc",
-  vat_rate: 8,
-  logo: null,
-  bank_accounts: [
-    {
-      id: 1,
-      bank_account_number: "110003009000",
-      bank_account_name: "CT TNHH TMDV VAN TAI TTS",
-      bank_name: "Vietinbank",
-      bank_branch: "CN KCN Biên Hòa - PGD Trảng Bom",
-      is_default: true,
-      is_active: true,
-    },
-    {
-      id: 2,
-      bank_account_number: "0071000123456",
-      bank_account_name: "CT TNHH TMDV VAN TAI TTS",
-      bank_name: "Vietcombank",
-      bank_branch: "Chi nhánh Biên Hòa",
-      is_default: false,
-      is_active: true,
-    },
-  ],
-  updated_at: new Date().toISOString(),
-  updated_by: { id: 1, full_name: "Nguyễn Văn A" },
-};
+interface CompanySettingsResponse {
+  data: CompanySettings[];
+}
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 const companySchema = z.object({
-  full_name: z.string().min(1, "Bắt buộc").max(300),
-  tax_code: z.string().min(1, "Bắt buộc").max(20),
+  fullName: z.string().min(1, "Bắt buộc").max(300),
+  taxCode: z.string().min(1, "Bắt buộc").max(20),
   address: z.string().max(500).optional(),
   phone: z.string().max(20).optional(),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
-  legal_representative: z.string().max(150).optional(),
-  representative_title: z.string().max(100).optional(),
-  vat_rate: z.coerce
-    .number({ invalid_type_error: "Phải là số" })
-    .min(0)
-    .max(100),
+  legalRepresentative: z.string().max(150).optional(),
+  representativeTitle: z.string().max(100).optional(),
+  vatRate: z.number({ message: "Phải là số" }).min(0).max(100),
 });
 type CompanyForm = z.infer<typeof companySchema>;
 
 const bankSchema = z.object({
-  bank_account_number: z.string().min(6, "Tối thiểu 6 ký tự").max(50),
-  bank_account_name: z.string().min(1, "Bắt buộc").max(200),
-  bank_name: z.string().min(1, "Bắt buộc").max(200),
-  bank_branch: z.string().max(300).optional(),
-  is_default: z.boolean().optional(),
+  bankAccountNumber: z.string().min(6, "Tối thiểu 6 ký tự").max(50),
+  bankAccountName: z.string().min(1, "Bắt buộc").max(200),
+  bankName: z.string().min(1, "Bắt buộc").max(200),
+  bankBranch: z.string().max(300).optional(),
+  isDefault: z.boolean().optional(),
 });
 type BankForm = z.infer<typeof bankSchema>;
 
@@ -165,13 +135,13 @@ function BankAccountDialogContent({
     resolver: zodResolver(bankSchema),
     defaultValues: editItem
       ? {
-          bank_account_number: editItem.bank_account_number,
-          bank_account_name: editItem.bank_account_name,
-          bank_name: editItem.bank_name,
-          bank_branch: editItem.bank_branch ?? "",
-          is_default: editItem.is_default,
+          bankAccountNumber: editItem.bankAccountNumber,
+          bankAccountName: editItem.bankAccountName,
+          bankName: editItem.bankName,
+          bankBranch: editItem.bankBranch ?? "",
+          isDefault: editItem.isDefault,
         }
-      : { is_default: false },
+      : { isDefault: false },
   });
 
   return (
@@ -179,39 +149,39 @@ function BankAccountDialogContent({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <Label>Số tài khoản *</Label>
-          <Input {...register("bank_account_number")} placeholder="110003009000" />
-          {errors.bank_account_number && (
+          <Input {...register("bankAccountNumber")} placeholder="110003009000" />
+          {errors.bankAccountNumber && (
             <p className="text-[length:var(--fs-body)] text-red-500">
-              {errors.bank_account_number.message}
+              {errors.bankAccountNumber.message}
             </p>
           )}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>Tên tài khoản *</Label>
-          <Input {...register("bank_account_name")} placeholder="CT TNHH TMDV VAN TAI TTS" />
-          {errors.bank_account_name && (
+          <Input {...register("bankAccountName")} placeholder="CT TNHH TMDV VAN TAI TTS" />
+          {errors.bankAccountName && (
             <p className="text-[length:var(--fs-body)] text-red-500">
-              {errors.bank_account_name.message}
+              {errors.bankAccountName.message}
             </p>
           )}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>Ngân hàng *</Label>
-          <Input {...register("bank_name")} placeholder="Vietinbank" />
-          {errors.bank_name && (
+          <Input {...register("bankName")} placeholder="Vietinbank" />
+          {errors.bankName && (
             <p className="text-[length:var(--fs-body)] text-red-500">
-              {errors.bank_name.message}
+              {errors.bankName.message}
             </p>
           )}
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>Chi nhánh</Label>
-          <Input {...register("bank_branch")} placeholder="CN KCN Biên Hòa" />
+          <Input {...register("bankBranch")} placeholder="CN KCN Biên Hòa" />
         </div>
       </div>
 
       <label className="flex cursor-pointer items-center gap-2">
-        <input type="checkbox" {...register("is_default")} className="h-4 w-4" />
+        <input type="checkbox" {...register("isDefault")} className="h-4 w-4" />
         <span className="text-[length:var(--fs-body)] text-[#4A5568]">
           Đặt làm tài khoản mặc định
         </span>
@@ -296,7 +266,7 @@ function BankAccountCard({
     <div
       className={cn(
         "rounded-lg border p-4",
-        account.is_default
+        account.isDefault
           ? "border-[#1A5FAB] bg-[#EFF6FF]"
           : "border-[#E2E8F0] bg-white",
       )}
@@ -305,32 +275,32 @@ function BankAccountCard({
         <div
           className={cn(
             "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-            account.is_default ? "bg-[#1A5FAB]" : "bg-[#F4F6F8]",
+            account.isDefault ? "bg-[#1A5FAB]" : "bg-[#F4F6F8]",
           )}
         >
           <Landmark
             size={18}
-            className={account.is_default ? "text-white" : "text-[#718096]"}
+            className={account.isDefault ? "text-white" : "text-[#718096]"}
           />
         </div>
 
         <div className="flex-1 overflow-hidden">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-mono text-[length:var(--fs-base)] font-semibold text-[#1A3A5C]">
-              {account.bank_account_number}
+              {account.bankAccountNumber}
             </span>
-            {account.is_default && (
+            {account.isDefault && (
               <Badge className="bg-[#1A5FAB] text-[length:var(--fs-xs)] text-white hover:bg-[#1A5FAB]">
                 Mặc định
               </Badge>
             )}
           </div>
           <p className="mt-0.5 text-[length:var(--fs-body)] text-[#4A5568]">
-            {account.bank_account_name}
+            {account.bankAccountName}
           </p>
           <p className="text-[length:var(--fs-body)] text-[#718096]">
-            {account.bank_name}
-            {account.bank_branch ? ` — ${account.bank_branch}` : ""}
+            {account.bankName}
+            {account.bankBranch ? ` — ${account.bankBranch}` : ""}
           </p>
         </div>
 
@@ -344,7 +314,7 @@ function BankAccountCard({
             >
               <Pencil size={15} />
             </button>
-            {!account.is_default && (
+            {!account.isDefault && (
               <button
                 type="button"
                 onClick={onSetDefault}
@@ -387,13 +357,10 @@ export default function CompanySettingsPage() {
   const [deactivateTarget, setDeactivateTarget] = useState<BankAccount | null>(null);
   const [defaultTarget, setDefaultTarget] = useState<BankAccount | null>(null);
 
-  // --- MOCK query ---
-  const { data: settings } = useQuery<CompanySettings>({
+  const { data: settings } = useQuery<CompanySettingsResponse, unknown, CompanySettings>({
     queryKey: QUERY_KEYS.companySettings,
-    queryFn: () => Promise.resolve(MOCK_SETTINGS),
-    // --- REAL API ---
-    // queryFn: getCompanySettings,
-    // select: (r) => r.data[0],
+    queryFn: getCompanySettings,
+    select: (r) => r.data[0],
   });
 
   // Company info form
@@ -406,23 +373,28 @@ export default function CompanySettingsPage() {
     resolver: zodResolver(companySchema),
     values: settings
       ? {
-          full_name: settings.full_name,
-          tax_code: settings.tax_code,
-          address: settings.address,
-          phone: settings.phone,
-          email: settings.email,
-          legal_representative: settings.legal_representative,
-          representative_title: settings.representative_title,
-          vat_rate: settings.vat_rate,
+          fullName: settings.fullName,
+          taxCode: settings.taxCode ?? "",
+          address: settings.address ?? "",
+          phone: settings.phone ?? "",
+          email: settings.email ?? "",
+          legalRepresentative: settings.legalRepresentative ?? "",
+          representativeTitle: settings.representativeTitle ?? "",
+          vatRate: settings.vatRate,
         }
       : undefined,
   });
 
   const { mutate: saveCompany, isPending: isSavingCompany } = useMutation({
-    mutationFn: (_body: CompanyForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
-    // --- REAL API ---
-    // mutationFn: (body) => updateCompanySettings(body),
+    mutationFn: async (form: CompanyForm) => {
+      let logoDocumentId: number | undefined;
+      // Upload logo trước (nếu có) → lấy documentId
+      if (logoFile) {
+        const doc = await uploadDocument({ file: logoFile, doc_type: "logo" });
+        logoDocumentId = doc.id;
+      }
+      await updateCompanySettings({ ...form, logoDocumentId });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.companySettings });
       toast.success("Đã cập nhật thông tin công ty");
@@ -434,8 +406,10 @@ export default function CompanySettingsPage() {
 
   // Bank: create / update
   const { mutate: saveBank, isPending: isSavingBank } = useMutation({
-    mutationFn: (_body: BankForm) =>
-      new Promise<void>((res) => setTimeout(res, 500)),
+    mutationFn: (body: BankForm) =>
+      editingBank
+        ? updateBankAccount(editingBank.id, body)
+        : createBankAccount(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.companySettings });
       toast.success(editingBank ? "Đã cập nhật tài khoản" : "Đã thêm tài khoản");
@@ -447,8 +421,7 @@ export default function CompanySettingsPage() {
 
   // Bank: set default
   const { mutate: setDefault, isPending: isSettingDefault } = useMutation({
-    mutationFn: (_id: number) =>
-      new Promise<void>((res) => setTimeout(res, 400)),
+    mutationFn: (id: number) => updateBankAccount(id, { isDefault: true }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.companySettings });
       toast.success("Đã đặt tài khoản mặc định");
@@ -459,8 +432,7 @@ export default function CompanySettingsPage() {
 
   // Bank: deactivate
   const { mutate: deactivateBank, isPending: isDeactivating } = useMutation({
-    mutationFn: (_id: number) =>
-      new Promise<void>((res) => setTimeout(res, 400)),
+    mutationFn: (id: number) => updateBankAccount(id, { isActive: false }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.companySettings });
       toast.success("Đã ẩn tài khoản");
@@ -469,7 +441,7 @@ export default function CompanySettingsPage() {
     onError: () => toast.error("Có lỗi xảy ra"),
   });
 
-  const bankAccounts = settings?.bank_accounts ?? [];
+  const bankAccounts = settings?.bankAccounts ?? [];
 
   return (
     <div className="flex flex-col gap-[var(--sp-section)]">
@@ -523,12 +495,12 @@ export default function CompanySettingsPage() {
                 {settings?.logo && !logoFile && (
                   <div className="mb-2 flex items-center gap-3">
                     <img
-                      src={settings.logo.sas_url}
+                      src={settings.logo.sasUrl}
                       alt="Logo"
                       className="h-14 w-auto rounded border border-[#E2E8F0] object-contain"
                     />
                     <span className="text-[length:var(--fs-body)] text-[#718096]">
-                      {settings.logo.file_name}
+                      {settings.logo.fileName}
                     </span>
                   </div>
                 )}
@@ -543,28 +515,28 @@ export default function CompanySettingsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
                   <Label>Tên công ty *</Label>
-                  <Input {...register("full_name")} />
-                  {errors.full_name && (
+                  <Input {...register("fullName")} />
+                  {errors.fullName && (
                     <p className="text-[length:var(--fs-body)] text-red-500">
-                      {errors.full_name.message}
+                      {errors.fullName.message}
                     </p>
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Mã số thuế *</Label>
-                  <Input {...register("tax_code")} />
-                  {errors.tax_code && (
+                  <Input {...register("taxCode")} />
+                  {errors.taxCode && (
                     <p className="text-[length:var(--fs-body)] text-red-500">
-                      {errors.tax_code.message}
+                      {errors.taxCode.message}
                     </p>
                   )}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>VAT (%)</Label>
-                  <Input {...register("vat_rate")} type="number" step="0.01" min="0" max="100" />
-                  {errors.vat_rate && (
+                  <Input {...register("vatRate", { valueAsNumber: true })} type="number" step="any" min="0" max="100" />
+                  {errors.vatRate && (
                     <p className="text-[length:var(--fs-body)] text-red-500">
-                      {errors.vat_rate.message}
+                      {errors.vatRate.message}
                     </p>
                   )}
                 </div>
@@ -587,11 +559,11 @@ export default function CompanySettingsPage() {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Người đại diện pháp luật</Label>
-                  <Input {...register("legal_representative")} />
+                  <Input {...register("legalRepresentative")} />
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Chức vụ</Label>
-                  <Input {...register("representative_title")} />
+                  <Input {...register("representativeTitle")} />
                 </div>
               </div>
 
@@ -623,28 +595,28 @@ export default function CompanySettingsPage() {
               {settings?.logo && (
                 <div className="sm:col-span-2">
                   <img
-                    src={settings.logo.sas_url}
+                    src={settings.logo.sasUrl}
                     alt="Logo công ty"
                     className="h-16 w-auto rounded border border-[#E2E8F0] object-contain"
                   />
                 </div>
               )}
-              <InfoRow label="Tên công ty" value={settings?.full_name} span={2} />
-              <InfoRow label="Mã số thuế" value={settings?.tax_code} />
-              <InfoRow label="VAT" value={settings?.vat_rate != null ? `${settings.vat_rate}%` : undefined} />
-              <InfoRow label="Địa chỉ" value={settings?.address} span={2} />
-              <InfoRow label="Số điện thoại" value={settings?.phone} />
-              <InfoRow label="Email" value={settings?.email} />
-              <InfoRow label="Người đại diện pháp luật" value={settings?.legal_representative} />
-              <InfoRow label="Chức vụ" value={settings?.representative_title} />
-              {settings?.updated_by && (
+              <InfoRow label="Tên công ty" value={settings?.fullName} span={2} />
+              <InfoRow label="Mã số thuế" value={settings?.taxCode ?? undefined} />
+              <InfoRow label="VAT" value={settings?.vatRate != null ? `${settings.vatRate}%` : undefined} />
+              <InfoRow label="Địa chỉ" value={settings?.address ?? undefined} span={2} />
+              <InfoRow label="Số điện thoại" value={settings?.phone ?? undefined} />
+              <InfoRow label="Email" value={settings?.email ?? undefined} />
+              <InfoRow label="Người đại diện pháp luật" value={settings?.legalRepresentative ?? undefined} />
+              <InfoRow label="Chức vụ" value={settings?.representativeTitle ?? undefined} />
+              {settings?.updatedBy && (
                 <div className="sm:col-span-2 border-t border-[#F4F6F8] pt-3">
                   <p className="text-[length:var(--fs-body)] text-[#718096]">
                     Cập nhật lần cuối bởi{" "}
                     <span className="font-medium text-[#4A5568]">
-                      {settings.updated_by.full_name}
+                      {settings.updatedBy.fullName}
                     </span>{" "}
-                    lúc {formatDateTime(settings.updated_at)}
+                    lúc {formatDateTime(settings.updatedAt)}
                   </p>
                 </div>
               )}
@@ -717,9 +689,8 @@ export default function CompanySettingsPage() {
         open={!!defaultTarget}
         onOpenChange={(open) => !open && setDefaultTarget(null)}
         title="Đặt làm tài khoản mặc định"
-        description={`Đặt tài khoản ${defaultTarget?.bank_account_number} (${defaultTarget?.bank_name}) làm mặc định? Tài khoản mặc định hiện tại sẽ bị hủy.`}
-        confirmText="Xác nhận"
-        cancelText="Hủy"
+        description={`Đặt tài khoản ${defaultTarget?.bankAccountNumber} (${defaultTarget?.bankName}) làm mặc định? Tài khoản mặc định hiện tại sẽ bị hủy.`}
+        confirmLabel="Xác nhận"
         variant="primary"
         loading={isSettingDefault}
         onConfirm={() => defaultTarget && setDefault(defaultTarget.id)}
@@ -730,9 +701,8 @@ export default function CompanySettingsPage() {
         open={!!deactivateTarget}
         onOpenChange={(open) => !open && setDeactivateTarget(null)}
         title="Ẩn tài khoản ngân hàng"
-        description={`Ẩn tài khoản ${deactivateTarget?.bank_account_number} (${deactivateTarget?.bank_name})? Tài khoản sẽ không còn hiển thị trong hệ thống.${deactivateTarget?.is_default ? " Lưu ý: đây là tài khoản mặc định — bạn cần chọn tài khoản mặc định mới sau khi ẩn." : ""}`}
-        confirmText="Ẩn tài khoản"
-        cancelText="Hủy"
+        description={`Ẩn tài khoản ${deactivateTarget?.bankAccountNumber} (${deactivateTarget?.bankName})? Tài khoản sẽ không còn hiển thị trong hệ thống.${deactivateTarget?.isDefault ? " Lưu ý: đây là tài khoản mặc định — bạn cần chọn tài khoản mặc định mới sau khi ẩn." : ""}`}
+        confirmLabel="Ẩn tài khoản"
         variant="danger"
         loading={isDeactivating}
         onConfirm={() => deactivateTarget && deactivateBank(deactivateTarget.id)}

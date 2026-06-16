@@ -5,13 +5,14 @@ export type ChargedTo = 'customer' | 'company'
 
 export interface ContractCustomerBusiness {
   id: number
-  customer_type: 'business'
-  display_name: string
-  international_name?: string
-  short_name?: string
-  tax_code?: string
-  tax_address?: string
-  office_address?: string
+  customerType: 'business'
+  displayName: string
+  isActive?: boolean
+  internationalName?: string
+  shortName?: string
+  taxCode?: string
+  taxAddress?: string
+  officeAddress?: string
   representative?: string
   phone?: string
   email?: string
@@ -19,142 +20,149 @@ export interface ContractCustomerBusiness {
 
 export interface ContractCustomerIndividual {
   id: number
-  customer_type: 'individual'
-  display_name: string
-  full_name?: string
+  customerType: 'individual'
+  displayName: string
+  isActive?: boolean
+  fullName?: string
+  dateOfBirth?: string
+  gender?: string
+  nationality?: string
   cccd?: string
+  cccdIssueDate?: string
+  cccdIssuePlace?: string
+  hometown?: string
   phone?: string
   email?: string
-  permanent_address?: string
+  permanentAddress?: string
 }
 
 export type ContractCustomer = ContractCustomerBusiness | ContractCustomerIndividual
 
 export interface ContractListItem {
   id: number
-  contract_number: string
+  contractNumber: string
   status: ContractStatus
   customer: ContractCustomer
-  start_date: string
-  planned_days: number
-  end_date: string
-  total_amount: number
-  created_at: string
+  startDate: string
+  plannedDays: number
+  endDate: string
+  totalAmount: number
+  createdAt: string
 }
 
 export interface ContractDetail extends ContractListItem {
-  site_address: string
+  siteAddress: string
   subtotal: number
-  tax_amount: number
-  excluded_days: number
-  excluded_reason: string | null
+  taxAmount: number
+  excludedDays: number
+  excludedReason: string | null
   document: ContractDocument | null
-  line_items: LineItem[]
+  lineItems: LineItem[]
   vehicles: ContractVehicle[]
-  created_by: { id: number; full_name: string }
+  createdBy: { id: number; fullName: string } | null
 }
 
 export interface ContractSummary {
-  contract_id: number
-  start_date: string
-  actual_end_date: string | null
-  total_days: number | null
-  amount_payable: number
-  amount_paid: number
-  amount_remaining: number
-  total_addendums: number
-  acceptance_record_count: number
-  addendum_count: number
-  invoice_count: number
+  contractId: number
+  startDate: string
+  actualEndDate: string | null
+  totalDays: number | null
+  amountPayable: number
+  amountPaid: number
+  amountRemaining: number
+  totalAddendums: number
+  acceptanceRecordCount: number
+  addendumCount: number
+  invoiceCount: number
 }
 
 export interface LineItem {
   id: number
   service: { id: number; name: string; unit: string }
-  vehicle_id: number | null
-  unit_price: number
+  vehicleId: number | null
+  unitPrice: number
   quantity: number
-  line_total: number
-  sort_order: number
+  lineTotal: number
+  sortOrder: number
 }
 
 export interface ContractVehicle {
   id: number
-  vehicle: { id: number; model: string; serial_number: string; status: string }
-  deploy_date: string | null
-  return_date: string | null
-  extra_days: number
+  vehicle: { id: number; model: string; serialNumber: string; status: string }
+  deployDate: string | null
+  returnDate: string | null
+  extraDays: number
 }
 
 export interface ContractDocument {
   id: number
-  doc_type: string
-  file_name: string
-  mime_type: string
-  file_size_kb: number
+  docType: string
+  fileName: string
+  mimeType: string
+  fileSizeKb: number
   note: string | null
-  uploaded_at: string
-  sas_url: string
-  sas_expires_at: string
+  uploadedAt: string
+  sasUrl: string
+  sasExpiresAt: string
 }
 
 export interface Addendum {
   id: number
-  addendum_number: string
-  addendum_type: AddendumType
-  start_date: string | null
-  new_end_date: string | null
+  addendumNumber: string
+  addendumType: AddendumType
+  startDate: string | null
+  newEndDate: string | null
   subtotal: number
-  tax_amount: number
-  total_amount: number
+  taxAmount: number
+  totalAmount: number
   content: string | null
   document: ContractDocument | null
-  created_at: string
-  created_by: { id: number; full_name: string }
+  createdAt: string
+  createdBy: { id: number; fullName: string }
 }
 
 export interface AcceptanceRecord {
   id: number
-  record_number: string
-  record_date: string
-  actual_start_date: string
-  actual_end_date: string
+  recordNumber: string
+  recordDate: string
+  actualStartDate: string
+  actualEndDate: string
   subtotal: number
-  tax_amount: number
-  total_amount: number
+  taxAmount: number
+  totalAmount: number
   document: ContractDocument | null
-  created_at: string
-  created_by: { id: number; full_name: string }
+  createdAt: string
+  createdBy: { id: number; fullName: string }
 }
 
 export interface Invoice {
   id: number
-  invoice_number: string | null
-  invoice_date: string
+  invoiceNumber: string | null
+  invoiceDate: string
   amount: number
   note: string | null
   document: ContractDocument | null
-  created_at: string
-  created_by: { id: number; full_name: string }
+  createdAt: string
+  createdBy: { id: number; fullName: string }
 }
 
 export interface Incident {
   id: number
-  contract_vehicle: {
+  contractVehicle: {
     id: number
-    vehicle: { id: number; model: string; serial_number: string }
+    vehicle: { id: number; model: string; serialNumber: string }
   }
-  incident_date: string
-  incident_type: IncidentType
+  incidentDate: string
+  incidentType: IncidentType
   description: string
-  downtime_days: number | null
-  cost_amount: number | null
-  charged_to: ChargedTo | null
-  replacement_contract_vehicle: {
+  downtimeDays: number | null
+  costAmount: number | null
+  chargedTo: ChargedTo | null
+  replacementContractVehicle: {
     id: number
-    vehicle: { id: number; model: string; serial_number: string }
+    vehicle: { id: number; model: string; serialNumber: string }
   } | null
-  resolved_at: string | null
-  created_at: string
-  created_by: { id: number; full_name: string }
+  resolvedAt: string | null
+  createdAt: string
+  createdBy: { id: number; fullName: string }
 }

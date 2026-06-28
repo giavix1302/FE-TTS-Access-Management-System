@@ -25,6 +25,7 @@ import { FileCard } from '@/components/shared/FileCard'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getAddendums, createAddendum, updateAddendum, deleteAddendum } from '@/api/contracts.api'
+import { uploadDocument } from '@/api/documents.api'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
 import { QUERY_KEYS } from '@/utils/queryKeys'
 import { formatCurrency, formatDate } from '@/utils/format'
@@ -51,10 +52,10 @@ function AddendumFileCard({
   if (!document) return <span className="text-xs text-text-disabled">Chưa có file đính kèm</span>
   return (
     <FileCard
-      fileName={document.file_name}
-      url={document.sas_url}
-      fileSize={document.file_size_kb * 1024}
-      createdAt={document.uploaded_at}
+      fileName={document.fileName}
+      url={document.sasUrl}
+      fileSize={document.fileSizeKb * 1024}
+      createdAt={document.uploadedAt}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
@@ -63,23 +64,22 @@ function AddendumFileCard({
 
 // ─── AddendumDialog ───────────────────────────────────────────────────────────
 const addendumSchema = z.object({
-  addendum_number: z.string().min(1, 'Bắt buộc'),
-  addendum_type: z.enum(['extension', 'price_change', 'add_service', 'mixed']),
-  start_date: z.string().optional(),
-  new_end_date: z.string().optional(),
+  addendumNumber: z.string().min(1, 'Bắt buộc'),
+  addendumType: z.enum(['extension', 'price_change', 'add_service', 'mixed']),
+  startDate: z.string().optional(),
+  newEndDate: z.string().optional(),
   subtotal: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
-  tax_amount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
-  total_amount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
+  taxAmount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
+  totalAmount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
   content: z.string().max(2000).optional(),
-  document_id: z.number().optional(),
 })
   .refine(
-    (d) => Math.abs(d.subtotal + d.tax_amount - d.total_amount) <= 1000,
-    { message: 'Subtotal + VAT lệch quá 1.000₫ so với tổng tiền', path: ['total_amount'] }
+    (d) => Math.abs(d.subtotal + d.taxAmount - d.totalAmount) <= 1000,
+    { message: 'Subtotal + VAT lệch quá 1.000₫ so với tổng tiền', path: ['totalAmount'] }
   )
   .refine(
-    (d) => d.addendum_type !== 'extension' || !!d.new_end_date,
-    { message: 'Bắt buộc nhập ngày kết thúc mới khi loại phụ lục là Gia hạn', path: ['new_end_date'] }
+    (d) => d.addendumType !== 'extension' || !!d.newEndDate,
+    { message: 'Bắt buộc nhập ngày kết thúc mới khi loại phụ lục là Gia hạn', path: ['newEndDate'] }
   )
 
 type AddendumForm = z.infer<typeof addendumSchema>
@@ -124,19 +124,19 @@ function AddendumDialog({
     resolver: zodResolver(addendumSchema),
     defaultValues: isEdit
       ? {
-          addendum_number: editItem.addendum_number,
-          addendum_type: editItem.addendum_type,
-          start_date: editItem.start_date ?? undefined,
-          new_end_date: editItem.new_end_date ?? undefined,
+          addendumNumber: editItem.addendumNumber,
+          addendumType: editItem.addendumType,
+          startDate: editItem.startDate ?? undefined,
+          newEndDate: editItem.newEndDate ?? undefined,
           subtotal: editItem.subtotal,
-          tax_amount: editItem.tax_amount,
-          total_amount: editItem.total_amount,
+          taxAmount: editItem.taxAmount,
+          totalAmount: editItem.totalAmount,
           content: editItem.content ?? '',
         }
       : {},
   })
 
-  const addendumType = watch('addendum_type')
+  const addendumType = watch('addendumType')
 
   function handleClose(v: boolean) {
     if (!v) { reset(); setDocFile(null) }
@@ -144,10 +144,18 @@ function AddendumDialog({
   }
 
   const mutation = useMutation({
-    mutationFn: (body: AddendumForm) =>
-      isEdit
-        ? updateAddendum(contractId, editItem!.id, body)
-        : createAddendum(contractId, body),
+    mutationFn: async (body: AddendumForm) => {
+      // Upload file đính kèm mới (nếu có) → documentId
+      let documentId: number | undefined
+      if (docFile) {
+        const doc = await uploadDocument({ file: docFile, doc_type: 'addendum' })
+        documentId = doc.id
+      }
+      const payload = { ...body, documentId }
+      return isEdit
+        ? updateAddendum(contractId, editItem!.id, payload)
+        : createAddendum(contractId, payload)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'addendums'] })
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
@@ -165,8 +173,8 @@ function AddendumDialog({
       file={docFile}
       onFileChange={setDocFile}
       isEdit={isEdit}
-      existingFileName={editItem?.document?.file_name}
-      existingFileUrl={editItem?.document?.sas_url}
+      existingFileName={editItem?.document?.fileName}
+      existingFileUrl={editItem?.document?.sasUrl}
       uploadLabel="Kéo thả hoặc nhấp để chọn file phụ lục"
     >
       <form
@@ -179,14 +187,14 @@ function AddendumDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label>Số phụ lục <span className="text-error">*</span></Label>
-            <Input {...register('addendum_number')} placeholder="0101-01PLHĐ/TTS-..." />
-            {errors.addendum_number && <p className="text-xs text-error">{errors.addendum_number.message}</p>}
+            <Input {...register('addendumNumber')} placeholder="0101-01PLHĐ/TTS-..." />
+            {errors.addendumNumber && <p className="text-xs text-error">{errors.addendumNumber.message}</p>}
           </div>
           <div className="space-y-1">
             <Label>Loại phụ lục <span className="text-error">*</span></Label>
             <Controller
               control={control}
-              name="addendum_type"
+              name="addendumType"
               render={({ field }) => (
                 <Select value={field.value} onValueChange={field.onChange}>
                   <SelectTrigger className="cursor-pointer">
@@ -200,7 +208,7 @@ function AddendumDialog({
                 </Select>
               )}
             />
-            {errors.addendum_type && <p className="text-xs text-error">{errors.addendum_type.message}</p>}
+            {errors.addendumType && <p className="text-xs text-error">{errors.addendumType.message}</p>}
           </div>
         </div>
 
@@ -209,7 +217,7 @@ function AddendumDialog({
             <Label>Ngày bắt đầu</Label>
             <Controller
               control={control}
-              name="start_date"
+              name="startDate"
               render={({ field }) => (
                 <DatePicker value={field.value} onChange={field.onChange} placeholder="Chọn ngày" />
               )}
@@ -222,12 +230,12 @@ function AddendumDialog({
             </Label>
             <Controller
               control={control}
-              name="new_end_date"
+              name="newEndDate"
               render={({ field }) => (
                 <DatePicker value={field.value} onChange={field.onChange} placeholder="Chọn ngày" align="end" />
               )}
             />
-            {errors.new_end_date && <p className="text-xs text-error">{errors.new_end_date.message}</p>}
+            {errors.newEndDate && <p className="text-xs text-error">{errors.newEndDate.message}</p>}
           </div>
         </div>
 
@@ -239,13 +247,13 @@ function AddendumDialog({
           </div>
           <div className="space-y-1">
             <Label>VAT <span className="text-error">*</span></Label>
-            <Input type="number" min={0} {...register('tax_amount', { valueAsNumber: true })} />
-            {errors.tax_amount && <p className="text-xs text-error">{errors.tax_amount.message}</p>}
+            <Input type="number" min={0} {...register('taxAmount', { valueAsNumber: true })} />
+            {errors.taxAmount && <p className="text-xs text-error">{errors.taxAmount.message}</p>}
           </div>
           <div className="space-y-1">
             <Label>Tổng tiền <span className="text-error">*</span></Label>
-            <Input type="number" min={0} {...register('total_amount', { valueAsNumber: true })} />
-            {errors.total_amount && <p className="text-xs text-error">{errors.total_amount.message}</p>}
+            <Input type="number" min={0} {...register('totalAmount', { valueAsNumber: true })} />
+            {errors.totalAmount && <p className="text-xs text-error">{errors.totalAmount.message}</p>}
           </div>
         </div>
 
@@ -273,10 +281,9 @@ interface AddendumsTabProps {
   contractId: number
   contractStatus: ContractStatus
   canEdit: boolean
-  initialData?: Addendum[]
 }
 
-export function AddendumsTab({ contractId, contractStatus, canEdit, initialData }: AddendumsTabProps) {
+export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsTabProps) {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Addendum | undefined>()
@@ -285,7 +292,6 @@ export function AddendumsTab({ contractId, contractStatus, canEdit, initialData 
   const { data: addendums, isLoading } = useQuery<Addendum[]>({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'addendums'],
     queryFn: () => getAddendums(contractId),
-    initialData,
   })
 
   const deleteMutation = useMutation({
@@ -326,18 +332,18 @@ export function AddendumsTab({ contractId, contractStatus, canEdit, initialData 
             {/* Row 1: info + actions */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
-                <p className="font-mono font-semibold text-sm text-text-primary">{item.addendum_number}</p>
+                <p className="font-mono font-semibold text-sm text-text-primary">{item.addendumNumber}</p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  <span className={`text-xs px-2.5 py-1 rounded-full ${ADDENDUM_TYPE_CHIP[item.addendum_type]}`}>
-                    {ADDENDUM_TYPE_LABELS[item.addendum_type]}
+                  <span className={`text-xs px-2.5 py-1 rounded-full ${ADDENDUM_TYPE_CHIP[item.addendumType]}`}>
+                    {ADDENDUM_TYPE_LABELS[item.addendumType]}
                   </span>
-                  {(item.start_date || item.new_end_date) && (
+                  {(item.startDate || item.newEndDate) && (
                     <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                      {formatDate(item.start_date)} → {formatDate(item.new_end_date)}
+                      {formatDate(item.startDate)} → {formatDate(item.newEndDate)}
                     </span>
                   )}
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                    {formatCurrency(item.total_amount)}
+                    {formatCurrency(item.totalAmount)}
                   </span>
                 </div>
                 {item.content && (

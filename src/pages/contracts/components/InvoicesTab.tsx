@@ -18,6 +18,7 @@ import { FileCard } from '@/components/shared/FileCard'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getInvoices, createInvoice, updateInvoice, deleteInvoice } from '@/api/contracts.api'
+import { uploadDocument } from '@/api/documents.api'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
 import { QUERY_KEYS } from '@/utils/queryKeys'
 import { formatCurrency, formatDate } from '@/utils/format'
@@ -44,10 +45,10 @@ function InvoiceFileCard({
   if (!document) return <span className="text-xs text-text-disabled">Chưa có file đính kèm</span>
   return (
     <FileCard
-      fileName={document.file_name}
-      url={document.sas_url}
-      fileSize={document.file_size_kb * 1024}
-      createdAt={document.uploaded_at}
+      fileName={document.fileName}
+      url={document.sasUrl}
+      fileSize={document.fileSizeKb * 1024}
+      createdAt={document.uploadedAt}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
@@ -56,8 +57,8 @@ function InvoiceFileCard({
 
 // ─── InvoiceDialog ────────────────────────────────────────────────────────────
 const invoiceSchema = z.object({
-  invoice_number: z.string().optional(),
-  invoice_date: z.string().min(1, 'Bắt buộc'),
+  invoiceNumber: z.string().optional(),
+  invoiceDate: z.string().min(1, 'Bắt buộc'),
   amount: z.number({ invalid_type_error: 'Bắt buộc' }).min(1, 'Phải > 0'),
   note: z.string().max(500).optional(),
 })
@@ -83,8 +84,8 @@ function InvoiceDialog({
     resolver: zodResolver(invoiceSchema),
     defaultValues: isEdit
       ? {
-          invoice_number: editItem.invoice_number ?? '',
-          invoice_date: editItem.invoice_date,
+          invoiceNumber: editItem.invoiceNumber ?? '',
+          invoiceDate: editItem.invoiceDate,
           amount: editItem.amount,
           note: editItem.note ?? '',
         }
@@ -97,10 +98,17 @@ function InvoiceDialog({
   }
 
   const mutation = useMutation({
-    mutationFn: (body: InvoiceForm) =>
-      isEdit
-        ? updateInvoice(contractId, editItem!.id, body)
-        : createInvoice(contractId, body),
+    mutationFn: async (body: InvoiceForm) => {
+      let documentId: number | undefined
+      if (docFile) {
+        const doc = await uploadDocument({ file: docFile, doc_type: 'invoice' })
+        documentId = doc.id
+      }
+      const payload = { ...body, documentId }
+      return isEdit
+        ? updateInvoice(contractId, editItem!.id, payload)
+        : createInvoice(contractId, payload)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'invoices'] })
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
@@ -118,8 +126,8 @@ function InvoiceDialog({
       file={docFile}
       onFileChange={setDocFile}
       isEdit={isEdit}
-      existingFileName={editItem?.document?.file_name}
-      existingFileUrl={editItem?.document?.sas_url}
+      existingFileName={editItem?.document?.fileName}
+      existingFileUrl={editItem?.document?.sasUrl}
       uploadLabel="Kéo thả hoặc nhấp để chọn file hóa đơn"
     >
       <form
@@ -131,7 +139,7 @@ function InvoiceDialog({
 
         <div className="space-y-1">
           <Label>Số hóa đơn</Label>
-          <Input {...register('invoice_number')} placeholder="Điền sau khi xuất trên MISA/FAST" />
+          <Input {...register('invoiceNumber')} placeholder="Điền sau khi xuất trên MISA/FAST" />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -139,12 +147,12 @@ function InvoiceDialog({
             <Label>Ngày hóa đơn <span className="text-error">*</span></Label>
             <Controller
               control={control}
-              name="invoice_date"
+              name="invoiceDate"
               render={({ field }) => (
                 <DatePicker value={field.value} onChange={field.onChange} />
               )}
             />
-            {errors.invoice_date && <p className="text-xs text-error">{errors.invoice_date.message}</p>}
+            {errors.invoiceDate && <p className="text-xs text-error">{errors.invoiceDate.message}</p>}
           </div>
           <div className="space-y-1">
             <Label>Số tiền <span className="text-error">*</span></Label>
@@ -176,10 +184,9 @@ interface InvoicesTabProps {
   contractId: number
   summary: ContractSummary | undefined
   canEdit: boolean
-  initialData?: Invoice[]
 }
 
-export function InvoicesTab({ contractId, summary, canEdit, initialData }: InvoicesTabProps) {
+export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Invoice | undefined>()
@@ -188,7 +195,6 @@ export function InvoicesTab({ contractId, summary, canEdit, initialData }: Invoi
   const { data: invoices, isLoading } = useQuery<Invoice[]>({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'invoices'],
     queryFn: () => getInvoices(contractId),
-    initialData,
   })
 
   const deleteMutation = useMutation({
@@ -210,12 +216,12 @@ export function InvoicesTab({ contractId, summary, canEdit, initialData }: Invoi
       {/* Summary bar */}
       {summary && (
         <div className="flex flex-wrap gap-6 p-4 bg-primary-light rounded-lg mb-4 text-sm">
-          <span>Phải thanh toán: <b>{formatCurrency(summary.amount_payable)}</b></span>
-          <span>Đã thanh toán: <b className="text-success">{formatCurrency(summary.amount_paid)}</b></span>
+          <span>Phải thanh toán: <b>{formatCurrency(summary.amountPayable)}</b></span>
+          <span>Đã thanh toán: <b className="text-success">{formatCurrency(summary.amountPaid)}</b></span>
           <span>
             Còn lại:{' '}
-            <b className={summary.amount_remaining > 0 ? 'text-error' : 'text-success'}>
-              {formatCurrency(summary.amount_remaining)}
+            <b className={summary.amountRemaining > 0 ? 'text-error' : 'text-success'}>
+              {formatCurrency(summary.amountRemaining)}
             </b>
           </span>
         </div>
@@ -244,16 +250,16 @@ export function InvoicesTab({ contractId, summary, canEdit, initialData }: Invoi
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  {item.invoice_number === null ? (
+                  {item.invoiceNumber === null ? (
                     <Badge variant="outline" className="border-warning text-warning">Chưa có số HĐ</Badge>
                   ) : (
-                    <span className="font-mono font-semibold text-sm text-text-primary">{item.invoice_number}</span>
+                    <span className="font-mono font-semibold text-sm text-text-primary">{item.invoiceNumber}</span>
                   )}
                 </div>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
                     <CalendarIcon size={10} />
-                    {formatDate(item.invoice_date)}
+                    {formatDate(item.invoiceDate)}
                   </span>
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
                     {formatCurrency(item.amount)}

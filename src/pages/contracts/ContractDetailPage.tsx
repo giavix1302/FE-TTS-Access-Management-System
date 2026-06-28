@@ -56,174 +56,6 @@ import type {
   ContractStatus,
 } from "@/types/contract.types";
 
-// ─── Mock sub-data P2/P3 (các Tab Addendums/Acceptance/Invoices/Incidents — chưa connect BE) ──
-export const MOCK_ADDENDUMS = [
-  {
-    id: 1,
-    addendum_number: "01012026-01/PLHĐ/TTS-DOTHANH",
-    addendum_type: "extension" as const,
-    start_date: "2026-02-20",
-    new_end_date: "2026-03-21",
-    subtotal: 16363636,
-    tax_amount: 1309091,
-    total_amount: 17672727,
-    content:
-      "Gia hạn thêm 14 ngày do tiến độ thi công chưa hoàn thành. Hai bên đồng thuận kéo dài thời gian thuê.",
-    document: {
-      id: 2,
-      doc_type: "addendum",
-      file_name: "PLHD 01 DOTHANH 01042026 - 02.04.2026.docx",
-      mime_type:
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      file_size_kb: 310,
-      note: null,
-      uploaded_at: "2026-02-19T14:00:00Z",
-      sas_url:
-        "https://giavixblob1302.blob.core.windows.net/documents/PLHD%2001%20DOTHANH%2001042026%20-%2002.04.2026.docx",
-      sas_expires_at: "2026-12-31T23:59:59Z",
-    },
-    created_at: "2026-02-19T14:00:00Z",
-    created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-  },
-  {
-    id: 2,
-    addendum_number: "01012026-02/PLHĐ/TTS-DOTHANH",
-    addendum_type: "add_service" as const,
-    start_date: null,
-    new_end_date: null,
-    subtotal: 3636364,
-    tax_amount: 290909,
-    total_amount: 3927273,
-    content:
-      "Bổ sung dịch vụ vệ sinh, bảo dưỡng định kỳ xe nâng tại công trường (2 lần/tháng).",
-    document: null,
-    created_at: "2026-01-20T10:00:00Z",
-    created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-  },
-];
-
-export const MOCK_ACCEPTANCE_RECORDS = [
-  {
-    id: 1,
-    record_number: "BBNT-2026-001",
-    record_date: "2026-02-05",
-    actual_start_date: "2026-01-05",
-    actual_end_date: "2026-02-04",
-    subtotal: 29090909,
-    tax_amount: 2327273,
-    total_amount: 31418182,
-    document: {
-      id: 3,
-      doc_type: "acceptance",
-      file_name: "1775209939178-oflpcq.xlsx",
-      mime_type:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      file_size_kb: 512,
-      note: "Đã ký đầy đủ 2 bên",
-      uploaded_at: "2026-02-06T08:00:00Z",
-      sas_url:
-        "https://giavixblob1302.blob.core.windows.net/documents/1775209939178-oflpcq.xlsx",
-      sas_expires_at: "2026-12-31T23:59:59Z",
-    },
-    created_at: "2026-02-06T08:00:00Z",
-    created_by: { id: 1, full_name: "Nguyễn Văn Admin" },
-  },
-];
-
-export const MOCK_INVOICES = [
-  {
-    id: 1,
-    invoice_number: "0001234",
-    invoice_date: "2026-02-07",
-    amount: 32400000,
-    note: "Hóa đơn GTGT đợt 1 — tháng 01/2026",
-    document: {
-      id: 4,
-      doc_type: "invoice",
-      file_name: "3604019619-C26TTS121.pdf",
-      mime_type: "application/pdf",
-      file_size_kb: 280,
-      note: null,
-      uploaded_at: "2026-02-07T11:00:00Z",
-      sas_url:
-        "https://giavixblob1302.blob.core.windows.net/documents/3604019619-C26TTS121.pdf",
-      sas_expires_at: "2026-12-31T23:59:59Z",
-    },
-    created_at: "2026-02-07T11:00:00Z",
-    created_by: { id: 1, full_name: "Trần Thị Kế Toán" },
-  },
-  {
-    id: 2,
-    invoice_number: null,
-    invoice_date: "2026-03-07",
-    amount: 32400000,
-    note: "Hóa đơn GTGT đợt 2 — tháng 02/2026 (chờ xuất trên MISA)",
-    document: null,
-    created_at: "2026-03-07T09:00:00Z",
-    created_by: { id: 1, full_name: "Trần Thị Kế Toán" },
-  },
-];
-
-export const MOCK_INCIDENTS = [
-  {
-    id: 1,
-    contract_vehicle: {
-      id: 1,
-      vehicle: { id: 1, model: "AWP 20S", serial_number: "SN-2021-001" },
-    },
-    incident_date: "2026-01-20",
-    incident_type: "breakdown" as const,
-    description:
-      "Xe AWP 20S bị hỏng bộ điều khiển điện tử, không nâng được sàn. Kỹ thuật viên đã kiểm tra và xác nhận cần thay linh kiện.",
-    downtime_days: 2,
-    cost_amount: 3500000,
-    charged_to: "company" as const,
-    replacement_contract_vehicle: null,
-    resolved_at: "2026-01-22T16:00:00Z",
-    created_at: "2026-01-20T14:00:00Z",
-    created_by: { id: 2, full_name: "Lê Văn Kỹ Thuật" },
-  },
-  {
-    id: 2,
-    contract_vehicle: {
-      id: 1,
-      vehicle: { id: 1, model: "AWP 20S", serial_number: "SN-2021-001" },
-    },
-    incident_date: "2026-02-10",
-    incident_type: "replacement" as const,
-    description:
-      "Xe AWP 20S bị hỏng nặng hệ thống thủy lực, không thể sửa tại chỗ. Thay thế bằng JLG 260MRT.",
-    downtime_days: 1,
-    cost_amount: null,
-    charged_to: null,
-    replacement_contract_vehicle: {
-      id: 2,
-      vehicle: { id: 2, model: "JLG 260MRT", serial_number: "SN-2022-002" },
-    },
-    resolved_at: "2026-02-11T08:00:00Z",
-    created_at: "2026-02-10T10:00:00Z",
-    created_by: { id: 2, full_name: "Lê Văn Kỹ Thuật" },
-  },
-  {
-    id: 3,
-    contract_vehicle: {
-      id: 2,
-      vehicle: { id: 2, model: "JLG 260MRT", serial_number: "SN-2022-002" },
-    },
-    incident_date: "2026-02-25",
-    incident_type: "repair_onsite" as const,
-    description:
-      "Lốp xe JLG 260MRT bị thủng do đinh tại công trường. Thay lốp tại chỗ trong buổi sáng.",
-    downtime_days: 0.5,
-    cost_amount: 800000,
-    charged_to: "customer" as const,
-    replacement_contract_vehicle: null,
-    resolved_at: "2026-02-25T12:00:00Z",
-    created_at: "2026-02-25T08:30:00Z",
-    created_by: { id: 2, full_name: "Lê Văn Kỹ Thuật" },
-  },
-];
-
 // ─── SummaryCard ──────────────────────────────────────────────────────────────
 function SummaryCard({
   label,
@@ -733,14 +565,12 @@ export default function ContractDetailPage() {
             contractId={contractId}
             contractStatus={contract.status}
             canEdit={canEdit}
-            initialData={MOCK_ADDENDUMS}
           />
         </TabsContent>
         <TabsContent value="acceptance">
           <AcceptanceTab
             contractId={contractId}
             canEdit={canEdit}
-            initialData={MOCK_ACCEPTANCE_RECORDS}
           />
         </TabsContent>
         <TabsContent value="invoices">
@@ -748,7 +578,6 @@ export default function ContractDetailPage() {
             contractId={contractId}
             summary={summary}
             canEdit={canEdit}
-            initialData={MOCK_INVOICES}
           />
         </TabsContent>
         <TabsContent value="incidents">
@@ -757,7 +586,6 @@ export default function ContractDetailPage() {
             contractStatus={contract.status}
             contractVehicles={contract.vehicles}
             canEdit={canEdit}
-            initialData={MOCK_INCIDENTS}
           />
         </TabsContent>
       </Tabs>

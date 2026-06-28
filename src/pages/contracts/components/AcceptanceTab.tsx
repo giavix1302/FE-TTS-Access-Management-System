@@ -16,6 +16,7 @@ import { FileCard } from '@/components/shared/FileCard'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getAcceptanceRecords, createAcceptanceRecord, updateAcceptanceRecord, deleteAcceptanceRecord } from '@/api/contracts.api'
+import { uploadDocument } from '@/api/documents.api'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
 import { QUERY_KEYS } from '@/utils/queryKeys'
 import { formatCurrency, formatDate } from '@/utils/format'
@@ -42,10 +43,10 @@ function AcceptanceFileCard({
   if (!document) return <span className="text-xs text-text-disabled">Chưa có file đính kèm</span>
   return (
     <FileCard
-      fileName={document.file_name}
-      url={document.sas_url}
-      fileSize={document.file_size_kb * 1024}
-      createdAt={document.uploaded_at}
+      fileName={document.fileName}
+      url={document.sasUrl}
+      fileSize={document.fileSizeKb * 1024}
+      createdAt={document.uploadedAt}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
@@ -54,21 +55,21 @@ function AcceptanceFileCard({
 
 // ─── AcceptanceDialog ─────────────────────────────────────────────────────────
 const acceptanceSchema = z.object({
-  record_number: z.string().min(1, 'Bắt buộc'),
-  record_date: z.string().min(1, 'Bắt buộc'),
-  actual_start_date: z.string().min(1, 'Bắt buộc'),
-  actual_end_date: z.string().min(1, 'Bắt buộc'),
+  recordNumber: z.string().min(1, 'Bắt buộc'),
+  recordDate: z.string().min(1, 'Bắt buộc'),
+  actualStartDate: z.string().min(1, 'Bắt buộc'),
+  actualEndDate: z.string().min(1, 'Bắt buộc'),
   subtotal: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
-  tax_amount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
-  total_amount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
+  taxAmount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
+  totalAmount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
 })
   .refine(
-    (d) => new Date(d.actual_end_date) >= new Date(d.actual_start_date),
-    { message: 'Ngày kết thúc phải >= ngày bắt đầu', path: ['actual_end_date'] }
+    (d) => new Date(d.actualEndDate) >= new Date(d.actualStartDate),
+    { message: 'Ngày kết thúc phải >= ngày bắt đầu', path: ['actualEndDate'] }
   )
   .refine(
-    (d) => Math.abs(d.subtotal + d.tax_amount - d.total_amount) <= 1000,
-    { message: 'Subtotal + VAT lệch quá 1.000₫ so với tổng tiền', path: ['total_amount'] }
+    (d) => Math.abs(d.subtotal + d.taxAmount - d.totalAmount) <= 1000,
+    { message: 'Subtotal + VAT lệch quá 1.000₫ so với tổng tiền', path: ['totalAmount'] }
   )
 
 type AcceptanceForm = z.infer<typeof acceptanceSchema>
@@ -92,13 +93,13 @@ function AcceptanceDialog({
     resolver: zodResolver(acceptanceSchema),
     defaultValues: isEdit
       ? {
-          record_number: editItem.record_number,
-          record_date: editItem.record_date,
-          actual_start_date: editItem.actual_start_date,
-          actual_end_date: editItem.actual_end_date,
+          recordNumber: editItem.recordNumber,
+          recordDate: editItem.recordDate,
+          actualStartDate: editItem.actualStartDate,
+          actualEndDate: editItem.actualEndDate,
           subtotal: editItem.subtotal,
-          tax_amount: editItem.tax_amount,
-          total_amount: editItem.total_amount,
+          taxAmount: editItem.taxAmount,
+          totalAmount: editItem.totalAmount,
         }
       : {},
   })
@@ -109,10 +110,17 @@ function AcceptanceDialog({
   }
 
   const mutation = useMutation({
-    mutationFn: (body: AcceptanceForm) =>
-      isEdit
-        ? updateAcceptanceRecord(contractId, editItem!.id, body)
-        : createAcceptanceRecord(contractId, body),
+    mutationFn: async (body: AcceptanceForm) => {
+      let documentId: number | undefined
+      if (docFile) {
+        const doc = await uploadDocument({ file: docFile, doc_type: 'acceptance' })
+        documentId = doc.id
+      }
+      const payload = { ...body, documentId }
+      return isEdit
+        ? updateAcceptanceRecord(contractId, editItem!.id, payload)
+        : createAcceptanceRecord(contractId, payload)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'acceptance-records'] })
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
@@ -130,8 +138,8 @@ function AcceptanceDialog({
       file={docFile}
       onFileChange={setDocFile}
       isEdit={isEdit}
-      existingFileName={editItem?.document?.file_name}
-      existingFileUrl={editItem?.document?.sas_url}
+      existingFileName={editItem?.document?.fileName}
+      existingFileUrl={editItem?.document?.sasUrl}
       uploadLabel="Kéo thả hoặc nhấp để chọn file biên bản"
     >
       <form
@@ -144,19 +152,19 @@ function AcceptanceDialog({
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label>Số biên bản <span className="text-error">*</span></Label>
-            <Input {...register('record_number')} placeholder="BBNT-2026-001" />
-            {errors.record_number && <p className="text-xs text-error">{errors.record_number.message}</p>}
+            <Input {...register('recordNumber')} placeholder="BBNT-2026-001" />
+            {errors.recordNumber && <p className="text-xs text-error">{errors.recordNumber.message}</p>}
           </div>
           <div className="space-y-1">
             <Label>Ngày lập <span className="text-error">*</span></Label>
             <Controller
               control={control}
-              name="record_date"
+              name="recordDate"
               render={({ field }) => (
                 <DatePicker value={field.value} onChange={field.onChange} />
               )}
             />
-            {errors.record_date && <p className="text-xs text-error">{errors.record_date.message}</p>}
+            {errors.recordDate && <p className="text-xs text-error">{errors.recordDate.message}</p>}
           </div>
         </div>
 
@@ -165,23 +173,23 @@ function AcceptanceDialog({
             <Label>Ngày bắt đầu TT <span className="text-error">*</span></Label>
             <Controller
               control={control}
-              name="actual_start_date"
+              name="actualStartDate"
               render={({ field }) => (
                 <DatePicker value={field.value} onChange={field.onChange} />
               )}
             />
-            {errors.actual_start_date && <p className="text-xs text-error">{errors.actual_start_date.message}</p>}
+            {errors.actualStartDate && <p className="text-xs text-error">{errors.actualStartDate.message}</p>}
           </div>
           <div className="space-y-1">
             <Label>Ngày kết thúc TT <span className="text-error">*</span></Label>
             <Controller
               control={control}
-              name="actual_end_date"
+              name="actualEndDate"
               render={({ field }) => (
                 <DatePicker value={field.value} onChange={field.onChange} align="end" />
               )}
             />
-            {errors.actual_end_date && <p className="text-xs text-error">{errors.actual_end_date.message}</p>}
+            {errors.actualEndDate && <p className="text-xs text-error">{errors.actualEndDate.message}</p>}
           </div>
         </div>
 
@@ -193,13 +201,13 @@ function AcceptanceDialog({
           </div>
           <div className="space-y-1">
             <Label>VAT <span className="text-error">*</span></Label>
-            <Input type="number" min={0} {...register('tax_amount', { valueAsNumber: true })} />
-            {errors.tax_amount && <p className="text-xs text-error">{errors.tax_amount.message}</p>}
+            <Input type="number" min={0} {...register('taxAmount', { valueAsNumber: true })} />
+            {errors.taxAmount && <p className="text-xs text-error">{errors.taxAmount.message}</p>}
           </div>
           <div className="space-y-1">
             <Label>Tổng tiền <span className="text-error">*</span></Label>
-            <Input type="number" min={0} {...register('total_amount', { valueAsNumber: true })} />
-            {errors.total_amount && <p className="text-xs text-error">{errors.total_amount.message}</p>}
+            <Input type="number" min={0} {...register('totalAmount', { valueAsNumber: true })} />
+            {errors.totalAmount && <p className="text-xs text-error">{errors.totalAmount.message}</p>}
           </div>
         </div>
       </form>
@@ -220,10 +228,9 @@ function AcceptanceDialog({
 interface AcceptanceTabProps {
   contractId: number
   canEdit: boolean
-  initialData?: AcceptanceRecord[]
 }
 
-export function AcceptanceTab({ contractId, canEdit, initialData }: AcceptanceTabProps) {
+export function AcceptanceTab({ contractId, canEdit }: AcceptanceTabProps) {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<AcceptanceRecord | undefined>()
@@ -232,7 +239,6 @@ export function AcceptanceTab({ contractId, canEdit, initialData }: AcceptanceTa
   const { data: records, isLoading } = useQuery<AcceptanceRecord[]>({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'acceptance-records'],
     queryFn: () => getAcceptanceRecords(contractId),
-    initialData,
   })
 
   const deleteMutation = useMutation({
@@ -273,21 +279,21 @@ export function AcceptanceTab({ contractId, canEdit, initialData }: AcceptanceTa
             {/* Row 1: info + actions */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
-                <p className="font-mono font-semibold text-sm text-text-primary">{item.record_number}</p>
+                <p className="font-mono font-semibold text-sm text-text-primary">{item.recordNumber}</p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
                     <CalendarIcon size={10} />
-                    {formatDate(item.record_date)}
+                    {formatDate(item.recordDate)}
                   </span>
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                    {formatDate(item.actual_start_date)} → {formatDate(item.actual_end_date)}
+                    {formatDate(item.actualStartDate)} → {formatDate(item.actualEndDate)}
                   </span>
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                    {formatCurrency(item.total_amount)}
+                    {formatCurrency(item.totalAmount)}
                   </span>
                 </div>
                 <p className="text-sm text-text-secondary mt-1">
-                  Subtotal: {formatCurrency(item.subtotal)} · VAT: {formatCurrency(item.tax_amount)}
+                  Subtotal: {formatCurrency(item.subtotal)} · VAT: {formatCurrency(item.taxAmount)}
                 </p>
               </div>
               {canEdit && (

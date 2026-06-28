@@ -59,32 +59,32 @@ const CHARGED_TO_OPTIONS: { value: ChargedTo; label: string }[] = [
 
 // ─── IncidentDialog ───────────────────────────────────────────────────────────
 const incidentCreateSchema = z.object({
-  contract_vehicle_id: z.number({ invalid_type_error: 'Bắt buộc' }).min(1, 'Bắt buộc'),
-  incident_date: z.string().min(1, 'Bắt buộc'),
-  incident_type: z.enum(['breakdown', 'replacement', 'repair_onsite']),
+  contractVehicleId: z.number({ invalid_type_error: 'Bắt buộc' }).min(1, 'Bắt buộc'),
+  incidentDate: z.string().min(1, 'Bắt buộc'),
+  incidentType: z.enum(['breakdown', 'replacement', 'repair_onsite']),
   description: z.string().min(1, 'Bắt buộc').max(1000),
-  downtime_days: z.number().nullable().optional(),
-  cost_amount: z.number().nullable().optional(),
-  charged_to: z.enum(['customer', 'company']).nullable().optional(),
-  replacement_contract_vehicle_id: z.number().nullable().optional(),
-  resolved_at: z.string().nullable().optional(),
+  downtimeDays: z.number().nullable().optional(),
+  costAmount: z.number().nullable().optional(),
+  chargedTo: z.enum(['customer', 'company']).nullable().optional(),
+  replacementContractVehicleId: z.number().nullable().optional(),
+  resolvedAt: z.string().nullable().optional(),
 })
   .refine(
-    (d) => d.incident_type !== 'replacement' || !!d.replacement_contract_vehicle_id,
-    { message: 'Bắt buộc chọn xe thay thế khi loại sự cố là Đổi xe', path: ['replacement_contract_vehicle_id'] }
+    (d) => d.incidentType !== 'replacement' || !!d.replacementContractVehicleId,
+    { message: 'Bắt buộc chọn xe thay thế khi loại sự cố là Đổi xe', path: ['replacementContractVehicleId'] }
   )
   .refine(
-    (d) => !d.replacement_contract_vehicle_id || d.replacement_contract_vehicle_id !== d.contract_vehicle_id,
-    { message: 'Xe thay thế không được trùng với xe sự cố', path: ['replacement_contract_vehicle_id'] }
+    (d) => !d.replacementContractVehicleId || d.replacementContractVehicleId !== d.contractVehicleId,
+    { message: 'Xe thay thế không được trùng với xe sự cố', path: ['replacementContractVehicleId'] }
   )
 
 const incidentEditSchema = z.object({
   description: z.string().min(1, 'Bắt buộc').max(1000),
-  downtime_days: z.number().nullable().optional(),
-  cost_amount: z.number().nullable().optional(),
-  charged_to: z.enum(['customer', 'company']).nullable().optional(),
-  replacement_contract_vehicle_id: z.number().nullable().optional(),
-  resolved_at: z.string().nullable().optional(),
+  downtimeDays: z.number().nullable().optional(),
+  costAmount: z.number().nullable().optional(),
+  chargedTo: z.enum(['customer', 'company']).nullable().optional(),
+  replacementContractVehicleId: z.number().nullable().optional(),
+  resolvedAt: z.string().nullable().optional(),
 })
 
 type IncidentCreateForm = z.infer<typeof incidentCreateSchema>
@@ -109,7 +109,7 @@ function IncidentDialog({
   // Create form
   const createForm = useForm<IncidentCreateForm>({
     resolver: zodResolver(incidentCreateSchema),
-    defaultValues: { charged_to: null, replacement_contract_vehicle_id: null, resolved_at: null },
+    defaultValues: { chargedTo: null, replacementContractVehicleId: null, resolvedAt: null },
   })
 
   // Edit form
@@ -118,17 +118,17 @@ function IncidentDialog({
     defaultValues: isEdit
       ? {
           description: editItem.description,
-          downtime_days: editItem.downtime_days,
-          cost_amount: editItem.cost_amount,
-          charged_to: editItem.charged_to,
-          replacement_contract_vehicle_id: editItem.replacement_contract_vehicle?.id ?? null,
-          resolved_at: editItem.resolved_at ?? null,
+          downtimeDays: editItem.downtimeDays,
+          costAmount: editItem.costAmount,
+          chargedTo: editItem.chargedTo,
+          replacementContractVehicleId: editItem.replacementContractVehicle?.id ?? null,
+          resolvedAt: editItem.resolvedAt ?? null,
         }
       : {},
   })
 
-  const incidentType = createForm.watch('incident_type')
-  const contractVehicleId = createForm.watch('contract_vehicle_id')
+  const incidentType = createForm.watch('incidentType')
+  const contractVehicleId = createForm.watch('contractVehicleId')
 
   const mutation = useMutation({
     mutationFn: (body: IncidentCreateForm | IncidentEditForm) =>
@@ -160,16 +160,16 @@ function IncidentDialog({
                 <div>
                   <p className="text-xs text-text-secondary">Xe</p>
                   <p className="font-medium text-text-primary">
-                    {editItem.contract_vehicle.vehicle.model} · {editItem.contract_vehicle.vehicle.serial_number}
+                    {editItem.contractVehicle.vehicle.model} · {editItem.contractVehicle.vehicle.serialNumber}
                   </p>
                 </div>
                 <div>
                   <p className="text-xs text-text-secondary">Ngày sự cố</p>
-                  <p className="font-medium text-text-primary">{formatDate(editItem.incident_date)}</p>
+                  <p className="font-medium text-text-primary">{formatDate(editItem.incidentDate)}</p>
                 </div>
                 <div>
                   <p className="text-xs text-text-secondary">Loại sự cố</p>
-                  <p className="font-medium text-text-primary">{INCIDENT_TYPE_LABELS[editItem.incident_type]}</p>
+                  <p className="font-medium text-text-primary">{INCIDENT_TYPE_LABELS[editItem.incidentType]}</p>
                 </div>
               </div>
               <Separator />
@@ -183,18 +183,18 @@ function IncidentDialog({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label>Số ngày dừng hoạt động</Label>
-                  <Input type="number" step="0.1" min={0} {...editForm.register('downtime_days', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                  <Input type="number" step="0.1" min={0} {...editForm.register('downtimeDays', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
                 </div>
                 <div className="space-y-1">
                   <Label>Chi phí (₫)</Label>
-                  <Input type="number" min={0} {...editForm.register('cost_amount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                  <Input type="number" min={0} {...editForm.register('costAmount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
                 </div>
               </div>
               <div className="space-y-1">
                 <Label>Bên chịu chi phí</Label>
                 <Controller
                   control={editForm.control}
-                  name="charged_to"
+                  name="chargedTo"
                   render={({ field }) => (
                     <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
                       <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Không xác định" /></SelectTrigger>
@@ -206,26 +206,26 @@ function IncidentDialog({
                   )}
                 />
               </div>
-              {editItem.incident_type === 'replacement' && (
+              {editItem.incidentType === 'replacement' && (
                 <div className="space-y-1">
                   <Label>Xe thay thế</Label>
                   <Controller
                     control={editForm.control}
-                    name="replacement_contract_vehicle_id"
+                    name="replacementContractVehicleId"
                     render={({ field }) => (
                       <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : Number(v))}>
                         <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe thay thế" /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="none">Không có</SelectItem>
-                          {contractVehicles.filter((cv) => cv.id !== editItem.contract_vehicle.id).map((cv) => (
-                            <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serial_number}</SelectItem>
+                          {contractVehicles.filter((cv) => cv.id !== editItem.contractVehicle.id).map((cv) => (
+                            <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serialNumber}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     )}
                   />
-                  {editForm.formState.errors.replacement_contract_vehicle_id && (
-                    <p className="text-xs text-error">{editForm.formState.errors.replacement_contract_vehicle_id.message}</p>
+                  {editForm.formState.errors.replacementContractVehicleId && (
+                    <p className="text-xs text-error">{editForm.formState.errors.replacementContractVehicleId.message}</p>
                   )}
                 </div>
               )}
@@ -233,7 +233,7 @@ function IncidentDialog({
                 <Label>Thời điểm xử lý xong</Label>
                 <Controller
                   control={editForm.control}
-                  name="resolved_at"
+                  name="resolvedAt"
                   render={({ field }) => (
                     <DatePicker value={field.value ?? undefined} onChange={field.onChange} placeholder="Chưa xử lý" />
                   )}
@@ -254,20 +254,20 @@ function IncidentDialog({
                 <Label>Xe <span className="text-error">*</span></Label>
                 <Controller
                   control={createForm.control}
-                  name="contract_vehicle_id"
+                  name="contractVehicleId"
                   render={({ field }) => (
                     <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(Number(v))}>
                       <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe" /></SelectTrigger>
                       <SelectContent>
                         {contractVehicles.map((cv) => (
-                          <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serial_number}</SelectItem>
+                          <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serialNumber}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   )}
                 />
-                {createForm.formState.errors.contract_vehicle_id && (
-                  <p className="text-xs text-error">{createForm.formState.errors.contract_vehicle_id.message}</p>
+                {createForm.formState.errors.contractVehicleId && (
+                  <p className="text-xs text-error">{createForm.formState.errors.contractVehicleId.message}</p>
                 )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -275,18 +275,18 @@ function IncidentDialog({
                   <Label>Ngày sự cố <span className="text-error">*</span></Label>
                   <Controller
                     control={createForm.control}
-                    name="incident_date"
+                    name="incidentDate"
                     render={({ field }) => <DatePicker value={field.value} onChange={field.onChange} />}
                   />
-                  {createForm.formState.errors.incident_date && (
-                    <p className="text-xs text-error">{createForm.formState.errors.incident_date.message}</p>
+                  {createForm.formState.errors.incidentDate && (
+                    <p className="text-xs text-error">{createForm.formState.errors.incidentDate.message}</p>
                   )}
                 </div>
                 <div className="space-y-1">
                   <Label>Loại sự cố <span className="text-error">*</span></Label>
                   <Controller
                     control={createForm.control}
-                    name="incident_type"
+                    name="incidentType"
                     render={({ field }) => (
                       <Select value={field.value} onValueChange={field.onChange}>
                         <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn loại" /></SelectTrigger>
@@ -296,8 +296,8 @@ function IncidentDialog({
                       </Select>
                     )}
                   />
-                  {createForm.formState.errors.incident_type && (
-                    <p className="text-xs text-error">{createForm.formState.errors.incident_type.message}</p>
+                  {createForm.formState.errors.incidentType && (
+                    <p className="text-xs text-error">{createForm.formState.errors.incidentType.message}</p>
                   )}
                 </div>
               </div>
@@ -311,18 +311,18 @@ function IncidentDialog({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label>Số ngày dừng hoạt động</Label>
-                  <Input type="number" step="0.1" min={0} {...createForm.register('downtime_days', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                  <Input type="number" step="0.1" min={0} {...createForm.register('downtimeDays', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
                 </div>
                 <div className="space-y-1">
                   <Label>Chi phí (₫)</Label>
-                  <Input type="number" min={0} {...createForm.register('cost_amount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                  <Input type="number" min={0} {...createForm.register('costAmount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
                 </div>
               </div>
               <div className="space-y-1">
                 <Label>Bên chịu chi phí</Label>
                 <Controller
                   control={createForm.control}
-                  name="charged_to"
+                  name="chargedTo"
                   render={({ field }) => (
                     <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : v)}>
                       <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Không xác định" /></SelectTrigger>
@@ -339,20 +339,20 @@ function IncidentDialog({
                   <Label>Xe thay thế <span className="text-error">*</span></Label>
                   <Controller
                     control={createForm.control}
-                    name="replacement_contract_vehicle_id"
+                    name="replacementContractVehicleId"
                     render={({ field }) => (
                       <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : Number(v))}>
                         <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe thay thế" /></SelectTrigger>
                         <SelectContent>
                           {contractVehicles.filter((cv) => cv.id !== contractVehicleId).map((cv) => (
-                            <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serial_number}</SelectItem>
+                            <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serialNumber}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
                     )}
                   />
-                  {createForm.formState.errors.replacement_contract_vehicle_id && (
-                    <p className="text-xs text-error">{createForm.formState.errors.replacement_contract_vehicle_id.message}</p>
+                  {createForm.formState.errors.replacementContractVehicleId && (
+                    <p className="text-xs text-error">{createForm.formState.errors.replacementContractVehicleId.message}</p>
                   )}
                 </div>
               )}
@@ -360,7 +360,7 @@ function IncidentDialog({
                 <Label>Thời điểm xử lý xong</Label>
                 <Controller
                   control={createForm.control}
-                  name="resolved_at"
+                  name="resolvedAt"
                   render={({ field }) => (
                     <DatePicker value={field.value ?? undefined} onChange={field.onChange} placeholder="Chưa xử lý" />
                   )}
@@ -386,17 +386,15 @@ interface IncidentsTabProps {
   contractStatus: ContractStatus
   contractVehicles: ContractVehicle[]
   canEdit: boolean
-  initialData?: Incident[]
 }
 
-export function IncidentsTab({ contractId, contractStatus, contractVehicles, canEdit, initialData }: IncidentsTabProps) {
+export function IncidentsTab({ contractId, contractStatus, contractVehicles, canEdit }: IncidentsTabProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Incident | undefined>()
 
   const { data: incidents, isLoading } = useQuery<Incident[]>({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'incidents'],
     queryFn: () => getIncidents(contractId),
-    initialData,
   })
 
   const openAdd = () => { setEditingItem(undefined); setDialogOpen(true) }
@@ -425,35 +423,35 @@ export function IncidentsTab({ contractId, contractStatus, contractVehicles, can
           <div key={item.id} className="bg-bg-card rounded-lg border border-border p-4 flex gap-4 mb-3">
             <div className="flex-1 min-w-0">
               <p className="font-medium text-text-primary text-sm">
-                {item.contract_vehicle.vehicle.model} · {item.contract_vehicle.vehicle.serial_number}
+                {item.contractVehicle.vehicle.model} · {item.contractVehicle.vehicle.serialNumber}
               </p>
               <div className="flex flex-wrap gap-1.5 mt-2">
-                <span className={`text-xs px-2.5 py-1 rounded-full ${INCIDENT_TYPE_CHIP[item.incident_type]}`}>
-                  {INCIDENT_TYPE_LABELS[item.incident_type]}
+                <span className={`text-xs px-2.5 py-1 rounded-full ${INCIDENT_TYPE_CHIP[item.incidentType]}`}>
+                  {INCIDENT_TYPE_LABELS[item.incidentType]}
                 </span>
                 <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
                   <CalendarIcon size={10} />
-                  {formatDate(item.incident_date)}
+                  {formatDate(item.incidentDate)}
                 </span>
-                {item.downtime_days !== null && (
+                {item.downtimeDays !== null && (
                   <span className="bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-full">
-                    {item.downtime_days} ngày
+                    {item.downtimeDays} ngày
                   </span>
                 )}
-                {item.cost_amount !== null && (
+                {item.costAmount !== null && (
                   <span className="bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-full">
-                    {formatCurrency(item.cost_amount)}
+                    {formatCurrency(item.costAmount)}
                   </span>
                 )}
-                {item.charged_to === 'company' && (
+                {item.chargedTo === 'company' && (
                   <span className="bg-error-light text-error text-xs px-2.5 py-1 rounded-full">Công ty chịu</span>
                 )}
-                {item.charged_to === 'customer' && (
+                {item.chargedTo === 'customer' && (
                   <span className="bg-accent-light text-accent text-xs px-2.5 py-1 rounded-full">Khách hàng chịu</span>
                 )}
-                {item.resolved_at ? (
+                {item.resolvedAt ? (
                   <span className="bg-success-light text-success text-xs px-2.5 py-1 rounded-full">
-                    ✅ Đã xử lý: {formatDate(item.resolved_at)}
+                    ✅ Đã xử lý: {formatDate(item.resolvedAt)}
                   </span>
                 ) : (
                   <span className="bg-warning-light text-warning text-xs px-2.5 py-1 rounded-full">
@@ -464,9 +462,9 @@ export function IncidentsTab({ contractId, contractStatus, contractVehicles, can
               {item.description && (
                 <p className="text-sm text-text-secondary mt-2">{item.description}</p>
               )}
-              {item.replacement_contract_vehicle && (
+              {item.replacementContractVehicle && (
                 <p className="text-sm text-text-secondary mt-1">
-                  Xe thay thế: {item.replacement_contract_vehicle.vehicle.model} · {item.replacement_contract_vehicle.vehicle.serial_number}
+                  Xe thay thế: {item.replacementContractVehicle.vehicle.model} · {item.replacementContractVehicle.vehicle.serialNumber}
                 </p>
               )}
             </div>

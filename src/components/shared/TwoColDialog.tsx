@@ -58,12 +58,16 @@ export function FilePreviewPanel({ file }: { file: File }) {
             className="w-full h-full object-contain"
           />
         )}
-        {isOffice && objectUrl && (
-          <iframe
-            src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(objectUrl)}`}
-            className="w-full h-full border-0"
-            title="Office preview"
-          />
+        {isOffice && (
+          /* Office Online Viewer cần URL public — file cục bộ (blob:) Microsoft không tải được.
+             Hiện placeholder thay vì màn hình lỗi của Microsoft. Preview thật khả dụng sau khi upload. */
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-text-secondary px-6 text-center">
+            <FileText className="h-12 w-12 text-primary opacity-60" />
+            <p className="text-sm font-medium text-text-primary">{file.name}</p>
+            <p className="text-sm">
+              File Word/Excel chỉ xem trước được sau khi tải lên. File đã sẵn sàng để đính kèm.
+            </p>
+          </div>
         )}
         {!isPdf && !isImage && !isOffice && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-text-secondary">

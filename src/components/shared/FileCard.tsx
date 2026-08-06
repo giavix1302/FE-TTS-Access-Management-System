@@ -7,9 +7,9 @@ import {
   Download,
   Trash2,
   Eye,
-  X,
   RefreshCw,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -19,12 +19,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getDocumentUrl } from "@/api/documents.api";
+import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FileCardProps {
   fileName: string;
   url: string;
+  /** Document id — when set, preview fetches a fresh SAS URL before opening (avoids expired-URL blank preview) */
+  documentId?: number;
   /** File size in bytes — omit to hide */
   fileSize?: number;
   /** ISO date string — omit to hide */
@@ -130,14 +134,29 @@ function PreviewModal({
   url: string;
   fileName: string;
 }) {
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
+
   const canPreview =
     fileType === "jpeg" ||
     fileType === "png" ||
     fileType === "pdf" ||
     OFFICE_TYPES.includes(fileType);
 
+  function handleOpenChange(next: boolean) {
+    if (!next) {
+      setLoadError(false);
+      onClose();
+    }
+  }
+
+  function retry() {
+    setLoadError(false);
+    setRetryKey((k) => k + 1);
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-4xl h-[90dvh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-4 py-3 border-b border-[#E2E8F0] shrink-0">
           <div className="flex items-center justify-between">
@@ -164,24 +183,47 @@ function PreviewModal({
                 Tải về để xem
               </Button>
             </div>
+          ) : loadError ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-[#5A5A66]">
+              <AlertTriangle className="w-12 h-12 text-[#E67E22]" />
+              <p className="text-[length:var(--fs-sm)]">
+                Không tải được nội dung xem trước. Link có thể đã hết hạn.
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" className="cursor-pointer" onClick={retry}>
+                  <RefreshCw className="w-4 h-4 mr-1.5" />
+                  Thử lại
+                </Button>
+                <Button variant="outline" size="sm" className="cursor-pointer" onClick={() => window.open(url, "_blank")}>
+                  <Download className="w-4 h-4 mr-1.5" />
+                  Tải về
+                </Button>
+              </div>
+            </div>
           ) : fileType === "pdf" ? (
             <iframe
+              key={retryKey}
               src={url}
               className="w-full h-full border-0"
               title={fileName}
+              onError={() => setLoadError(true)}
             />
           ) : OFFICE_TYPES.includes(fileType) ? (
             <iframe
+              key={retryKey}
               src={getOfficeViewerUrl(url)}
               className="w-full h-full border-0"
               title={fileName}
+              onError={() => setLoadError(true)}
             />
           ) : (
             <div className="flex items-center justify-center h-full bg-[#F4F6F8] p-4">
               <img
+                key={retryKey}
                 src={url}
                 alt={fileName}
                 className="max-w-full max-h-full object-contain rounded-lg"
+                onError={() => setLoadError(true)}
               />
             </div>
           )}
@@ -196,6 +238,7 @@ function PreviewModal({
 export function FileCard({
   fileName,
   url,
+  documentId,
   fileSize,
   createdAt,
   createdBy,
@@ -205,6 +248,8 @@ export function FileCard({
   isReplacing,
 }: FileCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(url);
+  const [fetchingUrl, setFetchingUrl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const fileType = detectFileType(fileName, url);
@@ -213,6 +258,24 @@ export function FileCard({
     fileType === "png" ||
     fileType === "pdf" ||
     OFFICE_TYPES.includes(fileType);
+
+  async function openPreview() {
+    if (!documentId) {
+      setPreviewUrl(url);
+      setPreviewOpen(true);
+      return;
+    }
+    setFetchingUrl(true);
+    try {
+      const fresh = await getDocumentUrl(documentId);
+      setPreviewUrl(fresh.sasUrl);
+      setPreviewOpen(true);
+    } catch {
+      toast.error("Không lấy được link xem trước");
+    } finally {
+      setFetchingUrl(false);
+    }
+  }
 
   const metaParts: string[] = [];
   metaParts.push(getFileLabel(fileType));
@@ -256,10 +319,15 @@ export function FileCard({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors"
-                  onClick={() => setPreviewOpen(true)}
+                  disabled={fetchingUrl}
+                  className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={openPreview}
                 >
-                  <Eye className="w-4 h-4" />
+                  {fetchingUrl ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
                 </button>
               </TooltipTrigger>
               <TooltipContent>Xem trước</TooltipContent>
@@ -329,7 +397,7 @@ export function FileCard({
         open={previewOpen}
         onClose={() => setPreviewOpen(false)}
         fileType={fileType}
-        url={url}
+        url={previewUrl}
         fileName={fileName}
       />
     </>

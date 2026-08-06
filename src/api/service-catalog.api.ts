@@ -9,12 +9,11 @@ export const getServiceCatalogById = (id: number) =>
 export const createServiceCatalog = (body: {
   name: string;
   unit: string;
-  defaultPrice: number;
 }) => axiosInstance.post("/service-catalog", body).then((r) => r.data);
 
 export const updateServiceCatalog = (
   id: number,
-  body: { name?: string; unit?: string; defaultPrice?: number }
+  body: { name?: string; unit?: string }
 ) => axiosInstance.put(`/service-catalog/${id}`, body).then((r) => r.data);
 
 export const activateServiceCatalog = (id: number) =>

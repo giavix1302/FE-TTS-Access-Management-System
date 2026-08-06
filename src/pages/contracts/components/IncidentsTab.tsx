@@ -30,7 +30,7 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { DatePicker } from '@/components/shared/DatePicker'
 import { getIncidents, createIncident, updateIncident } from '@/api/contracts.api'
 import { QUERY_KEYS } from '@/utils/queryKeys'
-import { formatCurrency, formatDate, formatDateTime } from '@/utils/format'
+import { formatCurrency, formatDate } from '@/utils/format'
 import type { ContractStatus, ContractVehicle, Incident, IncidentType, ChargedTo } from '@/types/contract.types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ const CHARGED_TO_OPTIONS: { value: ChargedTo; label: string }[] = [
 
 // ─── IncidentDialog ───────────────────────────────────────────────────────────
 const incidentCreateSchema = z.object({
-  contractVehicleId: z.number({ invalid_type_error: 'Bắt buộc' }).min(1, 'Bắt buộc'),
+  contractVehicleId: z.number({ error: 'Bắt buộc' }).min(1, 'Bắt buộc'),
   incidentDate: z.string().min(1, 'Bắt buộc'),
   incidentType: z.enum(['breakdown', 'replacement', 'repair_onsite']),
   description: z.string().min(1, 'Bắt buộc').max(1000),
@@ -392,10 +392,11 @@ export function IncidentsTab({ contractId, contractStatus, contractVehicles, can
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Incident | undefined>()
 
-  const { data: incidents, isLoading } = useQuery<Incident[]>({
+  const { data, isLoading } = useQuery({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'incidents'],
     queryFn: () => getIncidents(contractId),
   })
+  const incidents: Incident[] = data?.data ?? []
 
   const openAdd = () => { setEditingItem(undefined); setDialogOpen(true) }
   const openEdit = (item: Incident) => { setEditingItem(item); setDialogOpen(true) }
@@ -417,7 +418,7 @@ export function IncidentsTab({ contractId, contractStatus, contractVehicles, can
           {Array(2).fill(0).map((_, i) => <Skeleton key={i} className="h-28 rounded-lg" />)}
         </div>
       ) : !incidents || incidents.length === 0 ? (
-        <EmptyState message="Chưa có sự cố nào" />
+        <EmptyState description="Chưa có sự cố nào" />
       ) : (
         incidents.map((item) => (
           <div key={item.id} className="bg-bg-card rounded-lg border border-border p-4 flex gap-4 mb-3">

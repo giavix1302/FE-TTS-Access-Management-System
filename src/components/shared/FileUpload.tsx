@@ -1,4 +1,4 @@
-import { useRef, useState, DragEvent, ChangeEvent } from "react"
+import { useRef, useState, type DragEvent, type ChangeEvent } from "react"
 import { Paperclip, X, UploadCloud, AlertCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 

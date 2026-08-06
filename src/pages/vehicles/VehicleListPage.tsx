@@ -63,7 +63,7 @@ const addVehicleSchema = z.object({
   model: z.string().min(1, "Bắt buộc"),
   serial_number: z.string().min(1, "Bắt buộc"),
   manufacturer: z.string().min(1, "Bắt buộc"),
-  engine_type: z.enum(["Fuel", "Electric"], { required_error: "Bắt buộc" }),
+  engine_type: z.enum(["Fuel", "Electric"], { error: "Bắt buộc" }),
   manufacture_year: z.coerce.number().int().min(1990).max(2100).optional(),
   capacity: z.coerce.number().positive().optional(),
   occupancy: z.coerce.number().int().positive().optional(),
@@ -73,7 +73,8 @@ const addVehicleSchema = z.object({
   traveling_speed: z.coerce.number().positive().optional(),
 });
 
-type AddVehicleForm = z.infer<typeof addVehicleSchema>;
+type AddVehicleForm = z.output<typeof addVehicleSchema>;
+type AddVehicleFormInput = z.input<typeof addVehicleSchema>;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -137,7 +138,7 @@ export default function VehicleListPage() {
     setValue,
     reset,
     formState: { errors },
-  } = useForm<AddVehicleForm>({ resolver: zodResolver(addVehicleSchema) });
+  } = useForm<AddVehicleFormInput, unknown, AddVehicleForm>({ resolver: zodResolver(addVehicleSchema) });
 
   const onSubmit = (values: AddVehicleForm) =>
     addMutation.mutate({

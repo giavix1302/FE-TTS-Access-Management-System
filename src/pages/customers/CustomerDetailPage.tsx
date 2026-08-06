@@ -57,7 +57,6 @@ import {
 import { getContractStatusBadge } from "@/constants/contractStatus";
 import { usePermission } from "@/hooks/usePermission";
 import type {
-  CustomerDetail,
   IndividualCustomer,
   BusinessCustomer,
   CustomerContractItem,
@@ -136,7 +135,6 @@ function IndividualEditDialog({
     handleSubmit,
     reset,
     control,
-    setValue,
     formState: { errors },
   } = useForm<IndividualEditForm>({
     resolver: zodResolver(individualEditSchema),

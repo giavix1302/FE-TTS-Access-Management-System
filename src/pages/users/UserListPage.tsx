@@ -164,7 +164,7 @@ const createSchema = z.object({
   password: z.string().min(8, "Tối thiểu 8 ký tự"),
   confirm_password: z.string().min(1, "Bắt buộc"),
   role: z.enum(["admin", "manager", "accountant", "staff"], {
-    required_error: "Bắt buộc chọn vai trò",
+    error: "Bắt buộc chọn vai trò",
   }),
 }).refine((d) => d.password === d.confirm_password, {
   message: "Mật khẩu xác nhận không khớp",
@@ -175,7 +175,7 @@ const editSchema = z.object({
   full_name: z.string().min(1, "Bắt buộc"),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
   role: z.enum(["admin", "manager", "accountant", "staff"], {
-    required_error: "Bắt buộc chọn vai trò",
+    error: "Bắt buộc chọn vai trò",
   }),
 });
 
@@ -943,7 +943,7 @@ export default function UserListPage() {
             )}
           </div>
         ) : (
-          users.map((u) => (
+          users.map((u: User) => (
             <div
               key={u.id}
               className="rounded-xl border border-border bg-bg-card p-4 flex flex-col gap-3"
@@ -963,7 +963,7 @@ export default function UserListPage() {
               {/* Row 2: roles + email */}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex flex-wrap gap-1">
-                  {u.roles.map((r) => (
+                  {u.roles.map((r: UserRole) => (
                     <RoleBadge key={r} role={r} />
                   ))}
                 </div>

@@ -29,13 +29,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { FileUpload } from "@/components/shared/FileUpload";
 import { DatePicker } from "@/components/shared/DatePicker";
@@ -53,7 +46,11 @@ import {
   addContractVehicle,
 } from "@/api/contracts.api";
 import { uploadDocument } from "@/api/documents.api";
-import { getCustomers } from "@/api/customers.api";
+import {
+  getCustomers,
+  createIndividualCustomer,
+  createBusinessCustomer,
+} from "@/api/customers.api";
 import { getVehicles } from "@/api/vehicles.api";
 import { getServiceCatalog } from "@/api/service-catalog.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
@@ -64,7 +61,7 @@ interface CustomerOption {
   id: number;
   customerType: "business" | "individual";
   displayName: string;
-  shortName?: string;
+  shortName?: string | null;
   phone?: string;
   isActive?: boolean;
 }
@@ -73,7 +70,6 @@ interface ServiceOption {
   id: number;
   name: string;
   unit: string;
-  defaultPrice: number;
   isActive: boolean;
 }
 
@@ -101,10 +97,10 @@ interface VehicleDraft {
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 const contractSchema = z.object({
-  customer_id: z.number({ invalid_type_error: "Bắt buộc chọn khách hàng" }),
+  customer_id: z.number({ error: "Bắt buộc chọn khách hàng" }),
   start_date: z.string().min(1, "Bắt buộc"),
   planned_days: z
-    .number({ invalid_type_error: "Bắt buộc" })
+    .number({ error: "Bắt buộc" })
     .min(1, "Phải >= 1 ngày"),
   site_address: z.string().min(1, "Bắt buộc"),
 });
@@ -227,6 +223,7 @@ function CreateCustomerModal({
   onClose: () => void;
   onCreated: (id: number) => void;
 }) {
+  const queryClient = useQueryClient();
   const [type, setType] = useState<"business" | "individual">("business");
 
   // Business fields
@@ -271,11 +268,40 @@ function CreateCustomerModal({
     return Object.keys(e).length === 0;
   }
 
+  const mutation = useMutation({
+    mutationFn: () =>
+      type === "business"
+        ? createBusinessCustomer({
+            internationalName,
+            shortName,
+            taxCode,
+            taxAddress: taxAddress || undefined,
+            officeAddress: officeAddress || undefined,
+            representative: representative || undefined,
+            phone: bizPhone || undefined,
+            email: bizEmail || undefined,
+          })
+        : createIndividualCustomer({
+            fullName,
+            phone,
+            nationalId: cccd,
+            email: email || undefined,
+            nationalIdIssueDate: cccdIssueDate || undefined,
+            nationalIdIssuePlace: cccdIssuePlace || undefined,
+            dateOfBirth: dob || undefined,
+            permanentAddress: permanentAddress || undefined,
+          }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.customers.all });
+      toast.success("Đã thêm khách hàng");
+      onCreated(res.data.id);
+    },
+    onError: () => toast.error("Có lỗi xảy ra, vui lòng thử lại"),
+  });
+
   function handleSubmit() {
     if (!validate()) return;
-    // Tạo khách hàng là chức năng của module Khách hàng — không tạo inline ở đây.
-    toast.info("Vui lòng tạo khách hàng tại trang Khách hàng, sau đó chọn lại");
-    onClose();
+    mutation.mutate();
   }
 
   const fieldClass =
@@ -546,6 +572,7 @@ function CreateCustomerModal({
             variant="outline"
             size="sm"
             onClick={onClose}
+            disabled={mutation.isPending}
             className="cursor-pointer"
           >
             Hủy
@@ -554,9 +581,10 @@ function CreateCustomerModal({
             type="button"
             size="sm"
             onClick={handleSubmit}
+            disabled={mutation.isPending}
             className="cursor-pointer"
           >
-            Thêm khách hàng
+            {mutation.isPending ? "Đang lưu..." : "Thêm khách hàng"}
           </Button>
         </div>
       </div>
@@ -739,7 +767,7 @@ export function CreateContractDialog({
   // Query customers (active) cho picker
   const { data: customersRes } = useQuery({
     queryKey: [...QUERY_KEYS.customers.all, { forContract: true }],
-    queryFn: () => getCustomers({ status: "active", page_size: 100 }),
+    queryFn: () => getCustomers({ is_active: true, page_size: 100 }),
     enabled: open,
     staleTime: 60 * 1000,
   });
@@ -1003,8 +1031,6 @@ export function CreateContractDialog({
                                         service_id: svc?.id ?? null,
                                         service_name: svc?.name ?? "",
                                         unit: svc?.unit ?? "",
-                                        unit_price:
-                                          svc?.defaultPrice ?? li.unit_price,
                                       }
                                     : li,
                                 ),

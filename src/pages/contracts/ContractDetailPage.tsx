@@ -4,7 +4,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowLeft,
-  Pencil,
   ChevronDown,
   CalendarDays,
   DollarSign,
@@ -12,7 +11,6 @@ import {
   AlertCircle,
   Building2,
   User,
-  FileText,
 } from "lucide-react";
 import type { AxiosError } from "axios";
 import { Button } from "@/components/ui/button";
@@ -53,7 +51,6 @@ import { usePermission } from "@/hooks/usePermission";
 import type {
   ContractDetail,
   ContractSummary,
-  ContractStatus,
 } from "@/types/contract.types";
 
 // ─── SummaryCard ──────────────────────────────────────────────────────────────
@@ -524,17 +521,17 @@ export default function ContractDetailPage() {
             {
               value: "addendums",
               label: "Phụ lục",
-              count: summary?.addendum_count,
+              count: summary?.addendumCount,
             },
             {
               value: "acceptance",
               label: "BBNT",
-              count: summary?.acceptance_record_count,
+              count: summary?.acceptanceRecordCount,
             },
             {
               value: "invoices",
               label: "Hóa đơn",
-              count: summary?.invoice_count,
+              count: summary?.invoiceCount,
             },
             { value: "incidents", label: "Sự cố" },
           ].map((tab) => (

@@ -47,7 +47,6 @@ interface ServiceCatalogItem {
   id: number
   name: string
   unit: string
-  defaultPrice: number
   isActive: boolean
 }
 
@@ -56,16 +55,10 @@ interface ServiceCatalogItem {
 const serviceSchema = z.object({
   name: z.string().min(1, 'Bắt buộc'),
   unit: z.string().min(1, 'Bắt buộc'),
-  defaultPrice: z.coerce.number({ invalid_type_error: 'Phải là số' }).positive('Phải lớn hơn 0'),
 })
 
-type ServiceForm = z.infer<typeof serviceSchema>
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatVND(value: number) {
-  return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(value)
-}
+type ServiceForm = z.output<typeof serviceSchema>
+type ServiceFormInput = z.input<typeof serviceSchema>
 
 // ─── Filter type ──────────────────────────────────────────────────────────────
 
@@ -78,7 +71,6 @@ export default function ServiceCatalogPage() {
   const { hasPermission } = usePermission()
   const canCreate = hasPermission("service_catalog.create")
   const canUpdate = hasPermission("service_catalog.update")
-  const canEdit = canCreate || canUpdate
 
   // ── State ──────────────────────────────────────────────────────────────────
 
@@ -99,7 +91,7 @@ export default function ServiceCatalogPage() {
 
   const createMutation = useMutation({
     mutationFn: (body: ServiceForm) =>
-      createServiceCatalog({ name: body.name, unit: body.unit, defaultPrice: body.defaultPrice }),
+      createServiceCatalog({ name: body.name, unit: body.unit }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.serviceCatalog.all })
       toast.success('Thêm dịch vụ thành công')
@@ -110,7 +102,7 @@ export default function ServiceCatalogPage() {
 
   const updateMutation = useMutation({
     mutationFn: (body: ServiceForm & { id: number }) =>
-      updateServiceCatalog(body.id, { name: body.name, unit: body.unit, defaultPrice: body.defaultPrice }),
+      updateServiceCatalog(body.id, { name: body.name, unit: body.unit }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.serviceCatalog.all })
       toast.success('Cập nhật dịch vụ thành công')
@@ -133,19 +125,19 @@ export default function ServiceCatalogPage() {
 
   // ── Form ───────────────────────────────────────────────────────────────────
 
-  const form = useForm<ServiceForm>({
+  const form = useForm<ServiceFormInput, unknown, ServiceForm>({
     resolver: zodResolver(serviceSchema),
-    defaultValues: { name: '', unit: '', defaultPrice: 0 },
+    defaultValues: { name: '', unit: '' },
   })
 
   const openCreate = () => {
-    form.reset({ name: '', unit: '', defaultPrice: 0 })
+    form.reset({ name: '', unit: '' })
     setEditTarget(null)
     setDialogOpen(true)
   }
 
   const openEdit = (item: ServiceCatalogItem) => {
-    form.reset({ name: item.name, unit: item.unit, defaultPrice: item.defaultPrice })
+    form.reset({ name: item.name, unit: item.unit })
     setEditTarget(item)
     setDialogOpen(true)
   }
@@ -184,15 +176,6 @@ export default function ServiceCatalogPage() {
       cell: ({ row }) => (
         <span className="rounded-md bg-[#F4F6F8] px-2 py-0.5 text-[length:var(--fs-sm)] text-[#5A5A66]">
           {row.original.unit}
-        </span>
-      ),
-    },
-    {
-      accessorKey: 'defaultPrice',
-      header: 'Đơn giá mặc định',
-      cell: ({ row }) => (
-        <span className="font-medium text-[#1A5FAB]">
-          {formatVND(row.original.defaultPrice)}
         </span>
       ),
     },
@@ -356,13 +339,10 @@ export default function ServiceCatalogPage() {
                 )}
               </div>
 
-              {/* Row 2: unit + price */}
+              {/* Row 2: unit */}
               <div className="flex items-center gap-3 text-[length:var(--fs-sm)]">
                 <span className="rounded-md bg-[#F4F6F8] px-2 py-0.5 text-[#5A5A66]">
                   {item.unit}
-                </span>
-                <span className="font-semibold text-[#1A5FAB]">
-                  {formatVND(item.defaultPrice)}
                 </span>
               </div>
 
@@ -465,36 +445,6 @@ export default function ServiceCatalogPage() {
                   {form.formState.errors.unit.message}
                 </p>
               )}
-            </div>
-
-            {/* Đơn giá */}
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="default_price" className="text-[length:var(--fs-sm)] font-medium text-[#1A202C]">
-                Đơn giá mặc định (VNĐ) <span className="text-[#E74C3C]">*</span>
-              </Label>
-              <Input
-                id="default_price"
-                type="number"
-                min={1}
-                step={1000}
-                placeholder="VD: 1500000"
-                {...form.register('defaultPrice')}
-                className={form.formState.errors.default_price ? 'border-[#E74C3C]' : ''}
-              />
-              {form.formState.errors.default_price && (
-                <p className="text-[length:var(--fs-xs)] text-[#E74C3C]">
-                  {form.formState.errors.default_price.message}
-                </p>
-              )}
-              {/* Preview */}
-              {(() => {
-                const v = form.watch('defaultPrice')
-                return v > 0 ? (
-                  <p className="text-[length:var(--fs-xs)] text-[#718096]">
-                    = {formatVND(v)}
-                  </p>
-                ) : null
-              })()}
             </div>
 
             <DialogFooter className="pt-2">

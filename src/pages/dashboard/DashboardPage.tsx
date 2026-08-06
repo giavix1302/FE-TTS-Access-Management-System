@@ -17,102 +17,21 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-// import axiosInstance from "@/api/axios"
+import {
+  getDashboardSummary,
+  getDashboardCharts,
+  getDashboardAlerts,
+} from "@/api/dashboard.api";
+import { QUERY_KEYS } from "@/utils/queryKeys";
+import { formatDate } from "@/utils/format";
 
-// ─── MOCK DATA (xóa khi backend sẵn sàng) ────────────────────────────────────
-const MOCK_SUMMARY = {
-  vehicles_renting: { renting: 8, total: 15 },
-  contracts_active: { count: 11 },
-  revenue_this_month: { amount: 87_360_000, month: "2026-03" },
-  uninvoiced_debt: { amount: 42_480_000 },
-};
-
-const MOCK_CHARTS = {
-  revenue_by_month: [
-    { month: "2025-04", amount: 52_000_000 },
-    { month: "2025-05", amount: 61_500_000 },
-    { month: "2025-06", amount: 48_200_000 },
-    { month: "2025-07", amount: 70_000_000 },
-    { month: "2025-08", amount: 55_800_000 },
-    { month: "2025-09", amount: 63_400_000 },
-    { month: "2025-10", amount: 74_100_000 },
-    { month: "2025-11", amount: 68_900_000 },
-    { month: "2025-12", amount: 91_200_000 },
-    { month: "2026-01", amount: 80_500_000 },
-    { month: "2026-02", amount: 76_300_000 },
-    { month: "2026-03", amount: 87_360_000 },
-  ],
-  top_customers_by_revenue: [
-    {
-      customer: { id: 2, display_name: "Công ty TNHH Đại Phong" },
-      amount: 310_320_000,
-    },
-    {
-      customer: { id: 5, display_name: "Công ty CP Hưng Thịnh Phát" },
-      amount: 248_600_000,
-    },
-    {
-      customer: { id: 1, display_name: "Công ty TNHH Minh Tiến" },
-      amount: 195_400_000,
-    },
-    {
-      customer: { id: 8, display_name: "Công ty CP Vận Tải Nam Long" },
-      amount: 142_000_000,
-    },
-    {
-      customer: { id: 3, display_name: "Công ty TNHH SX Bình Dương" },
-      amount: 98_750_000,
-    },
-  ],
-};
-
-const MOCK_ALERTS = {
-  expiring_documents: [
-    {
-      vehicle: { id: 1, model: "AWP 20S", serial_number: "SN-2021-001" },
-      document_type: "insurance" as const,
-      expiry_date: "2026-04-05",
-      days_remaining: 4,
-    },
-    {
-      vehicle: { id: 3, model: "AWP 30S", serial_number: "SN-2022-003" },
-      document_type: "inspection" as const,
-      expiry_date: "2026-04-12",
-      days_remaining: 11,
-    },
-    {
-      vehicle: { id: 7, model: "AWP 16S", serial_number: "SN-2020-007" },
-      document_type: "insurance" as const,
-      expiry_date: "2026-03-28",
-      days_remaining: -4,
-    },
-  ],
-  expiring_contracts: [
-    {
-      id: 3,
-      contract_number: "01122025/HĐTTB/TTS-DAIPHONG",
-      customer: { id: 2, display_name: "Công ty TNHH Đại Phong" },
-      end_date: "2026-04-05",
-      days_remaining: 4,
-    },
-    {
-      id: 7,
-      contract_number: "03082025/HĐTTB/TTS-HUNGTHINHPHAT",
-      customer: { id: 5, display_name: "Công ty CP Hưng Thịnh Phát" },
-      end_date: "2026-04-14",
-      days_remaining: 13,
-    },
-  ],
-};
-// ─── END MOCK DATA ────────────────────────────────────────────────────────────
-
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types (camelCase — khớp BE JsonNamingPolicy.CamelCase) ──────────────────
 
 interface DashboardSummary {
-  vehicles_renting: { renting: number; total: number };
-  contracts_active: { count: number };
-  revenue_this_month: { amount: number; month: string };
-  uninvoiced_debt: { amount: number };
+  vehiclesRenting: { renting: number; total: number };
+  contractsActive: { count: number };
+  revenueThisMonth: { amount: number; month: string };
+  uninvoicedDebt: { amount: number };
 }
 
 interface RevenueByMonth {
@@ -120,33 +39,34 @@ interface RevenueByMonth {
   amount: number;
 }
 interface TopCustomer {
-  customer: { id: number; display_name: string };
+  customer: { id: number; displayName: string };
   amount: number;
 }
 
 interface ExpiringDocument {
-  vehicle: { id: number; model: string; serial_number: string };
-  document_type: "insurance" | "inspection";
-  expiry_date: string;
-  days_remaining: number;
+  vehicle: { id: number; model: string; serialNumber: string };
+  documentType: "insurance" | "inspection";
+  expiryDate: string;
+  daysRemaining: number;
 }
 
 interface ExpiringContract {
   id: number;
-  contract_number: string;
-  customer: { id: number; display_name: string };
-  end_date: string;
-  days_remaining: number;
+  contractNumber: string | null;
+  customer: { id: number; displayName: string };
+  endDate: string;
+  daysRemaining: number;
+  status: string;
 }
 
 interface DashboardCharts {
-  revenue_by_month: RevenueByMonth[];
-  top_customers_by_revenue: TopCustomer[];
+  revenueByMonth: RevenueByMonth[];
+  topCustomersByRevenue: TopCustomer[];
 }
 
 interface DashboardAlerts {
-  expiring_documents: ExpiringDocument[];
-  expiring_contracts: ExpiringContract[];
+  expiringDocuments: ExpiringDocument[];
+  expiringContracts: ExpiringContract[];
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -232,23 +152,20 @@ export default function DashboardPage() {
   const now = new Date();
   const subtitleMonth = `${String(now.getMonth() + 1).padStart(2, "0")}/${now.getFullYear()}`;
 
-  // --- MOCK (thay bằng axiosInstance khi backend sẵn sàng) ---
   const summaryQuery = useQuery<DashboardSummary>({
-    queryKey: ["dashboard", "summary"],
-    queryFn: () => Promise.resolve(MOCK_SUMMARY),
-    // queryFn: () => axiosInstance.get("/dashboard/summary").then(r => r.data.data[0]),
+    queryKey: QUERY_KEYS.dashboard.summary,
+    queryFn: getDashboardSummary,
   });
 
   const chartsQuery = useQuery<DashboardCharts>({
-    queryKey: ["dashboard", "charts"],
-    queryFn: () => Promise.resolve(MOCK_CHARTS),
-    // queryFn: () => axiosInstance.get("/dashboard/charts").then(r => r.data.data[0]),
+    queryKey: QUERY_KEYS.dashboard.charts,
+    queryFn: getDashboardCharts,
   });
 
+  // Alerts cần fresh hơn 2 endpoint trên (theo spec)
   const alertsQuery = useQuery<DashboardAlerts>({
-    queryKey: ["dashboard", "alerts"],
-    queryFn: () => Promise.resolve(MOCK_ALERTS),
-    // queryFn: () => axiosInstance.get("/dashboard/alerts").then(r => r.data.data[0]),
+    queryKey: QUERY_KEYS.dashboard.alerts,
+    queryFn: getDashboardAlerts,
     staleTime: 1000 * 30,
   });
 
@@ -259,7 +176,7 @@ export default function DashboardPage() {
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
   // Top customer max amount để tính % bar width
-  const topCustomers = charts?.top_customers_by_revenue ?? [];
+  const topCustomers = charts?.topCustomersByRevenue ?? [];
   const maxCustomerAmount =
     topCustomers.length > 0
       ? Math.max(...topCustomers.map((c) => c.amount))
@@ -294,14 +211,14 @@ export default function DashboardPage() {
                 <Truck className="h-4 w-4 lg:h-5 lg:w-5 text-primary shrink-0" />
               </div>
               <p className="text-[length:var(--fs-display)] font-bold text-text-primary leading-none">
-                {summary?.vehicles_renting.renting ?? 0}
+                {summary?.vehiclesRenting.renting ?? 0}
                 <span className="text-[length:var(--fs-title)] font-normal text-text-secondary ml-1">
-                  / {summary?.vehicles_renting.total ?? 0}
+                  / {summary?.vehiclesRenting.total ?? 0}
                 </span>
               </p>
               <p className="text-[length:var(--fs-sm)] text-text-secondary">
-                {summary && summary.vehicles_renting.total > 0
-                  ? `${Math.round((summary.vehicles_renting.renting / summary.vehicles_renting.total) * 100)}% đang hoạt động`
+                {summary && summary.vehiclesRenting.total > 0
+                  ? `${Math.round((summary.vehiclesRenting.renting / summary.vehiclesRenting.total) * 100)}% đang hoạt động`
                   : "—"}
               </p>
             </div>
@@ -315,7 +232,7 @@ export default function DashboardPage() {
                 <FileText className="h-4 w-4 lg:h-5 lg:w-5 text-success shrink-0" />
               </div>
               <p className="text-[length:var(--fs-display)] font-bold text-text-primary leading-none">
-                {summary?.contracts_active.count ?? 0}
+                {summary?.contractsActive.count ?? 0}
               </p>
               <span className="inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium bg-success-light text-success">
                 Đang hiệu lực
@@ -332,14 +249,13 @@ export default function DashboardPage() {
               </div>
               <p className="text-[length:var(--fs-display)] font-bold text-success leading-none">
                 {summary
-                  ? formatCurrency(summary.revenue_this_month.amount)
+                  ? formatCurrency(summary.revenueThisMonth.amount)
                   : "—"}
               </p>
               <p className="text-[length:var(--fs-sm)] text-text-secondary">
-                {summary?.revenue_this_month.month
+                {summary?.revenueThisMonth.month
                   ? (() => {
-                      const [y, m] =
-                        summary.revenue_this_month.month.split("-");
+                      const [y, m] = summary.revenueThisMonth.month.split("-");
                       return `Tháng ${parseInt(m)}/${y}`;
                     })()
                   : "—"}
@@ -356,12 +272,12 @@ export default function DashboardPage() {
               </div>
               <p
                 className={`text-[length:var(--fs-display)] font-bold leading-none ${
-                  (summary?.uninvoiced_debt.amount ?? 0) > 0
+                  (summary?.uninvoicedDebt.amount ?? 0) > 0
                     ? "text-error"
                     : "text-text-primary"
                 }`}
               >
-                {summary ? formatCurrency(summary.uninvoiced_debt.amount) : "—"}
+                {summary ? formatCurrency(summary.uninvoicedDebt.amount) : "—"}
               </p>
               <p className="text-[length:var(--fs-sm)] text-text-secondary">
                 Chưa xuất hoá đơn
@@ -383,7 +299,7 @@ export default function DashboardPage() {
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart
-                data={charts?.revenue_by_month ?? []}
+                data={charts?.revenueByMonth ?? []}
                 margin={{ top: 4, right: 8, left: 0, bottom: 24 }}
                 barCategoryGap="30%"
               >
@@ -409,7 +325,7 @@ export default function DashboardPage() {
                   cursor={{ fill: "#F4F6F8" }}
                 />
                 <Bar dataKey="amount" radius={[4, 4, 0, 0]}>
-                  {(charts?.revenue_by_month ?? []).map((entry) => (
+                  {(charts?.revenueByMonth ?? []).map((entry) => (
                     <Cell
                       key={entry.month}
                       fill={
@@ -453,7 +369,7 @@ export default function DashboardPage() {
                         <span className="text-text-secondary mr-1.5">
                           {idx + 1}.
                         </span>
-                        {item.customer.display_name}
+                        {item.customer.displayName}
                       </span>
                       <span className="text-[length:var(--fs-body)] font-semibold text-success shrink-0">
                         {formatCurrency(item.amount)}
@@ -486,7 +402,7 @@ export default function DashboardPage() {
                 <Skeleton key={i} className="h-10 w-full rounded-md" />
               ))}
             </div>
-          ) : !alerts?.expiring_documents.length ? (
+          ) : !alerts?.expiringDocuments.length ? (
             <EmptyAlert label="Không có cảnh báo hết hạn" />
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
@@ -509,9 +425,9 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {alerts.expiring_documents.map((doc, i) => (
+                  {alerts.expiringDocuments.map((doc, i) => (
                     <tr
-                      key={`${doc.vehicle.id}-${doc.document_type}-${i}`}
+                      key={`${doc.vehicle.id}-${doc.documentType}-${i}`}
                       className="border-b border-border last:border-0 hover:bg-[#F4F6F8] transition-colors"
                     >
                       <td className="px-3 py-2">
@@ -519,25 +435,25 @@ export default function DashboardPage() {
                           {doc.vehicle.model}
                         </p>
                         <p className="text-[length:var(--fs-sm)] text-text-secondary">
-                          {doc.vehicle.serial_number}
+                          {doc.vehicle.serialNumber}
                         </p>
                       </td>
                       {/* Ẩn cột Loại trên mobile */}
                       <td className="hidden sm:table-cell px-3 py-2">
                         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium bg-[#EAF4FB] text-[#2980B9]">
-                          {doc.document_type === "insurance"
+                          {doc.documentType === "insurance"
                             ? "Bảo hiểm"
                             : "Đăng kiểm"}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-text-primary whitespace-nowrap">
-                        {new Date(doc.expiry_date).toLocaleDateString("vi-VN")}
+                        {formatDate(doc.expiryDate)}
                       </td>
                       <td className="px-3 py-2">
                         <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium whitespace-nowrap ${getDaysChipClass(doc.days_remaining)}`}
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium whitespace-nowrap ${getDaysChipClass(doc.daysRemaining)}`}
                         >
-                          {getDaysLabel(doc.days_remaining)}
+                          {getDaysLabel(doc.daysRemaining)}
                         </span>
                       </td>
                     </tr>
@@ -559,7 +475,7 @@ export default function DashboardPage() {
                 <Skeleton key={i} className="h-10 w-full rounded-md" />
               ))}
             </div>
-          ) : !alerts?.expiring_contracts.length ? (
+          ) : !alerts?.expiringContracts.length ? (
             <EmptyAlert label="Không có cảnh báo hết hạn" />
           ) : (
             <div className="overflow-hidden rounded-lg border border-border">
@@ -582,7 +498,7 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {alerts.expiring_contracts.map((contract) => (
+                  {alerts.expiringContracts.map((contract) => (
                     <tr
                       key={contract.id}
                       className="border-b border-border last:border-0 hover:bg-[#F4F6F8] transition-colors cursor-pointer"
@@ -591,31 +507,29 @@ export default function DashboardPage() {
                       <td className="px-3 py-2 max-w-[120px]">
                         <p
                           className="font-medium text-primary truncate"
-                          title={contract.contract_number}
+                          title={contract.contractNumber ?? undefined}
                         >
-                          {contract.contract_number}
+                          {contract.contractNumber ?? "—"}
                         </p>
                         {/* Hiện tên KH inline trên mobile thay vì cột riêng */}
                         <p className="sm:hidden text-[length:var(--fs-sm)] text-text-secondary truncate mt-0.5">
-                          {contract.customer.display_name}
+                          {contract.customer.displayName}
                         </p>
                       </td>
                       {/* Ẩn cột Khách hàng trên mobile */}
                       <td className="hidden sm:table-cell px-3 py-2 text-text-primary">
                         <span className="truncate block max-w-[120px]">
-                          {contract.customer.display_name}
+                          {contract.customer.displayName}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-text-primary whitespace-nowrap">
-                        {new Date(contract.end_date).toLocaleDateString(
-                          "vi-VN",
-                        )}
+                        {formatDate(contract.endDate)}
                       </td>
                       <td className="px-3 py-2">
                         <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium whitespace-nowrap ${getDaysChipClass(contract.days_remaining)}`}
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium whitespace-nowrap ${getDaysChipClass(contract.daysRemaining)}`}
                         >
-                          {getDaysLabel(contract.days_remaining)}
+                          {getDaysLabel(contract.daysRemaining)}
                         </span>
                       </td>
                     </tr>

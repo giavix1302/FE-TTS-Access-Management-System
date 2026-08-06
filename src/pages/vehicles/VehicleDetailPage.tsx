@@ -52,7 +52,6 @@ import { QUERY_KEYS } from "@/utils/queryKeys";
 import { usePermission } from "@/hooks/usePermission";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { DatePicker } from "@/components/shared/DatePicker";
-import { FileUpload } from "@/components/shared/FileUpload";
 import { MobileTwoColDialog } from "@/components/shared/MobileTwoColDialog";
 import { FileCard } from "@/components/shared/FileCard";
 import { useReplaceDocument } from "@/hooks/useReplaceDocument";
@@ -246,7 +245,8 @@ const editSchema = z.object({
   travelingSpeed: z.coerce.number().positive().optional(),
   note: z.string().optional(),
 });
-type EditForm = z.infer<typeof editSchema>;
+type EditForm = z.output<typeof editSchema>;
+type EditFormInput = z.input<typeof editSchema>;
 
 const insuranceSchema = z.object({
   insuranceNumber: z.string().optional(),
@@ -296,7 +296,7 @@ function InsuranceFileCard({
     documentId: document?.id,
     entityType: "insurance",
     entityId: insuranceId,
-    queryKeys: [QUERY_KEYS.vehicles.insurance(vehicleId)],
+    queryKeys: [[...QUERY_KEYS.vehicles.insurance(vehicleId)]],
   });
   if (!document)
     return (
@@ -306,6 +306,7 @@ function InsuranceFileCard({
     <FileCard
       fileName={document.fileName}
       url={document.sasUrl}
+      documentId={document.id}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
@@ -329,7 +330,7 @@ function InspectionFileCard({
     documentId: document?.id,
     entityType: "inspection",
     entityId: inspectionId,
-    queryKeys: [QUERY_KEYS.vehicles.inspection(vehicleId)],
+    queryKeys: [[...QUERY_KEYS.vehicles.inspection(vehicleId)]],
   });
   if (!document)
     return (
@@ -339,6 +340,7 @@ function InspectionFileCard({
     <FileCard
       fileName={document.fileName}
       url={document.sasUrl}
+      documentId={document.id}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
@@ -386,14 +388,14 @@ export default function VehicleDetailPage() {
   // Insurance modal
   const [insOpen, setInsOpen] = useState(false);
   const [insFile, setInsFile] = useState<File | null>(null);
-  const [insDocId, setInsDocId] = useState<number | null>(null);
+  const [insUploadedDoc, setInsUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null);
   const [insUploading, setInsUploading] = useState(false);
   const [deleteInsId, setDeleteInsId] = useState<number | null>(null);
   const [viewIns, setViewIns] = useState<InsuranceRecord | null>(null);
   // Inspection modal
   const [inspecOpen, setInspecOpen] = useState(false);
   const [inspecFile, setInspecFile] = useState<File | null>(null);
-  const [inspecDocId, setInspecDocId] = useState<number | null>(null);
+  const [inspecUploadedDoc, setInspecUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null);
   const [inspecUploading, setInspecUploading] = useState(false);
   const [deleteInspecId, setDeleteInspecId] = useState<number | null>(null);
   const [viewInspec, setViewInspec] = useState<InspectionRecord | null>(null);
@@ -459,7 +461,7 @@ export default function VehicleDetailPage() {
     },
   });
 
-  const editForm = useForm<EditForm>({ resolver: zodResolver(editSchema) });
+  const editForm = useForm<EditFormInput, unknown, EditForm>({ resolver: zodResolver(editSchema) });
 
   const openEdit = () => {
     if (!vehicle) return;
@@ -537,10 +539,13 @@ export default function VehicleDetailPage() {
       const fd = new FormData();
       fd.append("files[]", file);
       fd.append("doc_type", "insurance");
+      fd.append("is_temp", "true");
       const res = await uploadDocuments(fd);
-      setInsDocId(res.data[0].id);
+      const doc = res.data[0];
+      setInsUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
     } catch {
       toast.error("Upload file thất bại");
+      setInsFile(null);
     } finally {
       setInsUploading(false);
     }
@@ -553,7 +558,7 @@ export default function VehicleDetailPage() {
         provider: body.provider || undefined,
         issueDate: body.issueDate || undefined,
         expiryDate: body.expiryDate,
-        documentId: insDocId ?? undefined,
+        documentId: insUploadedDoc?.id ?? undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -563,7 +568,7 @@ export default function VehicleDetailPage() {
       setInsOpen(false);
       insForm.reset();
       setInsFile(null);
-      setInsDocId(null);
+      setInsUploadedDoc(null);
     },
     onError: (err: unknown) => {
       const msg =
@@ -602,10 +607,13 @@ export default function VehicleDetailPage() {
       const fd = new FormData();
       fd.append("files[]", file);
       fd.append("doc_type", "inspection");
+      fd.append("is_temp", "true");
       const res = await uploadDocuments(fd);
-      setInspecDocId(res.data[0].id);
+      const doc = res.data[0];
+      setInspecUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
     } catch {
       toast.error("Upload file thất bại");
+      setInspecFile(null);
     } finally {
       setInspecUploading(false);
     }
@@ -618,7 +626,7 @@ export default function VehicleDetailPage() {
         inspectionDate: body.inspectionDate || undefined,
         expiryDate: body.expiryDate,
         result: body.result,
-        documentId: inspecDocId ?? undefined,
+        documentId: inspecUploadedDoc?.id ?? undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -628,7 +636,7 @@ export default function VehicleDetailPage() {
       setInspecOpen(false);
       inspecForm.reset();
       setInspecFile(null);
-      setInspecDocId(null);
+      setInspecUploadedDoc(null);
     },
     onError: (err: unknown) => {
       const msg =
@@ -1768,18 +1776,19 @@ export default function VehicleDetailPage() {
             setViewIns(null);
             insForm.reset();
             setInsFile(null);
-            setInsDocId(null);
+            setInsUploadedDoc(null);
           }
         }}
         title={viewIns ? "Chỉnh sửa bảo hiểm" : "Thêm bảo hiểm"}
-        file={insFile}
+        file={insUploadedDoc ? null : insFile}
         onFileChange={(f) => {
           setInsFile(f);
+          setInsUploadedDoc(null);
           if (f) uploadInsFile(f);
         }}
-        isEdit={viewIns !== null}
-        existingFileName={viewIns?.document?.file_name}
-        existingFileUrl={viewIns?.document?.sas_url}
+        isEdit={viewIns !== null || !!insUploadedDoc}
+        existingFileName={insUploadedDoc?.fileName ?? viewIns?.document?.fileName}
+        existingFileUrl={insUploadedDoc?.sasUrl ?? viewIns?.document?.sasUrl}
         uploadLabel="Kéo thả hoặc chọn file bảo hiểm (PDF, JPEG, PNG)"
       >
         <form
@@ -1871,10 +1880,10 @@ export default function VehicleDetailPage() {
             form="insurance-form"
             className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
             disabled={
-              addInsMutation.isPending || insUploading || (!viewIns && !insFile)
+              addInsMutation.isPending || insUploading || (!viewIns && !insUploadedDoc)
             }
           >
-            {addInsMutation.isPending ? "Đang lưu..." : "Lưu"}
+            {addInsMutation.isPending ? "Đang lưu..." : insUploading ? "Đang tải file..." : "Lưu"}
           </Button>
         </div>
       </MobileTwoColDialog>
@@ -1888,18 +1897,19 @@ export default function VehicleDetailPage() {
             setViewInspec(null);
             inspecForm.reset();
             setInspecFile(null);
-            setInspecDocId(null);
+            setInspecUploadedDoc(null);
           }
         }}
         title={viewInspec ? "Chỉnh sửa đăng kiểm" : "Thêm đăng kiểm"}
-        file={inspecFile}
+        file={inspecUploadedDoc ? null : inspecFile}
         onFileChange={(f) => {
           setInspecFile(f);
+          setInspecUploadedDoc(null);
           if (f) uploadInspecFile(f);
         }}
-        isEdit={viewInspec !== null}
-        existingFileName={viewInspec?.document?.file_name}
-        existingFileUrl={viewInspec?.document?.sas_url}
+        isEdit={viewInspec !== null || !!inspecUploadedDoc}
+        existingFileName={inspecUploadedDoc?.fileName ?? viewInspec?.document?.fileName}
+        existingFileUrl={inspecUploadedDoc?.sasUrl ?? viewInspec?.document?.sasUrl}
         uploadLabel="Kéo thả hoặc chọn file đăng kiểm (PDF, JPEG, PNG)"
       >
         <form
@@ -2001,10 +2011,10 @@ export default function VehicleDetailPage() {
             disabled={
               addInspecMutation.isPending ||
               inspecUploading ||
-              (!viewInspec && !inspecFile)
+              (!viewInspec && !inspecUploadedDoc)
             }
           >
-            {addInspecMutation.isPending ? "Đang lưu..." : "Lưu"}
+            {addInspecMutation.isPending ? "Đang lưu..." : inspecUploading ? "Đang tải file..." : "Lưu"}
           </Button>
         </div>
       </MobileTwoColDialog>

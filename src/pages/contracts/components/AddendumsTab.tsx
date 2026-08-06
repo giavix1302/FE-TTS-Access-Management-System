@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
-import { Separator } from '@/components/ui/separator'
 import {
   Select,
   SelectContent,
@@ -22,10 +21,12 @@ import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { DatePicker } from '@/components/shared/DatePicker'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { FileCard } from '@/components/shared/FileCard'
+import { CurrencyInput } from '@/components/shared/CurrencyInput'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getAddendums, createAddendum, updateAddendum, deleteAddendum } from '@/api/contracts.api'
 import { uploadDocument } from '@/api/documents.api'
+import { getCompanySettings } from '@/api/company.api'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
 import { QUERY_KEYS } from '@/utils/queryKeys'
 import { formatCurrency, formatDate } from '@/utils/format'
@@ -54,6 +55,7 @@ function AddendumFileCard({
     <FileCard
       fileName={document.fileName}
       url={document.sasUrl}
+      documentId={document.id}
       fileSize={document.fileSizeKb * 1024}
       createdAt={document.uploadedAt}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
@@ -68,9 +70,10 @@ const addendumSchema = z.object({
   addendumType: z.enum(['extension', 'price_change', 'add_service', 'mixed']),
   startDate: z.string().optional(),
   newEndDate: z.string().optional(),
-  subtotal: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
-  taxAmount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
-  totalAmount: z.number({ invalid_type_error: 'Bắt buộc' }).min(0),
+  subtotal: z.number({ error: 'Bắt buộc' }).min(0),
+  vatRatePercent: z.number({ error: 'Bắt buộc' }).min(0).max(100),
+  taxAmount: z.number({ error: 'Bắt buộc' }).min(0),
+  totalAmount: z.number({ error: 'Bắt buộc' }).min(0),
   content: z.string().max(2000).optional(),
 })
   .refine(
@@ -119,39 +122,99 @@ function AddendumDialog({
   const queryClient = useQueryClient()
   const isEdit = !!editItem
   const [docFile, setDocFile] = useState<File | null>(null)
+  const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null)
+  const [uploading, setUploading] = useState(false)
 
-  const { register, handleSubmit, control, watch, reset, formState: { errors } } = useForm<AddendumForm>({
+  const { data: companySettingsRes } = useQuery({
+    queryKey: ['company-settings'],
+    queryFn: getCompanySettings,
+    staleTime: 5 * 60 * 1000,
+  })
+  const defaultVatRate: number = companySettingsRes?.data?.[0]?.vatRate ?? 8
+
+  function buildDefaultValues(): AddendumForm | Partial<AddendumForm> {
+    if (!editItem) return { vatRatePercent: defaultVatRate }
+    return {
+      addendumNumber: editItem.addendumNumber,
+      addendumType: editItem.addendumType,
+      startDate: editItem.startDate ?? undefined,
+      newEndDate: editItem.newEndDate ?? undefined,
+      subtotal: editItem.subtotal,
+      vatRatePercent: editItem.subtotal > 0
+        ? Math.round((editItem.taxAmount / editItem.subtotal) * 100 * 100) / 100
+        : defaultVatRate,
+      taxAmount: editItem.taxAmount,
+      totalAmount: editItem.totalAmount,
+      content: editItem.content ?? '',
+    }
+  }
+
+  const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm<AddendumForm>({
     resolver: zodResolver(addendumSchema),
-    defaultValues: isEdit
-      ? {
-          addendumNumber: editItem.addendumNumber,
-          addendumType: editItem.addendumType,
-          startDate: editItem.startDate ?? undefined,
-          newEndDate: editItem.newEndDate ?? undefined,
-          subtotal: editItem.subtotal,
-          taxAmount: editItem.taxAmount,
-          totalAmount: editItem.totalAmount,
-          content: editItem.content ?? '',
-        }
-      : {},
+    defaultValues: buildDefaultValues(),
   })
 
+  // Dialog không unmount giữa các lần mở — reset lại form theo editItem mỗi lần open đổi sang true
+  useEffect(() => {
+    if (open) reset(buildDefaultValues())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editItem])
+
   const addendumType = watch('addendumType')
+  const subtotal = watch('subtotal')
+  const vatRatePercent = watch('vatRatePercent')
+  const taxAmount = watch('taxAmount')
+
+  // Subtotal hoặc % thuế đổi → tự tính lại tiền thuế (user vẫn sửa tay được ô Tiền thuế nếu cần làm tròn)
+  useEffect(() => {
+    if (subtotal === undefined || vatRatePercent === undefined) return
+    const computed = Math.round(subtotal * vatRatePercent) / 100
+    setValue('taxAmount', computed, { shouldValidate: true })
+  }, [subtotal, vatRatePercent, setValue])
+
+  // Subtotal hoặc tiền thuế đổi → tự tính lại tổng tiền (luôn auto, không cho sửa tay)
+  useEffect(() => {
+    if (subtotal === undefined || taxAmount === undefined) return
+    setValue('totalAmount', subtotal + taxAmount, { shouldValidate: true })
+  }, [subtotal, taxAmount, setValue])
+
+  // Company settings load xong sau khi form đã mount (create mode) → cập nhật % mặc định
+  useEffect(() => {
+    if (!isEdit && companySettingsRes?.data?.[0]?.vatRate !== undefined) {
+      setValue('vatRatePercent', companySettingsRes.data[0].vatRate)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companySettingsRes])
 
   function handleClose(v: boolean) {
-    if (!v) { reset(); setDocFile(null) }
+    if (!v) { reset(); setDocFile(null); setUploadedDoc(null) }
     onOpenChange(v)
+  }
+
+  // Upload ngay lúc chọn file (is_temp=true) để có URL thật cho preview — thay vì blob URL cục bộ,
+  // đặc biệt cần cho DOCX/XLSX vốn chỉ xem trước được qua Office Viewer (cần URL công khai truy cập được).
+  async function handleFileChange(f: File | null) {
+    setDocFile(f)
+    setUploadedDoc(null)
+    if (!f) return
+    setUploading(true)
+    try {
+      const doc = await uploadDocument({ file: f, doc_type: 'addendum', is_temp: true })
+      setUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl })
+    } catch {
+      toast.error('Tải file lên thất bại, vui lòng thử lại')
+      setDocFile(null)
+    } finally {
+      setUploading(false)
+    }
   }
 
   const mutation = useMutation({
     mutationFn: async (body: AddendumForm) => {
-      // Upload file đính kèm mới (nếu có) → documentId
-      let documentId: number | undefined
-      if (docFile) {
-        const doc = await uploadDocument({ file: docFile, doc_type: 'addendum' })
-        documentId = doc.id
-      }
-      const payload = { ...body, documentId }
+      // vatRatePercent chỉ dùng để tính taxAmount ở FE — BE không có field này
+      const { vatRatePercent: _vatRatePercent, ...rest } = body
+      const documentId = uploadedDoc?.id
+      const payload = { ...rest, documentId }
       return isEdit
         ? updateAddendum(contractId, editItem!.id, payload)
         : createAddendum(contractId, payload)
@@ -170,11 +233,11 @@ function AddendumDialog({
       open={open}
       onOpenChange={handleClose}
       title={isEdit ? 'Chỉnh sửa phụ lục' : 'Thêm phụ lục'}
-      file={docFile}
-      onFileChange={setDocFile}
-      isEdit={isEdit}
-      existingFileName={editItem?.document?.fileName}
-      existingFileUrl={editItem?.document?.sasUrl}
+      file={uploadedDoc ? null : docFile}
+      onFileChange={handleFileChange}
+      isEdit={isEdit || !!uploadedDoc}
+      existingFileName={uploadedDoc?.fileName ?? editItem?.document?.fileName}
+      existingFileUrl={uploadedDoc?.sasUrl ?? editItem?.document?.sasUrl}
       uploadLabel="Kéo thả hoặc nhấp để chọn file phụ lục"
     >
       <form
@@ -239,21 +302,52 @@ function AddendumDialog({
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label>Subtotal <span className="text-error">*</span></Label>
-            <Input type="number" min={0} {...register('subtotal', { valueAsNumber: true })} />
+            <Label>Tổng trước thuế <span className="text-error">*</span></Label>
+            <Controller
+              control={control}
+              name="subtotal"
+              render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} />
+              )}
+            />
             {errors.subtotal && <p className="text-xs text-error">{errors.subtotal.message}</p>}
           </div>
           <div className="space-y-1">
-            <Label>VAT <span className="text-error">*</span></Label>
-            <Input type="number" min={0} {...register('taxAmount', { valueAsNumber: true })} />
+            <Label>Thuế suất (%) <span className="text-error">*</span></Label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step="any"
+              {...register('vatRatePercent', { valueAsNumber: true })}
+            />
+            {errors.vatRatePercent && <p className="text-xs text-error">{errors.vatRatePercent.message}</p>}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>Tiền thuế <span className="text-error">*</span></Label>
+            <Controller
+              control={control}
+              name="taxAmount"
+              render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} />
+              )}
+            />
             {errors.taxAmount && <p className="text-xs text-error">{errors.taxAmount.message}</p>}
           </div>
           <div className="space-y-1">
-            <Label>Tổng tiền <span className="text-error">*</span></Label>
-            <Input type="number" min={0} {...register('totalAmount', { valueAsNumber: true })} />
-            {errors.totalAmount && <p className="text-xs text-error">{errors.totalAmount.message}</p>}
+            <Label>Tổng tiền</Label>
+            <Controller
+              control={control}
+              name="totalAmount"
+              render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} disabled />
+              )}
+            />
           </div>
         </div>
 
@@ -268,8 +362,13 @@ function AddendumDialog({
         <Button type="button" variant="outline" onClick={() => handleClose(false)} className="cursor-pointer">
           Hủy
         </Button>
-        <Button type="submit" form="addendum-form" disabled={mutation.isPending || (!isEdit && !docFile)} className="cursor-pointer">
-          {mutation.isPending ? 'Đang lưu...' : 'Lưu'}
+        <Button
+          type="submit"
+          form="addendum-form"
+          disabled={mutation.isPending || uploading || (!isEdit && !uploadedDoc)}
+          className="cursor-pointer"
+        >
+          {mutation.isPending ? 'Đang lưu...' : uploading ? 'Đang tải file...' : 'Lưu'}
         </Button>
       </div>
     </MobileTwoColDialog>
@@ -289,10 +388,11 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
   const [editingItem, setEditingItem] = useState<Addendum | undefined>()
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
-  const { data: addendums, isLoading } = useQuery<Addendum[]>({
+  const { data, isLoading } = useQuery({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'addendums'],
     queryFn: () => getAddendums(contractId),
   })
+  const addendums: Addendum[] = data?.data ?? []
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteAddendum(contractId, id),
@@ -325,7 +425,7 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
           {Array(2).fill(0).map((_, i) => <Skeleton key={i} className="h-28 rounded-lg" />)}
         </div>
       ) : !addendums || addendums.length === 0 ? (
-        <EmptyState message="Chưa có phụ lục nào" />
+        <EmptyState description="Chưa có phụ lục nào" />
       ) : (
         addendums.map((item) => (
           <div key={item.id} className="bg-bg-card rounded-lg border border-border p-4 mb-3 space-y-3">

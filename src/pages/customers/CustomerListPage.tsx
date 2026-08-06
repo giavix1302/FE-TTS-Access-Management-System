@@ -44,7 +44,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { formatDate } from "@/utils/format";
 import {
   getCustomerTypeBadge,
   getCustomerActiveBadge,

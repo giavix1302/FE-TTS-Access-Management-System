@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -15,6 +15,7 @@ import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { DatePicker } from '@/components/shared/DatePicker'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { FileCard } from '@/components/shared/FileCard'
+import { CurrencyInput } from '@/components/shared/CurrencyInput'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getInvoices, createInvoice, updateInvoice, deleteInvoice } from '@/api/contracts.api'
@@ -47,6 +48,7 @@ function InvoiceFileCard({
     <FileCard
       fileName={document.fileName}
       url={document.sasUrl}
+      documentId={document.id}
       fileSize={document.fileSizeKb * 1024}
       createdAt={document.uploadedAt}
       onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
@@ -59,7 +61,7 @@ function InvoiceFileCard({
 const invoiceSchema = z.object({
   invoiceNumber: z.string().optional(),
   invoiceDate: z.string().min(1, 'Bắt buộc'),
-  amount: z.number({ invalid_type_error: 'Bắt buộc' }).min(1, 'Phải > 0'),
+  amount: z.number({ error: 'Bắt buộc' }).min(1, 'Phải > 0'),
   note: z.string().max(500).optional(),
 })
 
@@ -79,31 +81,56 @@ function InvoiceDialog({
   const queryClient = useQueryClient()
   const isEdit = !!editItem
   const [docFile, setDocFile] = useState<File | null>(null)
+  const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null)
+  const [uploading, setUploading] = useState(false)
+
+  function buildDefaultValues(): InvoiceForm | Partial<InvoiceForm> {
+    if (!editItem) return {}
+    return {
+      invoiceNumber: editItem.invoiceNumber ?? '',
+      invoiceDate: editItem.invoiceDate,
+      amount: editItem.amount,
+      note: editItem.note ?? '',
+    }
+  }
 
   const { register, handleSubmit, control, reset, formState: { errors } } = useForm<InvoiceForm>({
     resolver: zodResolver(invoiceSchema),
-    defaultValues: isEdit
-      ? {
-          invoiceNumber: editItem.invoiceNumber ?? '',
-          invoiceDate: editItem.invoiceDate,
-          amount: editItem.amount,
-          note: editItem.note ?? '',
-        }
-      : {},
+    defaultValues: buildDefaultValues(),
   })
 
+  // Dialog không unmount giữa các lần mở — reset lại form theo editItem mỗi lần open đổi sang true
+  useEffect(() => {
+    if (open) reset(buildDefaultValues())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editItem])
+
   function handleClose(v: boolean) {
-    if (!v) { reset(); setDocFile(null) }
+    if (!v) { reset(); setDocFile(null); setUploadedDoc(null) }
     onOpenChange(v)
+  }
+
+  // Upload ngay lúc chọn file (is_temp=true) để có URL thật cho preview — thay vì blob URL cục bộ,
+  // đặc biệt cần cho DOCX/XLSX vốn chỉ xem trước được qua Office Viewer (cần URL công khai truy cập được).
+  async function handleFileChange(f: File | null) {
+    setDocFile(f)
+    setUploadedDoc(null)
+    if (!f) return
+    setUploading(true)
+    try {
+      const doc = await uploadDocument({ file: f, doc_type: 'invoice', is_temp: true })
+      setUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl })
+    } catch {
+      toast.error('Tải file lên thất bại, vui lòng thử lại')
+      setDocFile(null)
+    } finally {
+      setUploading(false)
+    }
   }
 
   const mutation = useMutation({
     mutationFn: async (body: InvoiceForm) => {
-      let documentId: number | undefined
-      if (docFile) {
-        const doc = await uploadDocument({ file: docFile, doc_type: 'invoice' })
-        documentId = doc.id
-      }
+      const documentId = uploadedDoc?.id
       const payload = { ...body, documentId }
       return isEdit
         ? updateInvoice(contractId, editItem!.id, payload)
@@ -123,11 +150,11 @@ function InvoiceDialog({
       open={open}
       onOpenChange={handleClose}
       title={isEdit ? 'Chỉnh sửa hóa đơn' : 'Thêm hóa đơn'}
-      file={docFile}
-      onFileChange={setDocFile}
-      isEdit={isEdit}
-      existingFileName={editItem?.document?.fileName}
-      existingFileUrl={editItem?.document?.sasUrl}
+      file={uploadedDoc ? null : docFile}
+      onFileChange={handleFileChange}
+      isEdit={isEdit || !!uploadedDoc}
+      existingFileName={uploadedDoc?.fileName ?? editItem?.document?.fileName}
+      existingFileUrl={uploadedDoc?.sasUrl ?? editItem?.document?.sasUrl}
       uploadLabel="Kéo thả hoặc nhấp để chọn file hóa đơn"
     >
       <form
@@ -156,7 +183,13 @@ function InvoiceDialog({
           </div>
           <div className="space-y-1">
             <Label>Số tiền <span className="text-error">*</span></Label>
-            <Input type="number" min={1} {...register('amount', { valueAsNumber: true })} />
+            <Controller
+              control={control}
+              name="amount"
+              render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} />
+              )}
+            />
             {errors.amount && <p className="text-xs text-error">{errors.amount.message}</p>}
           </div>
         </div>
@@ -171,8 +204,13 @@ function InvoiceDialog({
         <Button type="button" variant="outline" onClick={() => handleClose(false)} className="cursor-pointer">
           Hủy
         </Button>
-        <Button type="submit" form="invoice-form" disabled={mutation.isPending || (!isEdit && !docFile)} className="cursor-pointer">
-          {mutation.isPending ? 'Đang lưu...' : 'Lưu'}
+        <Button
+          type="submit"
+          form="invoice-form"
+          disabled={mutation.isPending || uploading || (!isEdit && !uploadedDoc)}
+          className="cursor-pointer"
+        >
+          {mutation.isPending ? 'Đang lưu...' : uploading ? 'Đang tải file...' : 'Lưu'}
         </Button>
       </div>
     </MobileTwoColDialog>
@@ -192,10 +230,11 @@ export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) 
   const [editingItem, setEditingItem] = useState<Invoice | undefined>()
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
-  const { data: invoices, isLoading } = useQuery<Invoice[]>({
+  const { data, isLoading } = useQuery({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'invoices'],
     queryFn: () => getInvoices(contractId),
   })
+  const invoices: Invoice[] = data?.data ?? []
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteInvoice(contractId, id),
@@ -242,7 +281,7 @@ export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) 
           {Array(2).fill(0).map((_, i) => <Skeleton key={i} className="h-24 rounded-lg" />)}
         </div>
       ) : !invoices || invoices.length === 0 ? (
-        <EmptyState message="Chưa có hóa đơn nào" />
+        <EmptyState description="Chưa có hóa đơn nào" />
       ) : (
         invoices.map((item) => (
           <div key={item.id} className="bg-bg-card rounded-lg border border-border p-4 mb-3 space-y-3">

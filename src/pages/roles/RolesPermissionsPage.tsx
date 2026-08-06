@@ -196,8 +196,8 @@ function PermissionEditor({ roleDetail, allPermissions, onSaved }: PermissionEdi
         onOpenChange={setShowConfirm}
         title="Xác nhận cập nhật phân quyền"
         description={`Thay đổi phân quyền cho vai trò "${ROLE_LABEL[roleDetail.name] ?? roleDetail.name}" sẽ có hiệu lực ngay với tất cả người dùng đang đăng nhập. Bạn có chắc chắn muốn tiếp tục?`}
-        confirmText="Xác nhận"
-        cancelText="Hủy"
+        confirmLabel="Xác nhận"
+        cancelLabel="Hủy"
         variant="primary"
         loading={isPending}
         onConfirm={() => mutate([...selected])}

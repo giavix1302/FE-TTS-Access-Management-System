@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -50,10 +49,10 @@ const contractInfoSchema = z.object({
   contractNumber: z.string().min(1, "Bắt buộc"),
   startDate: z.string().min(1, "Bắt buộc"),
   plannedDays: z
-    .number({ invalid_type_error: "Bắt buộc" })
+    .number({ error: "Bắt buộc" })
     .min(1, "Phải >= 1"),
   siteAddress: z.string().min(1, "Bắt buộc"),
-  excludedDays: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
+  excludedDays: z.number({ error: "Bắt buộc" }).min(0),
   excludedReason: z.string().optional(),
 });
 
@@ -236,11 +235,11 @@ function ContractInfoDialog({
 
 // ─── LineItemDialog ────────────────────────────────────────────────────────────
 const lineItemSchema = z.object({
-  serviceId: z.number({ invalid_type_error: "Bắt buộc" }).min(1, "Bắt buộc"),
+  serviceId: z.number({ error: "Bắt buộc" }).min(1, "Bắt buộc"),
   vehicleId: z.number().nullable().optional(),
-  unitPrice: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
-  quantity: z.number({ invalid_type_error: "Bắt buộc" }).min(1),
-  sortOrder: z.number({ invalid_type_error: "Bắt buộc" }).min(0),
+  unitPrice: z.number({ error: "Bắt buộc" }).min(0),
+  quantity: z.number({ error: "Bắt buộc" }).min(1),
+  sortOrder: z.number({ error: "Bắt buộc" }).min(0),
 });
 
 type LineItemForm = z.infer<typeof lineItemSchema>;
@@ -249,7 +248,6 @@ interface ServiceCatalogItem {
   id: number
   name: string
   unit: string
-  defaultPrice: number
   isActive: boolean
 }
 
@@ -287,7 +285,6 @@ function LineItemDialog({
     register,
     handleSubmit,
     control,
-    setValue,
     formState: { errors },
   } = useForm<LineItemForm>({
     resolver: zodResolver(lineItemSchema),
@@ -335,14 +332,7 @@ function LineItemDialog({
                 render={({ field }) => (
                   <Select
                     value={field.value?.toString()}
-                    onValueChange={(v) => {
-                      const id = Number(v)
-                      field.onChange(id)
-                      if (!isEdit) {
-                        const svc = activeServices.find((s) => s.id === id)
-                        if (svc) setValue("unitPrice", svc.defaultPrice)
-                      }
-                    }}
+                    onValueChange={(v) => field.onChange(Number(v))}
                   >
                     <SelectTrigger className="cursor-pointer">
                       <SelectValue placeholder="Chọn dịch vụ" />
@@ -438,7 +428,7 @@ export function ContractTab({
     documentId: contract.document?.id,
     entityType: "contract",
     entityId: contractId,
-    queryKeys: [QUERY_KEYS.contracts.detail(contractId)],
+    queryKeys: [[...QUERY_KEYS.contracts.detail(contractId)]],
   });
   const [lineItemDialogOpen, setLineItemDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<LineItem | undefined>();
@@ -535,6 +525,7 @@ export function ContractTab({
             <FileCard
               fileName={contract.document?.fileName}
               url={contract.document?.sasUrl}
+              documentId={contract.document?.id}
               fileSize={contract.document.fileSizeKb * 1024}
               createdAt={contract.document.uploadedAt}
               onReplace={

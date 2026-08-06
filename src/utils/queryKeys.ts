@@ -24,6 +24,12 @@ export const QUERY_KEYS = {
     all: ["notifications"] as const,
     unreadCount: ["notifications", "unread-count"] as const,
   },
+  dashboard: {
+    all: ["dashboard"] as const,
+    summary: ["dashboard", "summary"] as const,
+    charts: ["dashboard", "charts"] as const,
+    alerts: ["dashboard", "alerts"] as const,
+  },
   companySettings: ["company-settings"] as const,
   serviceCatalog: {
     all: ["service-catalog"] as const,

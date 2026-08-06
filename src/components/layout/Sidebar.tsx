@@ -1,4 +1,4 @@
-import { useLocation, useNavigate, Link } from "react-router-dom";
+import { useLocation, Link } from "react-router-dom";
 import {
   LayoutDashboard,
   Truck,
@@ -22,7 +22,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAuthStore } from "@/stores/authStore";
-import { useNotificationStore } from "@/stores/notificationStore";
 
 interface NavItem {
   label: string;
@@ -88,9 +87,7 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }: SidebarProps) {
   const location = useLocation();
-  const navigate = useNavigate();
   const { user } = useAuthStore();
-  const unreadCount = useNotificationStore((s) => s.unreadCount);
 
   const roles = user?.roles ?? [];
   const permissions = user?.permissions ?? [];

@@ -1,4 +1,4 @@
-import { ReactNode } from "react"
+import { type ReactNode } from "react"
 import { Inbox } from "lucide-react"
 
 interface EmptyStateProps {

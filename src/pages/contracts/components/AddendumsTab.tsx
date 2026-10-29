@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Pencil, Trash2, Plus } from 'lucide-react'
+import { Pencil, Trash2, Plus, CalendarIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -21,16 +21,18 @@ import { ConfirmModal } from '@/components/shared/ConfirmModal'
 import { DatePicker } from '@/components/shared/DatePicker'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { FileCard } from '@/components/shared/FileCard'
-import { CurrencyInput } from '@/components/shared/CurrencyInput'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
+import { DocumentExtractButton } from '@/components/shared/DocumentExtractButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getAddendums, createAddendum, updateAddendum, deleteAddendum } from '@/api/contracts.api'
 import { uploadDocument } from '@/api/documents.api'
-import { getCompanySettings } from '@/api/company.api'
+import { getServiceErrorMessage } from '@/constants/serviceErrors'
+import { usePermission } from '@/hooks/usePermission'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
+import { LineItemDialog } from './LineItemDialog'
 import { QUERY_KEYS } from '@/utils/queryKeys'
 import { formatCurrency, formatDate } from '@/utils/format'
-import type { ContractStatus, Addendum, AddendumType } from '@/types/contract.types'
+import type { ContractStatus, Addendum, AddendumType, AddendumAutofillFields } from '@/types/contract.types'
 
 // ─── AddendumFileCard — wraps FileCard to call hook per-item ─────────────────
 function AddendumFileCard({
@@ -65,25 +67,14 @@ function AddendumFileCard({
 }
 
 // ─── AddendumDialog ───────────────────────────────────────────────────────────
+// Tiền phụ lục BE tự tính từ các dòng của phụ lục → form không có tiền / ngày kết thúc mới.
+// Dòng phụ lục thêm qua POST /contracts/{id}/line-items kèm addendumId (LineItemDialog)
 const addendumSchema = z.object({
   addendumNumber: z.string().min(1, 'Bắt buộc'),
   addendumType: z.enum(['extension', 'price_change', 'add_service', 'mixed']),
   startDate: z.string().optional(),
-  newEndDate: z.string().optional(),
-  subtotal: z.number({ error: 'Bắt buộc' }).min(0),
-  vatRatePercent: z.number({ error: 'Bắt buộc' }).min(0).max(100),
-  taxAmount: z.number({ error: 'Bắt buộc' }).min(0),
-  totalAmount: z.number({ error: 'Bắt buộc' }).min(0),
   content: z.string().max(2000).optional(),
 })
-  .refine(
-    (d) => Math.abs(d.subtotal + d.taxAmount - d.totalAmount) <= 1000,
-    { message: 'Subtotal + VAT lệch quá 1.000₫ so với tổng tiền', path: ['totalAmount'] }
-  )
-  .refine(
-    (d) => d.addendumType !== 'extension' || !!d.newEndDate,
-    { message: 'Bắt buộc nhập ngày kết thúc mới khi loại phụ lục là Gia hạn', path: ['newEndDate'] }
-  )
 
 type AddendumForm = z.infer<typeof addendumSchema>
 
@@ -124,32 +115,19 @@ function AddendumDialog({
   const [docFile, setDocFile] = useState<File | null>(null)
   const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [extracting, setExtracting] = useState(false)
 
-  const { data: companySettingsRes } = useQuery({
-    queryKey: ['company-settings'],
-    queryFn: getCompanySettings,
-    staleTime: 5 * 60 * 1000,
-  })
-  const defaultVatRate: number = companySettingsRes?.data?.[0]?.vatRate ?? 8
-
-  function buildDefaultValues(): AddendumForm | Partial<AddendumForm> {
-    if (!editItem) return { vatRatePercent: defaultVatRate }
+  function buildDefaultValues(): Partial<AddendumForm> {
+    if (!editItem) return {}
     return {
       addendumNumber: editItem.addendumNumber,
       addendumType: editItem.addendumType,
       startDate: editItem.startDate ?? undefined,
-      newEndDate: editItem.newEndDate ?? undefined,
-      subtotal: editItem.subtotal,
-      vatRatePercent: editItem.subtotal > 0
-        ? Math.round((editItem.taxAmount / editItem.subtotal) * 100 * 100) / 100
-        : defaultVatRate,
-      taxAmount: editItem.taxAmount,
-      totalAmount: editItem.totalAmount,
       content: editItem.content ?? '',
     }
   }
 
-  const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm<AddendumForm>({
+  const { register, handleSubmit, control, reset, setValue, formState: { errors } } = useForm<AddendumForm>({
     resolver: zodResolver(addendumSchema),
     defaultValues: buildDefaultValues(),
   })
@@ -159,32 +137,6 @@ function AddendumDialog({
     if (open) reset(buildDefaultValues())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editItem])
-
-  const addendumType = watch('addendumType')
-  const subtotal = watch('subtotal')
-  const vatRatePercent = watch('vatRatePercent')
-  const taxAmount = watch('taxAmount')
-
-  // Subtotal hoặc % thuế đổi → tự tính lại tiền thuế (user vẫn sửa tay được ô Tiền thuế nếu cần làm tròn)
-  useEffect(() => {
-    if (subtotal === undefined || vatRatePercent === undefined) return
-    const computed = Math.round(subtotal * vatRatePercent) / 100
-    setValue('taxAmount', computed, { shouldValidate: true })
-  }, [subtotal, vatRatePercent, setValue])
-
-  // Subtotal hoặc tiền thuế đổi → tự tính lại tổng tiền (luôn auto, không cho sửa tay)
-  useEffect(() => {
-    if (subtotal === undefined || taxAmount === undefined) return
-    setValue('totalAmount', subtotal + taxAmount, { shouldValidate: true })
-  }, [subtotal, taxAmount, setValue])
-
-  // Company settings load xong sau khi form đã mount (create mode) → cập nhật % mặc định
-  useEffect(() => {
-    if (!isEdit && companySettingsRes?.data?.[0]?.vatRate !== undefined) {
-      setValue('vatRatePercent', companySettingsRes.data[0].vatRate)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [companySettingsRes])
 
   function handleClose(v: boolean) {
     if (!v) { reset(); setDocFile(null); setUploadedDoc(null) }
@@ -211,21 +163,19 @@ function AddendumDialog({
 
   const mutation = useMutation({
     mutationFn: async (body: AddendumForm) => {
-      // vatRatePercent chỉ dùng để tính taxAmount ở FE — BE không có field này
-      const { vatRatePercent: _vatRatePercent, ...rest } = body
       const documentId = uploadedDoc?.id
-      const payload = { ...rest, documentId }
+      const payload = { ...body, documentId }
       return isEdit
         ? updateAddendum(contractId, editItem!.id, payload)
         : createAddendum(contractId, payload)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'addendums'] })
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
+      // contracts.all là prefix của detail/addendums/summary → invalidate 1 lần là đủ
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
       toast.success(isEdit ? 'Đã cập nhật phụ lục' : 'Đã thêm phụ lục')
       handleClose(false)
     },
-    onError: () => toast.error('Có lỗi xảy ra'),
+    onError: (err) => toast.error(getServiceErrorMessage(err)),
   })
 
   return (
@@ -246,6 +196,18 @@ function AddendumDialog({
         className="flex flex-col gap-4 px-5 py-4 flex-1"
       >
         <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">Thông tin phụ lục</p>
+        <DocumentExtractButton<AddendumAutofillFields>
+          documentId={uploadedDoc?.id ?? editItem?.document?.id}
+          docType="addendum"
+          disabled={uploading}
+          onBusyChange={setExtracting}
+          onExtract={(fields) => {
+            if (fields.addendumNumber !== undefined) setValue('addendumNumber', fields.addendumNumber)
+            if (fields.addendumType !== undefined) setValue('addendumType', fields.addendumType)
+            if (fields.startDate !== undefined) setValue('startDate', fields.startDate)
+            if (fields.content !== undefined) setValue('content', fields.content)
+          }}
+        />
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
@@ -275,86 +237,26 @@ function AddendumDialog({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label>Ngày bắt đầu</Label>
-            <Controller
-              control={control}
-              name="startDate"
-              render={({ field }) => (
-                <DatePicker value={field.value} onChange={field.onChange} placeholder="Chọn ngày" />
-              )}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>
-              Ngày kết thúc mới
-              {addendumType === 'extension' && <span className="text-error"> *</span>}
-            </Label>
-            <Controller
-              control={control}
-              name="newEndDate"
-              render={({ field }) => (
-                <DatePicker value={field.value} onChange={field.onChange} placeholder="Chọn ngày" align="end" />
-              )}
-            />
-            {errors.newEndDate && <p className="text-xs text-error">{errors.newEndDate.message}</p>}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label>Tổng trước thuế <span className="text-error">*</span></Label>
-            <Controller
-              control={control}
-              name="subtotal"
-              render={({ field }) => (
-                <CurrencyInput value={field.value} onChange={field.onChange} />
-              )}
-            />
-            {errors.subtotal && <p className="text-xs text-error">{errors.subtotal.message}</p>}
-          </div>
-          <div className="space-y-1">
-            <Label>Thuế suất (%) <span className="text-error">*</span></Label>
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              step="any"
-              {...register('vatRatePercent', { valueAsNumber: true })}
-            />
-            {errors.vatRatePercent && <p className="text-xs text-error">{errors.vatRatePercent.message}</p>}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label>Tiền thuế <span className="text-error">*</span></Label>
-            <Controller
-              control={control}
-              name="taxAmount"
-              render={({ field }) => (
-                <CurrencyInput value={field.value} onChange={field.onChange} />
-              )}
-            />
-            {errors.taxAmount && <p className="text-xs text-error">{errors.taxAmount.message}</p>}
-          </div>
-          <div className="space-y-1">
-            <Label>Tổng tiền</Label>
-            <Controller
-              control={control}
-              name="totalAmount"
-              render={({ field }) => (
-                <CurrencyInput value={field.value} onChange={field.onChange} disabled />
-              )}
-            />
-          </div>
+        <div className="space-y-1">
+          <Label>Ngày bắt đầu</Label>
+          <Controller
+            control={control}
+            name="startDate"
+            render={({ field }) => (
+              <DatePicker value={field.value} onChange={field.onChange} placeholder="Chọn ngày" />
+            )}
+          />
         </div>
 
         <div className="space-y-1">
           <Label>Nội dung</Label>
           <Textarea rows={3} maxLength={2000} {...register('content')} />
         </div>
+
+        <p className="rounded-md bg-bg-page px-3 py-2 text-xs text-text-secondary">
+          Tiền phụ lục được tự tính từ các dòng dịch vụ của phụ lục (cùng VAT công ty).
+          {isEdit ? '' : ' Lưu phụ lục xong rồi thêm dòng dịch vụ.'}
+        </p>
       </form>
 
       {/* Footer */}
@@ -365,7 +267,7 @@ function AddendumDialog({
         <Button
           type="submit"
           form="addendum-form"
-          disabled={mutation.isPending || uploading || (!isEdit && !uploadedDoc)}
+          disabled={mutation.isPending || uploading || extracting}
           className="cursor-pointer"
         >
           {mutation.isPending ? 'Đang lưu...' : uploading ? 'Đang tải file...' : 'Lưu'}
@@ -384,9 +286,14 @@ interface AddendumsTabProps {
 
 export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsTabProps) {
   const queryClient = useQueryClient()
+  const { hasPermission } = usePermission()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Addendum | undefined>()
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  // Thêm dòng dịch vụ cho phụ lục — cần cả contracts.update lẫn service_catalog.view (giống dòng HĐ gốc)
+  const [addingLineTo, setAddingLineTo] = useState<Addendum | undefined>()
+  const canWrite = canEdit && contractStatus === 'active'
+  const canAddService = canWrite && hasPermission('service_catalog.view')
 
   const { data, isLoading } = useQuery({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'addendums'],
@@ -397,12 +304,16 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteAddendum(contractId, id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'addendums'] })
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
       toast.success('Đã xóa phụ lục')
       setDeletingId(null)
     },
-    onError: () => toast.error('Có lỗi xảy ra'),
+    onError: (err) => {
+      // 409 ADDENDUM_HAS_LINE_ITEMS: dữ liệu lệch (vừa có dòng mới) → đồng bộ lại
+      toast.error(getServiceErrorMessage(err))
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.detail(contractId) })
+      setDeletingId(null)
+    },
   })
 
   const openAdd = () => { setEditingItem(undefined); setDialogOpen(true) }
@@ -412,7 +323,7 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
     <div className="mt-4">
       <div className="flex items-center justify-between mb-4">
         <span className="font-medium text-text-primary">Phụ lục</span>
-        {canEdit && contractStatus === 'active' && (
+        {canWrite && (
           <Button variant="outline" size="sm" onClick={openAdd} className="cursor-pointer">
             <Plus size={14} />
             Thêm phụ lục
@@ -427,7 +338,10 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
       ) : !addendums || addendums.length === 0 ? (
         <EmptyState description="Chưa có phụ lục nào" />
       ) : (
-        addendums.map((item) => (
+        addendums.map((item) => {
+          const lineItems = item.lineItems ?? []
+          const hasLines = lineItems.length > 0
+          return (
           <div key={item.id} className="bg-bg-card rounded-lg border border-border p-4 mb-3 space-y-3">
             {/* Row 1: info + actions */}
             <div className="flex items-start justify-between gap-2">
@@ -437,9 +351,10 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
                   <span className={`text-xs px-2.5 py-1 rounded-full ${ADDENDUM_TYPE_CHIP[item.addendumType]}`}>
                     {ADDENDUM_TYPE_LABELS[item.addendumType]}
                   </span>
-                  {(item.startDate || item.newEndDate) && (
-                    <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                      {formatDate(item.startDate)} → {formatDate(item.newEndDate)}
+                  {item.startDate && (
+                    <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
+                      <CalendarIcon size={10} />
+                      Từ {formatDate(item.startDate)}
                     </span>
                   )}
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
@@ -450,7 +365,7 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
                   <p className="text-sm text-text-secondary mt-2 line-clamp-2">{item.content}</p>
                 )}
               </div>
-              {canEdit && contractStatus === 'active' && (
+              {canWrite && (
                 <div className="flex items-center gap-0.5 flex-none">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -460,28 +375,93 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
                     </TooltipTrigger>
                     <TooltipContent>Chỉnh sửa phụ lục</TooltipContent>
                   </Tooltip>
+                  {/* BE chặn xóa phụ lục còn dòng (409 ADDENDUM_HAS_LINE_ITEMS) → disable trước.
+                      Bọc span để tooltip vẫn hiện khi nút disable */}
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setDeletingId(item.id) }} className="cursor-pointer h-8 w-8 p-0 hover:bg-error hover:text-white">
-                        <Trash2 size={14} />
-                      </Button>
+                      <span className="inline-flex">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={hasLines}
+                          onClick={(e) => { e.stopPropagation(); setDeletingId(item.id) }}
+                          className="cursor-pointer h-8 w-8 p-0 hover:bg-error hover:text-white"
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </span>
                     </TooltipTrigger>
-                    <TooltipContent>Xóa phụ lục</TooltipContent>
+                    <TooltipContent>
+                      {hasLines ? 'Phụ lục còn dòng dịch vụ, xóa các dòng trước' : 'Xóa phụ lục'}
+                    </TooltipContent>
                   </Tooltip>
                 </div>
               )}
             </div>
-            {/* Row 2: file */}
+
+            {/* Row 2: dòng dịch vụ của phụ lục (gán xe / sửa dòng ở mục Dịch vụ & xe, tab Hợp đồng) */}
+            <div className="pt-3 border-t border-border space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">Dịch vụ</p>
+                {canAddService && (
+                  <button
+                    type="button"
+                    onClick={() => setAddingLineTo(item)}
+                    className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Thêm dịch vụ
+                  </button>
+                )}
+              </div>
+              {!hasLines ? (
+                <p className="text-xs text-text-disabled">Chưa có dòng dịch vụ</p>
+              ) : (
+                <>
+                  <ul className="space-y-1">
+                    {lineItems.map((li) => (
+                      <li key={li.id} className="flex justify-between gap-3 text-sm">
+                        <span className="min-w-0 text-text-primary">
+                          {li.service.name}{' '}
+                          <span className="text-text-secondary">
+                            · {formatCurrency(li.unitPrice)} × {li.quantity} {li.unit}
+                            {li.duration != null ? ` × ${li.duration}` : ""}
+                          </span>
+                        </span>
+                        <span className="shrink-0 font-medium text-text-primary">{formatCurrency(li.lineTotal)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  {/* Tiền phụ lục do BE tự tính — chỉ đọc */}
+                  <div className="rounded-md bg-primary-light px-3 py-2 text-xs text-text-secondary space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>Cộng tiền hàng</span>
+                      <span className="font-medium text-text-primary">{formatCurrency(item.subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>VAT</span>
+                      <span className="font-medium text-text-primary">{formatCurrency(item.taxAmount)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="font-semibold text-text-primary">Tổng phụ lục</span>
+                      <span className="font-bold text-primary">{formatCurrency(item.totalAmount)}</span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Row 3: file */}
             <div className="pt-3 border-t border-border">
               <AddendumFileCard
                 document={item.document}
                 addendumId={item.id}
                 contractId={contractId}
-                canEdit={canEdit && contractStatus === 'active'}
+                canEdit={canWrite}
               />
             </div>
           </div>
-        ))
+          )
+        })
       )}
 
       <AddendumDialog
@@ -489,6 +469,13 @@ export function AddendumsTab({ contractId, contractStatus, canEdit }: AddendumsT
         onOpenChange={(v) => { setDialogOpen(v); if (!v) setEditingItem(undefined) }}
         contractId={contractId}
         editItem={editingItem}
+      />
+
+      <LineItemDialog
+        open={!!addingLineTo}
+        onOpenChange={(v) => { if (!v) setAddingLineTo(undefined) }}
+        contractId={contractId}
+        addendum={addingLineTo}
       />
 
       <ConfirmModal

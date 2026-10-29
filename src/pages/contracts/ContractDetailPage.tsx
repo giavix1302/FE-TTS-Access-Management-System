@@ -1,21 +1,11 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  ArrowLeft,
-  ChevronDown,
-  CalendarDays,
-  DollarSign,
-  CheckCircle2,
-  AlertCircle,
-  Building2,
-  User,
-} from "lucide-react";
+import { ArrowLeft, Building2, ChevronDown, FileText, MapPin, User } from "lucide-react";
 import type { AxiosError } from "axios";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -35,69 +25,37 @@ import {
 } from "@/components/shared/MobileSheet";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { ContractTab } from "./components/ContractTab";
+import { ServiceLinesTab } from "./components/ServiceLinesTab";
 import { AddendumsTab } from "./components/AddendumsTab";
 import { AcceptanceTab } from "./components/AcceptanceTab";
 import { InvoicesTab } from "./components/InvoicesTab";
 import { IncidentsTab } from "./components/IncidentsTab";
+import { ContractHistoryTab } from "./components/ContractHistoryTab";
 import {
   getContractById,
   getContractSummary,
   changeContractStatus,
 } from "@/api/contracts.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
-import { formatCurrency, formatDate } from "@/utils/format";
 import { getContractStatusBadge } from "@/constants/contractStatus";
+import { formatCurrency, formatDate, formatDateTime } from "@/utils/format";
 import { usePermission } from "@/hooks/usePermission";
 import type {
   ContractDetail,
   ContractSummary,
 } from "@/types/contract.types";
 
-// ─── SummaryCard ──────────────────────────────────────────────────────────────
-function SummaryCard({
-  label,
-  value,
-  sub,
-  valueClass,
-  Icon,
-  iconClass,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  valueClass?: string;
-  Icon: React.ElementType;
-  iconClass?: string;
-}) {
-  return (
-    <div className="bg-bg-card rounded-lg border border-border shadow-card p-[var(--sp-card)] flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <p className="text-[length:var(--fs-sm)] font-medium text-text-secondary uppercase tracking-wide">
-          {label}
-        </p>
-        <Icon
-          className={`h-4 w-4 lg:h-5 lg:w-5 shrink-0 ${iconClass ?? "text-primary"}`}
-        />
-      </div>
-      <p
-        className={`text-[length:var(--fs-display)] font-bold leading-none text-text-primary ${valueClass ?? ""}`}
-      >
-        {value}
-      </p>
-      {sub && (
-        <p className="text-[length:var(--fs-sm)] text-text-secondary">{sub}</p>
-      )}
-    </div>
-  );
-}
-
 // ─── StatusChangeDropdown ─────────────────────────────────────────────────────
 function StatusChangeDropdown({
   contract,
   contractId,
+  canCancel,
+  onGoToServices,
 }: {
   contract: ContractDetail;
   contractId: number;
+  canCancel: boolean;
+  onGoToServices?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [confirmType, setConfirmType] = useState<
@@ -107,8 +65,10 @@ function StatusChangeDropdown({
   const [reasonError, setReasonError] = useState("");
 
   const mutation = useMutation({
-    mutationFn: (body: unknown) => changeContractStatus(contractId, body),
+    mutationFn: (body: { status: ContractDetail['status']; reason?: string; reopenReason?: string }) => changeContractStatus(contractId, body),
     onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all });
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.contracts.detail(contractId),
       });
@@ -121,21 +81,28 @@ function StatusChangeDropdown({
           (w: { code: string }) => w.code === "VEHICLES_STILL_RENTING",
         )
       ) {
-        toast.warning("Còn xe chưa trả — vui lòng cập nhật trạng thái xe");
+        // BE chỉ tự ghi ngày trả cho HĐ active → HĐ đã đóng phải ghi returnDate thủ công
+        toast.warning(
+          "Còn xe chưa trả. Hợp đồng đã đóng nên đổi trạng thái xe sẽ không tự ghi ngày trả — hãy ghi ngày trả thủ công.",
+          onGoToServices
+            ? { action: { label: "Xem dịch vụ & xe", onClick: onGoToServices } }
+            : undefined,
+        );
       }
       setConfirmType(null);
       setReason("");
     },
-    onError: (error: AxiosError<{ code: string; message: string }>) => {
-      const code = error.response?.data?.code;
+    onError: (error: AxiosError<{ error?: { code: string; message: string } }>) => {
+      const code = error.response?.data?.error?.code;
       const messages: Record<string, string> = {
         CONTRACT_NOT_ACTIVE: "Hợp đồng không ở trạng thái active",
-        VEHICLES_STILL_RENTING:
-          "Còn xe chưa trả — vui lòng cập nhật trạng thái xe",
+        INVALID_STATUS_TRANSITION: "Không thể chuyển sang trạng thái này",
+        REASON_REQUIRED: "Vui lòng nhập lý do hủy",
+        REOPEN_REASON_REQUIRED: "Vui lòng nhập lý do mở lại",
       };
       toast.error(
         messages[code ?? ""] ??
-          error.response?.data?.message ??
+          error.response?.data?.error?.message ??
           "Có lỗi xảy ra",
       );
     },
@@ -143,13 +110,13 @@ function StatusChangeDropdown({
 
   const handleConfirm = () => {
     if (
-      (confirmType === "cancel" || confirmType === "reopen") &&
+      (confirmType === "cancel" || (confirmType === "reopen" && contract.status === "completed")) &&
       !reason.trim()
     ) {
       setReasonError("Bắt buộc nhập lý do");
       return;
     }
-    const body =
+    const body: { status: ContractDetail['status']; reason?: string; reopenReason?: string } =
       confirmType === "complete"
         ? { status: "completed" }
         : confirmType === "cancel"
@@ -157,20 +124,6 @@ function StatusChangeDropdown({
           : { status: "active", reopenReason: reason };
     mutation.mutate(body);
   };
-
-  if (contract.status === "cancelled") {
-    return (
-      <Button
-        variant="outline"
-        size="sm"
-        disabled
-        className="flex-1 sm:flex-none"
-      >
-        <ChevronDown size={14} />
-        Đổi trạng thái
-      </Button>
-    );
-  }
 
   return (
     <>
@@ -194,12 +147,14 @@ function StatusChangeDropdown({
               >
                 Hoàn thành hợp đồng
               </DropdownMenuItem>
-              <DropdownMenuItem
-                className="cursor-pointer text-error focus:text-error"
-                onClick={() => setConfirmType("cancel")}
-              >
-                Hủy hợp đồng
-              </DropdownMenuItem>
+              {canCancel && (
+                <DropdownMenuItem
+                  className="cursor-pointer text-error focus:text-error"
+                  onClick={() => setConfirmType("cancel")}
+                >
+                  Hủy hợp đồng
+                </DropdownMenuItem>
+              )}
             </>
           )}
           {contract.status === "completed" && (
@@ -208,6 +163,14 @@ function StatusChangeDropdown({
               onClick={() => setConfirmType("reopen")}
             >
               Mở lại hợp đồng (Reopen)
+            </DropdownMenuItem>
+          )}
+          {contract.status === "cancelled" && (
+            <DropdownMenuItem
+              className="cursor-pointer"
+              onClick={() => setConfirmType("reopen")}
+            >
+              Mở lại hợp đồng
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>
@@ -248,7 +211,7 @@ function StatusChangeDropdown({
             <div className="space-y-2">
               <Label>
                 {confirmType === "cancel" ? "Lý do hủy" : "Lý do mở lại"}
-                <span className="text-error"> *</span>
+                {(confirmType === "cancel" || contract.status === "completed") && <span className="text-error"> *</span>}
               </Label>
               <Textarea
                 rows={3}
@@ -303,6 +266,10 @@ export default function ContractDetailPage() {
   const { hasPermission } = usePermission();
 
   const canEdit = hasPermission("contracts.update");
+  const canCancel = hasPermission("contracts.delete");
+  const canFinance = hasPermission("contracts.finance");
+  const canViewAudit = hasPermission("audit.view");
+  const canViewCustomer = hasPermission("customers.view");
 
   const [activeTab, setActiveTab] = useState("contract");
 
@@ -314,7 +281,7 @@ export default function ContractDetailPage() {
   const { data: summaryRes } = useQuery({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), "summary"],
     queryFn: () => getContractSummary(contractId),
-    enabled: !Number.isNaN(contractId),
+    enabled: !Number.isNaN(contractId) && canFinance,
   });
 
   const contract: ContractDetail | undefined = contractRes?.data;
@@ -325,13 +292,6 @@ export default function ContractDetailPage() {
       <div className="space-y-4">
         <Skeleton className="h-8 w-32" />
         <Skeleton className="h-20 w-full" />
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {Array(4)
-            .fill(0)
-            .map((_, i) => (
-              <Skeleton key={i} className="h-20 rounded-lg" />
-            ))}
-        </div>
       </div>
     );
   }
@@ -347,6 +307,13 @@ export default function ContractDetailPage() {
   const { label: statusLabel, className: statusClass } = getContractStatusBadge(
     contract.status,
   );
+  // GET /contracts/{id} không trả displayName (chỉ list có) → lấy theo loại khách
+  const isBusiness = contract.customer.customerType === "business";
+  const CustomerIcon = isBusiness ? Building2 : User;
+  const customerName =
+    (contract.customer.customerType === "business"
+      ? contract.customer.internationalName
+      : contract.customer.fullName) || "—";
 
   return (
     <div>
@@ -358,159 +325,84 @@ export default function ContractDetailPage() {
         <ArrowLeft className="h-4 w-4" /> Danh sách hợp đồng
       </button>
 
-      {/* Header card */}
-      <div className="bg-bg-card rounded-lg border border-border shadow-card p-5 mt-2">
-        {/* Title row */}
-        <div className="flex items-center gap-2 flex-wrap mb-3">
-          <h1 className="font-mono font-bold text-base text-text-primary leading-tight">
-            {contract.contractNumber}
-          </h1>
-          <span
-            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusClass}`}
-          >
-            {statusLabel}
-          </span>
-        </div>
-
-        <Separator className="mb-4" />
-
-        {/* Customer info grid */}
-        <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-          <div className="col-span-2">
-            <p className="text-xs text-text-secondary">Khách hàng</p>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              {contract.customer.customerType === "business" ? (
-                <Building2 size={13} className="text-text-secondary shrink-0" />
-              ) : (
-                <User size={13} className="text-text-secondary shrink-0" />
-              )}
-              <p className="text-sm font-medium text-text-primary">
-                {contract.customer.displayName}
-              </p>
+      {/* ── Header card — cùng bố cục với CustomerDetailPage ── */}
+      <div className="mt-2 rounded-lg border border-border bg-bg-card p-[var(--sp-card)] lg:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          {/* Left: icon + info */}
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary-light">
+              <FileText className="h-8 w-8 text-primary" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="mb-1 break-all text-[length:var(--fs-heading)] font-semibold text-text-primary">
+                {contract.contractNumber || "Chưa có số HĐ"}
+              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <span
+                  className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[length:var(--fs-sm)] font-medium ${statusClass}`}
+                >
+                  {statusLabel}
+                </span>
+                {canViewCustomer ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/customers/${contract.customer.id}`)}
+                    className="flex cursor-pointer items-center gap-1 text-[length:var(--fs-sm)] font-medium text-text-primary hover:text-primary hover:underline"
+                  >
+                    <CustomerIcon size={12} className="text-text-secondary" />
+                    {customerName}
+                  </button>
+                ) : (
+                  <span className="flex items-center gap-1 text-[length:var(--fs-sm)] font-medium text-text-primary">
+                    <CustomerIcon size={12} className="text-text-secondary" />
+                    {customerName}
+                  </span>
+                )}
+                {contract.siteAddress && (
+                  <span className="flex min-w-0 items-center gap-1 text-[length:var(--fs-sm)] text-text-secondary">
+                    <MapPin size={12} className="shrink-0" />
+                    <span className="truncate max-w-[360px]" title={contract.siteAddress}>
+                      {contract.siteAddress}
+                    </span>
+                  </span>
+                )}
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[length:var(--fs-sm)] text-text-secondary">
+                <span>
+                  Thời gian:{" "}
+                  <span className="font-medium text-text-primary">
+                    {formatDate(contract.startDate)} → {formatDate(contract.endDate)}
+                  </span>
+                </span>
+                <span>
+                  Giá trị HĐ:{" "}
+                  <span className="font-medium text-text-primary">
+                    {formatCurrency(contract.totalAmount)}
+                  </span>
+                </span>
+                <span>
+                  Ngày tạo:{" "}
+                  <span className="font-medium text-text-primary">
+                    {formatDateTime(contract.createdAt)}
+                  </span>
+                  {contract.createdBy && ` · ${contract.createdBy.fullName}`}
+                </span>
+              </div>
             </div>
           </div>
 
-          {contract.customer.customerType === "business" &&
-            contract.customer.taxCode && (
-              <div>
-                <p className="text-xs text-text-secondary">Mã số thuế</p>
-                <p className="text-sm font-medium text-text-primary">
-                  {contract.customer.taxCode}
-                </p>
-              </div>
-            )}
-
-          {contract.customer.customerType === "business" &&
-            contract.customer.representative && (
-              <div>
-                <p className="text-xs text-text-secondary">Người đại diện</p>
-                <p className="text-sm font-medium text-text-primary">
-                  {contract.customer.representative}
-                </p>
-              </div>
-            )}
-
-          {contract.customer.phone && (
-            <div>
-              <p className="text-xs text-text-secondary">Điện thoại</p>
-              <p className="text-sm font-medium text-text-primary">
-                {contract.customer.phone}
-              </p>
+          {/* Right: actions — mobile xuống dưới, border-t phân tách */}
+          {canEdit && (
+            <div className="flex items-center gap-2 border-t border-border pt-3 sm:shrink-0 sm:border-0 sm:pt-0">
+              <StatusChangeDropdown
+                contract={contract}
+                contractId={contractId}
+                canCancel={canCancel}
+                onGoToServices={() => setActiveTab("contract")}
+              />
             </div>
           )}
-
-          {contract.customer.email && (
-            <div>
-              <p className="text-xs text-text-secondary">Email</p>
-              <p className="text-sm font-medium text-text-primary break-all">
-                {contract.customer.email}
-              </p>
-            </div>
-          )}
-
-          {contract.customer.customerType === "business" &&
-            contract.customer.officeAddress && (
-              <div className="col-span-2">
-                <p className="text-xs text-text-secondary">Địa chỉ văn phòng</p>
-                <p className="text-sm font-medium text-text-primary">
-                  {contract.customer.officeAddress}
-                </p>
-              </div>
-            )}
-
-          {contract.customer.customerType === "individual" &&
-            contract.customer.permanentAddress && (
-              <div className="col-span-2">
-                <p className="text-xs text-text-secondary">
-                  Địa chỉ thường trú
-                </p>
-                <p className="text-sm font-medium text-text-primary">
-                  {contract.customer.permanentAddress}
-                </p>
-              </div>
-            )}
         </div>
-
-        {/* Row actions */}
-        {canEdit && (
-          <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
-            <StatusChangeDropdown contract={contract} contractId={contractId} />
-          </div>
-        )}
-      </div>
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 my-6">
-        {!summary ? (
-          Array(4)
-            .fill(0)
-            .map((_, i) => <Skeleton key={i} className="h-20 rounded-lg" />)
-        ) : (
-          <>
-            <SummaryCard
-              Icon={CalendarDays}
-              iconClass="text-primary"
-              label="Kế hoạch"
-              value={`${contract.plannedDays} ngày`}
-              sub={`${formatDate(contract.startDate)} → ${formatDate(contract.endDate)}`}
-            />
-            <SummaryCard
-              Icon={DollarSign}
-              iconClass="text-text-secondary"
-              label="Phải thanh toán"
-              value={formatCurrency(summary.amountPayable)}
-              sub={`${summary.invoiceCount} hóa đơn`}
-            />
-            <SummaryCard
-              Icon={CheckCircle2}
-              iconClass="text-success"
-              label="Đã thanh toán"
-              value={formatCurrency(summary.amountPaid)}
-              valueClass="text-success"
-              sub={
-                summary.amountPaid > 0
-                  ? `${Math.round((summary.amountPaid / summary.amountPayable) * 100)}% tổng giá trị`
-                  : "—"
-              }
-            />
-            <SummaryCard
-              Icon={AlertCircle}
-              iconClass={
-                summary.amountRemaining > 0 ? "text-error" : "text-success"
-              }
-              label="Còn lại"
-              value={formatCurrency(summary.amountRemaining)}
-              valueClass={
-                summary.amountRemaining > 0 ? "text-error" : "text-success"
-              }
-              sub={
-                summary.amountRemaining > 0
-                  ? "Chưa thanh toán đủ"
-                  : "Đã thanh toán đủ"
-              }
-            />
-          </>
-        )}
       </div>
 
       {/* Tabs */}
@@ -523,7 +415,7 @@ export default function ContractDetailPage() {
               label: "Phụ lục",
               count: summary?.addendumCount,
             },
-            {
+            ...(canFinance ? [{
               value: "acceptance",
               label: "BBNT",
               count: summary?.acceptanceRecordCount,
@@ -532,8 +424,9 @@ export default function ContractDetailPage() {
               value: "invoices",
               label: "Hóa đơn",
               count: summary?.invoiceCount,
-            },
+            }] : []),
             { value: "incidents", label: "Sự cố" },
+            ...(canViewAudit ? [{ value: "history", label: "Lịch sử" }] : []),
           ].map((tab) => (
             <TabsTrigger
               key={tab.value}
@@ -550,12 +443,25 @@ export default function ContractDetailPage() {
           ))}
         </TabsList>
 
+        {/* Tab Hợp đồng: thông tin HĐ + dịch vụ & xe chia 50/50 (xl), xếp chồng ở màn nhỏ */}
         <TabsContent value="contract">
-          <ContractTab
-            contract={contract}
-            contractId={contractId}
-            canEdit={canEdit}
-          />
+          <div className="mt-4 grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            <div className="min-w-0">
+              <ContractTab
+                contract={contract}
+                contractId={contractId}
+                canEdit={canEdit}
+              />
+            </div>
+            <div className="min-w-0">
+              <ServiceLinesTab
+                contract={contract}
+                contractId={contractId}
+                canEdit={canEdit}
+                onGoToIncidents={() => setActiveTab("incidents")}
+              />
+            </div>
+          </div>
         </TabsContent>
         <TabsContent value="addendums">
           <AddendumsTab
@@ -564,19 +470,19 @@ export default function ContractDetailPage() {
             canEdit={canEdit}
           />
         </TabsContent>
-        <TabsContent value="acceptance">
+        {canFinance && <TabsContent value="acceptance">
           <AcceptanceTab
             contractId={contractId}
-            canEdit={canEdit}
+            canEdit={canFinance}
           />
-        </TabsContent>
-        <TabsContent value="invoices">
+        </TabsContent>}
+        {canFinance && <TabsContent value="invoices">
           <InvoicesTab
             contractId={contractId}
             summary={summary}
-            canEdit={canEdit}
+            canEdit={canFinance}
           />
-        </TabsContent>
+        </TabsContent>}
         <TabsContent value="incidents">
           <IncidentsTab
             contractId={contractId}
@@ -585,6 +491,11 @@ export default function ContractDetailPage() {
             canEdit={canEdit}
           />
         </TabsContent>
+        {canViewAudit && (
+          <TabsContent value="history">
+            <ContractHistoryTab contractId={contractId} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

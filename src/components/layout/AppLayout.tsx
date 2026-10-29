@@ -4,6 +4,7 @@ import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { useAuthStore } from "@/stores/authStore";
 import { getMe } from "@/api/auth.api";
+import { buildLoginUrl } from "@/utils/loginRedirect";
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -24,10 +25,10 @@ export default function AppLayout() {
         if (res.success) {
           setUser(res.data);
         } else {
-          navigate("/login", { replace: true });
+          navigate(buildLoginUrl(), { replace: true });
         }
       } catch {
-        navigate("/login", { replace: true });
+        navigate(buildLoginUrl(), { replace: true });
       } finally {
         setRestoring(false);
       }
@@ -48,7 +49,7 @@ export default function AppLayout() {
       />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Topbar onMobileMenuOpen={() => setMobileOpen(true)} />
-        <main className="flex-1 overflow-y-auto bg-[#F4F6F8] p-[var(--sp-page)]">
+        <main className="flex-1 overflow-y-auto bg-[#F7F8FA] p-[var(--sp-page)]">
           <Outlet />
         </main>
       </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -16,12 +16,18 @@ import {
   ChevronDown,
   CheckCircle2,
   Trash2,
-  Truck,
-  Wrench,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -32,6 +38,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { FileUpload } from "@/components/shared/FileUpload";
 import { DatePicker } from "@/components/shared/DatePicker";
+import { CurrencyInput } from "@/components/shared/CurrencyInput";
 import {
   MobileSheetDialog,
   MobileSheetContent,
@@ -42,10 +49,8 @@ import {
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import {
   createContract,
-  createLineItem,
-  addContractVehicle,
 } from "@/api/contracts.api";
-import { uploadDocument } from "@/api/documents.api";
+import { extractDocument, uploadDocument } from "@/api/documents.api";
 import {
   getCustomers,
   createIndividualCustomer,
@@ -53,8 +58,14 @@ import {
 } from "@/api/customers.api";
 import { getVehicles } from "@/api/vehicles.api";
 import { getServiceCatalog } from "@/api/service-catalog.api";
+import { getServiceErrorMessage } from "@/constants/serviceErrors";
+import { usePermission } from "@/hooks/usePermission";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { cn } from "@/lib/utils";
+import { formatCurrency } from "@/utils/format";
+import { getApiError } from "@/utils/apiError";
+import { isValidPhone, normalizePhone, PHONE_INPUT_PATTERN, PHONE_VALIDATION_MESSAGE } from "@/utils/phone";
+import type { ContractAutofillFields, ExtractedCustomerFields } from "@/types/contract.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface CustomerOption {
@@ -69,8 +80,9 @@ interface CustomerOption {
 interface ServiceOption {
   id: number;
   name: string;
-  unit: string;
+  units: string[];
   isActive: boolean;
+  allowVehicle: boolean;
 }
 
 interface VehicleOption {
@@ -85,24 +97,32 @@ interface LineItemDraft {
   service_id: number | null;
   service_name: string;
   unit: string;
-  unit_price: number;
-  quantity: number;
+  // Dịch vụ cho phép gán xe (allowVehicle) — chỉ dòng này mới chọn được xe ở bước 4
+  allow_vehicle: boolean;
+  unit_price: number | undefined;
+  quantity: number | undefined;
+  duration: number | undefined;
+  // Dòng thuê xe chọn tối đa quantity xe; AI không tự chọn xe.
+  vehicles: VehicleDraft[];
+  // Ghi chú dòng (BE `note`, ≤ 500) — BE không có field description riêng cho dòng
+  note: string;
 }
 
 interface VehicleDraft {
-  _key: string;
-  vehicle_id: number | null;
+  vehicle_id: number;
   deploy_date: string;
+  work_days: number;
+  note: string;
 }
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 const contractSchema = z.object({
   customer_id: z.number({ error: "Bắt buộc chọn khách hàng" }),
+  contract_number: z.string().trim().max(100, "Tối đa 100 ký tự").optional(),
   start_date: z.string().min(1, "Bắt buộc"),
-  planned_days: z
-    .number({ error: "Bắt buộc" })
-    .min(1, "Phải >= 1 ngày"),
-  site_address: z.string().min(1, "Bắt buộc"),
+  // Không còn số ngày kế hoạch: ngày kết thúc BE tự tính từ số ngày làm của xe
+  deposit_amount: z.number().min(0, "Phải >= 0").optional(),
+  site_address: z.string().trim().min(1, "Bắt buộc").max(500, "Tối đa 500 ký tự"),
 });
 
 type ContractForm = z.infer<typeof contractSchema>;
@@ -111,25 +131,19 @@ const MOCK_DOC_URL =
   "https://giavixblob1302.blob.core.windows.net/documents/H%E1%BB%A2P%20%C4%90%E1%BB%92NG%20THU%C3%8A%20XE%20TTS-DOTHANH.docx";
 
 // ─── File Preview ─────────────────────────────────────────────────────────────
+// Xem trước bằng sasUrl của file đã upload tạm (is_temp) — không dùng blob URL cục bộ
+// vì Office Viewer (DOCX/XLSX) là server Microsoft, không đọc được link blob: trong trình duyệt
 function FilePreviewPanel({
   file,
+  sasUrl,
+  uploading,
   mockUrl,
 }: {
   file: File | null;
+  sasUrl: string | null;
+  uploading: boolean;
   mockUrl: string | null;
 }) {
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!file) {
-      setObjectUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setObjectUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-
   // Mock URL preview — dùng Office Online Viewer
   if (mockUrl) {
     const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(mockUrl)}`;
@@ -189,23 +203,29 @@ function FilePreviewPanel({
 
       {/* Preview area */}
       <div className="flex-1 bg-gray-100 rounded-b-lg overflow-hidden">
-        {isPdf && objectUrl && (
+        {uploading && (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-text-secondary">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <p className="text-sm">Đang tải file...</p>
+          </div>
+        )}
+        {isPdf && sasUrl && (
           <iframe
-            src={objectUrl}
+            src={sasUrl}
             className="w-full h-full border-0"
             title="PDF preview"
           />
         )}
-        {isImage && objectUrl && (
+        {isImage && sasUrl && (
           <img
-            src={objectUrl}
+            src={sasUrl}
             alt="preview"
             className="w-full h-full object-contain"
           />
         )}
-        {isOffice && objectUrl && (
+        {isOffice && sasUrl && (
           <iframe
-            src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(objectUrl)}`}
+            src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(sasUrl)}`}
             className="w-full h-full border-0"
             title="Office preview"
           />
@@ -219,32 +239,35 @@ function FilePreviewPanel({
 function CreateCustomerModal({
   onClose,
   onCreated,
+  initialValues,
 }: {
   onClose: () => void;
   onCreated: (id: number) => void;
+  initialValues?: ExtractedCustomerFields;
 }) {
   const queryClient = useQueryClient();
-  const [type, setType] = useState<"business" | "individual">("business");
+  const [type, setType] = useState<"business" | "individual">(initialValues?.customerType ?? "business");
 
   // Business fields
-  const [internationalName, setInternationalName] = useState("");
+  const [internationalName, setInternationalName] = useState(initialValues?.companyName ?? "");
   const [shortName, setShortName] = useState("");
-  const [taxCode, setTaxCode] = useState("");
-  const [taxAddress, setTaxAddress] = useState("");
-  const [officeAddress, setOfficeAddress] = useState("");
-  const [representative, setRepresentative] = useState("");
-  const [bizPhone, setBizPhone] = useState("");
-  const [bizEmail, setBizEmail] = useState("");
+  const [taxCode, setTaxCode] = useState(initialValues?.taxCode ?? "");
+  const [taxAddress, setTaxAddress] = useState(initialValues?.address ?? "");
+  const [officeAddress, setOfficeAddress] = useState(initialValues?.address ?? "");
+  const [representative, setRepresentative] = useState(initialValues?.representativeName ?? "");
+  const [representativeTitle, setRepresentativeTitle] = useState(initialValues?.representativeTitle ?? "");
+  const [bizPhone, setBizPhone] = useState(normalizePhone(initialValues?.phone ?? ""));
+  const [bizEmail, setBizEmail] = useState(initialValues?.email ?? "");
 
   // Individual fields
-  const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [cccd, setCccd] = useState("");
-  const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState(initialValues?.fullName ?? "");
+  const [phone, setPhone] = useState(normalizePhone(initialValues?.phone ?? ""));
+  const [cccd, setCccd] = useState(initialValues?.nationalId ?? "");
+  const [email, setEmail] = useState(initialValues?.email ?? "");
   const [cccdIssueDate, setCccdIssueDate] = useState("");
   const [cccdIssuePlace, setCccdIssuePlace] = useState("");
   const [dob, setDob] = useState("");
-  const [permanentAddress, setPermanentAddress] = useState("");
+  const [permanentAddress, setPermanentAddress] = useState(initialValues?.address ?? "");
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -258,9 +281,13 @@ function CreateCustomerModal({
       if (!taxCode.trim()) e.taxCode = "Bắt buộc";
       else if (!/^\d{10}(\d{3})?$/.test(taxCode))
         e.taxCode = "Phải là 10 hoặc 13 số";
+      if (!isValidPhone(bizPhone, false)) {
+        e.bizPhone = PHONE_VALIDATION_MESSAGE;
+      }
     } else {
       if (!fullName.trim()) e.fullName = "Bắt buộc";
       if (!phone.trim()) e.phone = "Bắt buộc";
+      else if (!isValidPhone(phone, true)) e.phone = PHONE_VALIDATION_MESSAGE;
       if (!cccd.trim()) e.cccd = "Bắt buộc";
       else if (!/^\d{12}$/.test(cccd)) e.cccd = "Phải là 12 số";
     }
@@ -278,12 +305,13 @@ function CreateCustomerModal({
             taxAddress: taxAddress || undefined,
             officeAddress: officeAddress || undefined,
             representative: representative || undefined,
-            phone: bizPhone || undefined,
+            representativeTitle: representativeTitle || undefined,
+            phone: normalizePhone(bizPhone) || undefined,
             email: bizEmail || undefined,
           })
         : createIndividualCustomer({
             fullName,
-            phone,
+            phone: normalizePhone(phone),
             nationalId: cccd,
             email: email || undefined,
             nationalIdIssueDate: cccdIssueDate || undefined,
@@ -296,7 +324,27 @@ function CreateCustomerModal({
       toast.success("Đã thêm khách hàng");
       onCreated(res.data.id);
     },
-    onError: () => toast.error("Có lỗi xảy ra, vui lòng thử lại"),
+    onError: (error) => {
+      const apiError = getApiError(error);
+      const serverErrors: Record<string, string> = {};
+      apiError.details?.forEach((detail) => {
+        const field = detail.field.charAt(0).toLowerCase() + detail.field.slice(1);
+        if (field === "phone") serverErrors[type === "business" ? "bizPhone" : "phone"] = detail.message;
+        else if (field === "taxCode") serverErrors.taxCode = detail.message;
+        else if (field === "shortName") serverErrors.shortName = detail.message;
+        else if (field === "internationalName") serverErrors.internationalName = detail.message;
+        else if (field === "fullName") serverErrors.fullName = detail.message;
+        else if (field === "nationalId" || field === "cccd") serverErrors.cccd = detail.message;
+      });
+      if (Object.keys(serverErrors).length > 0) setErrors((current) => ({ ...current, ...serverErrors }));
+      if (apiError.code === "PHONE_ALREADY_EXISTS") {
+        setErrors((current) => ({
+          ...current,
+          [type === "business" ? "bizPhone" : "phone"]: apiError.message ?? "Số điện thoại đã được sử dụng",
+        }));
+      }
+      toast.error(apiError.message ?? "Có lỗi xảy ra, vui lòng thử lại");
+    },
   });
 
   function handleSubmit() {
@@ -309,21 +357,15 @@ function CreateCustomerModal({
   const errClass = "text-xs text-error mt-0.5";
 
   return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30 rounded-l-lg">
-      <div className="bg-bg-card rounded-xl shadow-xl w-[90%] max-h-[85%] flex flex-col overflow-hidden border border-border">
+    <Dialog open onOpenChange={(nextOpen) => !nextOpen && onClose()}>
+      <DialogContent className="gap-0 overflow-hidden p-0 sm:!max-h-[90dvh] sm:max-w-2xl sm:!overflow-hidden sm:p-0">
+      <div className="flex max-h-[90dvh] min-h-0 flex-col overflow-hidden bg-bg-card">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-          <h3 className="text-sm font-semibold text-text-primary">
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-14 text-left">
+          <DialogTitle className="text-base font-semibold text-text-primary">
             Thêm khách hàng mới
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-text-secondary hover:text-text-primary cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+          </DialogTitle>
+        </DialogHeader>
 
         {/* Type toggle */}
         <div className="px-4 pt-3 shrink-0">
@@ -373,7 +415,7 @@ function CreateCustomerModal({
                   <p className={errClass}>{errors.internationalName}</p>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-medium text-text-secondary">
                     Tên viết tắt <span className="text-error">*</span>
@@ -414,17 +456,33 @@ function CreateCustomerModal({
                   className={cn(fieldClass, "mt-1")}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs font-medium text-text-secondary">Chức vụ người đại diện</label>
+                <input
+                  value={representativeTitle}
+                  onChange={(e) => setRepresentativeTitle(e.target.value)}
+                  placeholder="Giám đốc"
+                  className={cn(fieldClass, "mt-1")}
+                />
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-medium text-text-secondary">
                     Điện thoại
                   </label>
                   <input
                     value={bizPhone}
-                    onChange={(e) => setBizPhone(e.target.value)}
-                    placeholder="028..."
+                    onChange={(e) => {
+                      setBizPhone(e.target.value);
+                      if (errors.bizPhone) setErrors((current) => ({ ...current, bizPhone: "" }));
+                    }}
+                    onBlur={() => setBizPhone(normalizePhone(bizPhone))}
+                    placeholder="0901234567"
+                    inputMode="tel"
+                    pattern={PHONE_INPUT_PATTERN}
                     className={cn(fieldClass, "mt-1")}
                   />
+                  {errors.bizPhone && <p className={errClass}>{errors.bizPhone}</p>}
                 </div>
                 <div>
                   <label className="text-xs font-medium text-text-secondary">
@@ -477,15 +535,21 @@ function CreateCustomerModal({
                   <p className={errClass}>{errors.fullName}</p>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-medium text-text-secondary">
                     Số điện thoại <span className="text-error">*</span>
                   </label>
                   <input
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      if (errors.phone) setErrors((current) => ({ ...current, phone: "" }));
+                    }}
+                    onBlur={() => setPhone(normalizePhone(phone))}
                     placeholder="0901234567"
+                    inputMode="tel"
+                    pattern={PHONE_INPUT_PATTERN}
                     className={cn(fieldClass, "mt-1")}
                   />
                   {errors.phone && <p className={errClass}>{errors.phone}</p>}
@@ -515,7 +579,7 @@ function CreateCustomerModal({
                 />
                 {errors.cccd && <p className={errClass}>{errors.cccd}</p>}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-medium text-text-secondary">
                     Ngày cấp CCCD
@@ -588,7 +652,8 @@ function CreateCustomerModal({
           </Button>
         </div>
       </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -751,18 +816,32 @@ export function CreateContractDialog({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [file, setFile] = useState<File | null>(null);
+  const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  // Tăng mỗi lần chọn file / đóng dialog → bỏ kết quả upload cũ về muộn (tránh gửi nhầm documentId)
+  const uploadSeq = useRef(0);
   const [mockUrl, setMockUrl] = useState<string | null>(null);
   const [showCreateCustomer, setShowCreateCustomer] = useState(false);
+  const [extractedCustomer, setExtractedCustomer] = useState<ExtractedCustomerFields | undefined>();
   const [lineItems, setLineItems] = useState<LineItemDraft[]>([]);
-  const [vehicles, setVehicles] = useState<VehicleDraft[]>([]);
+  const [extracting, setExtracting] = useState(false);
+  const [extractUnavailable, setExtractUnavailable] = useState(false);
+  const [extractWarnings, setExtractWarnings] = useState<string[]>([]);
+  const [fileTotals, setFileTotals] = useState<ContractAutofillFields["fileTotals"] | null>(null);
 
-  // Query service catalog — chỉ dùng active services cho dropdown
+  // Query service catalog — chỉ dùng active services cho dropdown.
+  // Thiếu service_catalog.view thì GET /service-catalog trả 403 → không gọi, ẩn nút thêm dịch vụ
+  const { hasPermission } = usePermission();
+  const canViewCatalog = hasPermission("service_catalog.view");
+  const canExtract = hasPermission("extract.use");
   const { data: serviceCatalogRes } = useQuery({
     queryKey: QUERY_KEYS.serviceCatalog.all,
     queryFn: getServiceCatalog,
+    enabled: canViewCatalog,
     staleTime: 5 * 60 * 1000,
   });
   const activeServices: ServiceOption[] = (serviceCatalogRes?.data ?? []).filter((s: ServiceOption) => s.isActive);
+  const catalogEmpty = canViewCatalog && !!serviceCatalogRes && activeServices.length === 0;
 
   // Query customers (active) cho picker
   const { data: customersRes } = useQuery({
@@ -783,6 +862,14 @@ export function CreateContractDialog({
   const vehicleOptions: VehicleOption[] = vehiclesRes?.data ?? [];
 
   const hasPreview = !!file || !!mockUrl;
+  const draftTotal = lineItems.reduce(
+    (s, li) => s + (li.unit_price ?? 0) * (li.quantity ?? 0) * (li.duration ?? 1),
+    0,
+  );
+
+  function patchLine(key: string, patch: Partial<LineItemDraft>) {
+    setLineItems((prev) => prev.map((li) => (li._key === key ? { ...li, ...patch } : li)));
+  }
 
   const {
     register,
@@ -799,10 +886,97 @@ export function CreateContractDialog({
     onOpenChange(false);
     reset();
     setFile(null);
+    setUploadedDoc(null);
+    uploadSeq.current++;
+    setUploading(false);
     setMockUrl(null);
     setLineItems([]);
-    setVehicles([]);
+    setExtractWarnings([]);
+    setFileTotals(null);
+    setExtracting(false);
+    setExtractUnavailable(false);
     setShowCreateCustomer(false);
+    setExtractedCustomer(undefined);
+  }
+
+  // Upload ngay lúc chọn file (is_temp=true) để có sasUrl cho preview; khi Tạo chỉ gửi documentId.
+  // Không cần xóa file khi đổi/đóng — BE tự dọn file tạm chưa gắn vào HĐ sau 3h
+  async function handleFileChange(f: File | null) {
+    const seq = ++uploadSeq.current;
+    setFile(f);
+    setUploadedDoc(null);
+    setExtractWarnings([]);
+    setFileTotals(null);
+    setExtractUnavailable(false);
+    if (!f) {
+      setUploading(false);
+      return;
+    }
+    setUploading(true);
+    try {
+      const doc = await uploadDocument({ file: f, doc_type: "contract", is_temp: true });
+      if (seq !== uploadSeq.current) return;
+      setUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
+    } catch {
+      if (seq !== uploadSeq.current) return;
+      toast.error("Tải file lên thất bại, vui lòng thử lại");
+      setFile(null);
+    } finally {
+      if (seq === uploadSeq.current) setUploading(false);
+    }
+  }
+
+  async function handleExtractContract() {
+    if (!uploadedDoc || extracting) return;
+    setExtracting(true);
+    try {
+      const response = await extractDocument<ContractAutofillFields>(uploadedDoc.id, "contract");
+      const fields = response.data.fields;
+      if (fields.contractNumber !== undefined) setValue("contract_number", fields.contractNumber);
+      if (fields.startDate !== undefined) setValue("start_date", fields.startDate);
+      if (fields.siteAddress !== undefined) setValue("site_address", fields.siteAddress);
+      if (fields.depositAmount !== undefined) setValue("deposit_amount", fields.depositAmount);
+      if (fields.customer.status === "matched" && fields.customer.customerId != null) {
+        setValue("customer_id", fields.customer.customerId);
+        setExtractedCustomer(undefined);
+      } else if (fields.customer.status === "new") {
+        setExtractedCustomer(fields.customer.extracted);
+        setShowCreateCustomer(true);
+      }
+      if (lineItems.length === 0 || window.confirm("AI sẽ thay toàn bộ các dòng dịch vụ hiện tại. Tiếp tục?")) {
+        setLineItems(
+          fields.lineItems.map((item) => ({
+              _key: crypto.randomUUID(),
+              service_id: item.serviceId,
+              service_name: item.serviceName,
+              unit: item.unit,
+              allow_vehicle: item.allowVehicle,
+              unit_price: item.unitPrice,
+              quantity: item.quantity,
+              duration: item.duration,
+              vehicles: [],
+              note: item.note ?? "",
+          })),
+        );
+      }
+      setFileTotals(fields.fileTotals);
+      setExtractWarnings(response.data.extraction.warnings ?? []);
+      toast.success("Đã điền dữ liệu đọc từ hợp đồng");
+    } catch (err) {
+      const code = getApiError(err).code;
+      if (code === "EXTRACT_DISABLED") setExtractUnavailable(true);
+      const fallback =
+        code === "AI_INVALID_RESPONSE"
+          ? "AI không đọc được, vui lòng nhập tay"
+          : code === "EXTRACT_DISABLED" || code === "AI_PROVIDER_UNAVAILABLE"
+            ? "AI tạm thời không khả dụng"
+            : code === "EXTRACT_TIMEOUT"
+              ? "AI xử lý quá lâu, thử lại"
+              : getServiceErrorMessage(err);
+      toast.error(fallback);
+    } finally {
+      setExtracting(false);
+    }
   }
 
   const isDesktop = useMediaQuery("(min-width: 640px)");
@@ -817,46 +991,34 @@ export function CreateContractDialog({
   }, [open]);
 
   const mutation = useMutation({
-    mutationFn: async (data: ContractForm) => {
-      // Step 1: upload file hợp đồng nếu có → lấy documentId
-      let documentId: number | undefined;
-      if (file) {
-        const doc = await uploadDocument({ file, doc_type: "contract" });
-        documentId = doc.id;
-      }
-      // Step 2: tạo contract (BE chỉ nhận field cơ bản, camelCase)
-      const created = await createContract({
+    mutationFn: (data: ContractForm) =>
+      createContract({
         customerId: data.customer_id,
         startDate: data.start_date,
-        plannedDays: data.planned_days,
         siteAddress: data.site_address,
-        documentId,
-      });
-      const contractId: number = created?.data?.id;
-
-      // Step 3: thêm line items tuần tự (mỗi cái 1 endpoint)
-      const validItems = lineItems.filter((li) => li.service_id);
-      for (let i = 0; i < validItems.length; i++) {
-        const li = validItems[i];
-        await createLineItem(contractId, {
-          serviceId: li.service_id,
-          unitPrice: li.unit_price,
-          quantity: li.quantity,
-          sortOrder: i + 1,
-        });
-      }
-
-      // Step 4: gán xe tuần tự
-      const validVehicles = vehicles.filter((v) => v.vehicle_id);
-      for (const v of validVehicles) {
-        await addContractVehicle(contractId, {
-          vehicleId: v.vehicle_id,
-          deployDate: v.deploy_date || null,
-        });
-      }
-
-      return created;
-    },
+        ...(data.contract_number?.trim() ? { contractNumber: data.contract_number.trim() } : {}),
+        ...(data.deposit_amount ? { depositAmount: data.deposit_amount } : {}),
+        ...(uploadedDoc?.id ? { documentId: uploadedDoc.id } : {}),
+        lineItems: lineItems.map((li, index) => ({
+            serviceId: li.service_id!,
+            unitPrice: li.unit_price!,
+            quantity: li.quantity!,
+            unit: li.unit,
+            ...(li.duration != null ? { duration: li.duration } : {}),
+            sortOrder: index,
+            ...(li.note.trim() ? { note: li.note.trim() } : {}),
+            ...(li.allow_vehicle && li.vehicles.length > 0
+              ? {
+                  vehicles: li.vehicles.map((vehicle) => ({
+                    vehicleId: vehicle.vehicle_id,
+                    ...(vehicle.deploy_date ? { deployDate: vehicle.deploy_date } : {}),
+                    workDays: vehicle.work_days,
+                    ...(vehicle.note.trim() ? { note: vehicle.note.trim() } : {}),
+                  })),
+                }
+              : {}),
+          })),
+      }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({
         queryKey: [...QUERY_KEYS.contracts.all],
@@ -867,30 +1029,71 @@ export function CreateContractDialog({
       const id = res?.data?.id;
       if (id) navigate(`/contracts/${id}`);
     },
-    onError: () => toast.error("Tạo hợp đồng thất bại"),
+    onError: (err) => toast.error(getApiError(err).message ?? getServiceErrorMessage(err)),
   });
 
   const formContent = (
     <form
       id="create-contract-form"
-      onSubmit={handleSubmit((d) => mutation.mutate(d))}
-      className="flex flex-col gap-4 px-5 py-4 flex-1"
+      onSubmit={handleSubmit((d) => {
+        // Dòng chưa chọn dịch vụ sẽ bị bỏ qua khi gửi → chặn để không mất dữ liệu âm thầm
+        if (lineItems.some((li) => li.service_id === null)) {
+          toast.error("Vui lòng chọn dịch vụ cho mọi dòng hoặc xóa dòng trống");
+          return;
+        }
+        // BE: unitPrice > 0, quantity > 0
+        if (lineItems.some((li) => !((li.unit_price ?? 0) > 0) || !((li.quantity ?? 0) > 0))) {
+          toast.error("Đơn giá và số lượng của dòng dịch vụ phải lớn hơn 0");
+          return;
+        }
+        if (lineItems.some((li) => li.allow_vehicle && !Number.isInteger(li.quantity))) {
+          toast.error("Số lượng của dòng thuê xe phải là số nguyên");
+          return;
+        }
+        if (lineItems.some((li) => li.vehicles.length > (li.quantity ?? 0))) {
+          toast.error("Số xe được chọn không được vượt quá số lượng của dòng");
+          return;
+        }
+        if (lineItems.some((li) => li.vehicles.some((vehicle) => !Number.isInteger(vehicle.work_days) || vehicle.work_days < 0 || vehicle.work_days > 3650))) {
+          toast.error("Số ngày làm của xe phải là số nguyên từ 0 đến 3650");
+          return;
+        }
+        mutation.mutate(d);
+      })}
+      // Desktop bỏ padding trái để nội dung thẳng hàng với tiêu đề dialog; mobile giữ px-5
+      className="flex flex-col gap-4 px-5 sm:pl-0 py-4 flex-1"
     >
-              {/* AI extract button — disabled */}
+              {/* AI extract */}
               <div className="flex items-center justify-between">
                 <p className="text-xs font-medium uppercase tracking-wide">
                   Thông tin hợp đồng
                 </p>
-                <Button
+                {canExtract && <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled
-                  className="h-7 text-xs gap-1.5 opacity-50 cursor-not-allowed"
+                  disabled={!uploadedDoc || uploading || extracting || extractUnavailable}
+                  onClick={handleExtractContract}
+                  className="h-7 text-xs gap-1.5 cursor-pointer"
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Tự điền từ file
-                </Button>
+                  {extracting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  {extracting ? "AI đang đọc..." : "Nhập từ file hợp đồng"}
+                </Button>}
+              </div>
+
+              {extractWarnings.length > 0 && (
+                <div className="rounded-md border border-warning/30 bg-warning-light px-3 py-2 text-xs text-warning">
+                  <p className="font-medium">Cần kiểm tra lại:</p>
+                  <ul className="mt-1 list-disc space-y-1 pl-4">
+                    {extractWarnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <Label className="text-sm">Số hợp đồng</Label>
+                <Input placeholder="Để trống để hệ thống tự sinh" {...register("contract_number")} />
+                {errors.contract_number && <p className="text-xs text-error">{errors.contract_number.message}</p>}
               </div>
 
               {/* Customer */}
@@ -906,7 +1109,10 @@ export function CreateContractDialog({
                       value={field.value}
                       onChange={field.onChange}
                       error={errors.customer_id?.message}
-                      onOpenCreateModal={() => setShowCreateCustomer(true)}
+                      onOpenCreateModal={() => {
+                        setExtractedCustomer(undefined);
+                        setShowCreateCustomer(true);
+                      }}
                       options={customerOptions}
                     />
                   )}
@@ -918,7 +1124,7 @@ export function CreateContractDialog({
                 )}
               </div>
 
-              {/* Start date + Planned days */}
+              {/* Start date + Deposit */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-sm">
@@ -942,18 +1148,21 @@ export function CreateContractDialog({
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-sm">
-                    Số ngày <span className="text-error">*</span>
-                  </Label>
-                  <Input
-                    type="number"
-                    min={1}
-                    placeholder="30"
-                    {...register("planned_days", { valueAsNumber: true })}
+                  <Label className="text-sm">Tiền cọc (₫)</Label>
+                  <Controller
+                    control={control}
+                    name="deposit_amount"
+                    render={({ field }) => (
+                      <CurrencyInput
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="0"
+                      />
+                    )}
                   />
-                  {errors.planned_days && (
+                  {errors.deposit_amount && (
                     <p className="text-xs text-error">
-                      {errors.planned_days.message}
+                      {errors.deposit_amount.message}
                     </p>
                   )}
                 </div>
@@ -977,290 +1186,289 @@ export function CreateContractDialog({
                 )}
               </div>
 
-              {/* ── Dịch vụ ── */}
-              <div className="space-y-2">
+              {/* ── Dịch vụ & xe ── mỗi dòng dịch vụ kèm xe của nó (giống tab "Dịch vụ & xe") */}
+              <div className="space-y-3 border-t border-border pt-4 pb-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium uppercase tracking-wide flex items-center gap-1.5">
-                    <Wrench className="h-3.5 w-3.5" /> Dịch vụ
+                  <p className="text-xs font-medium uppercase tracking-wide">
+                    Dịch vụ & xe
                   </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setLineItems((prev) => [
-                        ...prev,
-                        {
-                          _key: crypto.randomUUID(),
-                          service_id: null,
-                          service_name: "",
-                          unit: "",
-                          unit_price: 0,
-                          quantity: 1,
-                        },
-                      ])
-                    }
-                    className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Thêm dịch vụ
-                  </button>
+                  {canViewCatalog && !catalogEmpty && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setLineItems((prev) => [
+                          ...prev,
+                          {
+                            _key: crypto.randomUUID(),
+                            service_id: null,
+                            service_name: "",
+                            unit: "",
+                            allow_vehicle: false,
+                            unit_price: undefined,
+                            quantity: 1,
+                            duration: undefined,
+                            vehicles: [],
+                            note: "",
+                          },
+                        ])
+                      }
+                      className="h-7 text-xs gap-1.5 cursor-pointer hover:bg-primary-light hover:text-primary"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Thêm dịch vụ
+                    </Button>
+                  )}
                 </div>
 
                 {lineItems.length === 0 ? (
-                  <p className="text-xs text-text-disabled py-2 text-center border border-dashed border-border rounded-md">
-                    Chưa có dịch vụ nào
+                  <p className="text-sm text-text-secondary py-4 px-3 text-center border border-dashed border-border rounded-lg">
+                    {!canViewCatalog
+                      ? "Bạn không có quyền xem danh mục dịch vụ. Hãy nhờ quản lý bổ sung dịch vụ sau khi tạo hợp đồng."
+                      : catalogEmpty
+                        ? "Danh mục chưa có dịch vụ nào đang hoạt động. Thêm dịch vụ ở mục Danh mục dịch vụ trước."
+                        : "Chưa có dịch vụ nào"}
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    {lineItems.map((item) => (
-                      <div
-                        key={item._key}
-                        className="rounded-md border border-border bg-bg-page p-2.5 space-y-2"
-                      >
-                        {/* Service selector */}
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={item.service_id ?? ""}
-                            onChange={(e) => {
-                              const svc = activeServices.find(
-                                (s) => s.id === Number(e.target.value),
-                              );
-                              setLineItems((prev) =>
-                                prev.map((li) =>
-                                  li._key === item._key
-                                    ? {
-                                        ...li,
-                                        service_id: svc?.id ?? null,
-                                        service_name: svc?.name ?? "",
-                                        unit: svc?.unit ?? "",
-                                      }
-                                    : li,
-                                ),
-                              );
-                            }}
-                            className="flex-1 text-sm border border-input rounded-md px-2 py-1.5 outline-none focus:border-primary bg-background"
-                          >
-                            <option value="">-- Chọn dịch vụ --</option>
-                            {activeServices.map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name} · {s.unit}
-                              </option>
-                            ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setLineItems((prev) =>
-                                prev.filter((li) => li._key !== item._key),
-                              )
-                            }
-                            className="text-text-secondary hover:text-error cursor-pointer shrink-0"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                        {/* Price + Qty */}
-                        <div className="grid grid-cols-3 gap-2 text-xs">
-                          <div className="col-span-1">
-                            <label className="text-text-secondary mb-0.5 block">
-                              Đơn vị
-                            </label>
-                            <input
-                              value={item.unit}
-                              onChange={(e) =>
-                                setLineItems((prev) =>
-                                  prev.map((li) =>
-                                    li._key === item._key
-                                      ? { ...li, unit: e.target.value }
-                                      : li,
-                                  ),
-                                )
-                              }
-                              placeholder="ca"
-                              className="w-full px-2 py-1.5 border border-input rounded-md outline-none focus:border-primary bg-background text-sm"
-                            />
-                          </div>
-                          <div className="col-span-1">
-                            <label className="text-text-secondary mb-0.5 block">
-                              Số lượng
-                            </label>
-                            <input
-                              type="number"
-                              min={1}
-                              value={item.quantity}
-                              onChange={(e) =>
-                                setLineItems((prev) =>
-                                  prev.map((li) =>
-                                    li._key === item._key
-                                      ? {
-                                          ...li,
-                                          quantity: Number(e.target.value),
-                                        }
-                                      : li,
-                                  ),
-                                )
-                              }
-                              className="w-full px-2 py-1.5 border border-input rounded-md outline-none focus:border-primary bg-background text-sm"
-                            />
-                          </div>
-                          <div className="col-span-1">
-                            <label className="text-text-secondary mb-0.5 block">
-                              Đơn giá
-                            </label>
-                            <input
-                              type="number"
-                              min={0}
-                              value={item.unit_price}
-                              onChange={(e) =>
-                                setLineItems((prev) =>
-                                  prev.map((li) =>
-                                    li._key === item._key
-                                      ? {
-                                          ...li,
-                                          unit_price: Number(e.target.value),
-                                        }
-                                      : li,
-                                  ),
-                                )
-                              }
-                              className="w-full px-2 py-1.5 border border-input rounded-md outline-none focus:border-primary bg-background text-sm"
-                            />
-                          </div>
-                        </div>
-                        {/* Line total */}
-                        {item.service_id && (
-                          <p className="text-xs text-right text-text-secondary">
-                            Thành tiền:{" "}
-                            <span className="font-medium text-text-primary">
-                              {(
-                                item.unit_price * item.quantity
-                              ).toLocaleString("vi-VN")}
-                              ₫
-                            </span>
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                    {/* Total */}
-                    <div className="flex justify-between items-center pt-1 text-sm font-medium">
-                      <span className="text-text-secondary">Tổng cộng</span>
-                      <span className="text-text-primary">
-                        {lineItems
-                          .reduce(
-                            (s, li) => s + li.unit_price * li.quantity,
-                            0,
-                          )
-                          .toLocaleString("vi-VN")}
-                        ₫
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* ── Xe ── */}
-              <div className="space-y-2 pb-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium uppercase tracking-wide flex items-center gap-1.5">
-                    <Truck className="h-3.5 w-3.5" /> Xe thiết bị
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setVehicles((prev) => [
-                        ...prev,
-                        {
-                          _key: crypto.randomUUID(),
-                          vehicle_id: null,
-                          deploy_date: "",
-                        },
-                      ])
-                    }
-                    className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Thêm xe
-                  </button>
-                </div>
-
-                {vehicles.length === 0 ? (
-                  <p className="text-xs text-text-disabled py-2 text-center border border-dashed border-border rounded-md">
-                    Chưa có xe nào
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {vehicles.map((v) => {
-                      const selected = vehicleOptions.find(
-                        (mv) => mv.id === v.vehicle_id,
+                  <div className="space-y-3">
+                    {lineItems.map((item, index) => {
+                      const selectedService = activeServices.find((service) => service.id === item.service_id);
+                      // Một xe chỉ nằm ở 1 dòng chưa trả (BE 409 VEHICLE_ALREADY_IN_CONTRACT) → ẩn xe đã chọn ở dòng khác
+                      const takenVehicleIds = lineItems
+                        .filter((li) => li._key !== item._key)
+                        .flatMap((li) => li.vehicles.map((vehicle) => vehicle.vehicle_id));
+                      const lineVehicleOptions = vehicleOptions.filter(
+                        (mv) => !takenVehicleIds.includes(mv.id),
                       );
                       return (
                         <div
-                          key={v._key}
-                          className="rounded-md border border-border bg-bg-page p-2.5 space-y-2"
+                          key={item._key}
+                          className="rounded-lg border border-border bg-bg-card overflow-hidden"
                         >
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={v.vehicle_id ?? ""}
-                              onChange={(e) =>
-                                setVehicles((prev) =>
-                                  prev.map((vv) =>
-                                    vv._key === v._key
-                                      ? {
-                                          ...vv,
-                                          vehicle_id:
-                                            Number(e.target.value) || null,
-                                        }
-                                      : vv,
-                                  ),
-                                )
-                              }
-                              className="flex-1 text-sm border border-input rounded-md px-2 py-1.5 outline-none focus:border-primary bg-background"
-                            >
-                              <option value="">-- Chọn xe --</option>
-                              {vehicleOptions.map((mv) => (
-                                <option key={mv.id} value={mv.id}>
-                                  {mv.model} — {mv.serialNumber}
-                                </option>
-                              ))}
-                            </select>
+                          {/* Header dòng: số thứ tự + xóa */}
+                          <div className="flex items-center justify-between border-b border-border bg-bg-page px-3 py-2">
+                            <p className="text-sm font-medium text-text-primary">
+                              Dịch vụ {index + 1}
+                            </p>
                             <button
                               type="button"
+                              aria-label="Xóa dòng dịch vụ"
                               onClick={() =>
-                                setVehicles((prev) =>
-                                  prev.filter((vv) => vv._key !== v._key),
-                                )
+                                setLineItems((prev) => prev.filter((li) => li._key !== item._key))
                               }
-                              className="text-text-secondary hover:text-error cursor-pointer shrink-0"
+                              className="rounded p-1 text-text-secondary hover:bg-error hover:text-white cursor-pointer"
                             >
                               <Trash2 className="h-4 w-4" />
                             </button>
                           </div>
-                          <div className="space-y-1">
-                            <label className="text-xs text-text-secondary">
-                              Ngày giao xe
-                            </label>
-                            <DatePicker
-                              value={v.deploy_date}
-                              onChange={(d) =>
-                                setVehicles((prev) =>
-                                  prev.map((vv) =>
-                                    vv._key === v._key
-                                      ? { ...vv, deploy_date: d }
-                                      : vv,
-                                  ),
-                                )
-                              }
-                              placeholder="Chọn ngày giao"
-                            />
+
+                          <div className="space-y-3 p-3">
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">
+                                Dịch vụ <span className="text-error">*</span>
+                              </Label>
+                              <Select
+                                value={item.service_id ? String(item.service_id) : ""}
+                                onValueChange={(v) => {
+                                  const svc = activeServices.find((s) => s.id === Number(v));
+                                  if (!svc) return;
+                                  patchLine(item._key, {
+                                    service_id: svc.id,
+                                    service_name: svc.name,
+                                    unit: svc.units[0] ?? "",
+                                    allow_vehicle: svc.allowVehicle,
+                                    // Dịch vụ không cho gán xe → bỏ xe đã chọn (BE 400 LINE_ITEM_VEHICLE_NOT_ALLOWED)
+                                    ...(svc.allowVehicle ? {} : { vehicles: [] }),
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="w-full cursor-pointer border-border">
+                                  <SelectValue placeholder="Chọn dịch vụ" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {activeServices.map((s) => (
+                                    <SelectItem key={s.id} value={String(s.id)}>
+                                      {s.name} ({s.units.join(", ")})
+                                      {s.allowVehicle && (
+                                        <span className="ml-1.5 rounded-full bg-primary-light px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                                          Có xe
+                                        </span>
+                                      )}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <Label className="text-sm">Đơn vị <span className="text-error">*</span></Label>
+                                <Select value={item.unit} onValueChange={(unit) => patchLine(item._key, { unit })}>
+                                  <SelectTrigger><SelectValue placeholder="Chọn đơn vị" /></SelectTrigger>
+                                  <SelectContent>
+                                    {(selectedService?.units ?? (item.unit ? [item.unit] : [])).map((unit) => (
+                                      <SelectItem key={unit} value={unit}>{unit}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-sm">Thời gian</Label>
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  placeholder="Không áp dụng"
+                                  value={item.duration ?? ""}
+                                  onChange={(e) => patchLine(item._key, { duration: e.target.value === "" ? undefined : Number(e.target.value) })}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <Label className="text-sm">
+                                  Số lượng{item.unit ? ` (${item.unit})` : ""} <span className="text-error">*</span>
+                                </Label>
+                                <Input
+                                  type="number"
+                                  step="any"
+                                  min="0"
+                                  inputMode="decimal"
+                                  value={item.quantity ?? ""}
+                                  onChange={(e) =>
+                                    patchLine(item._key, {
+                                      quantity: e.target.value === "" ? undefined : Number(e.target.value),
+                                    })
+                                  }
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label className="text-sm">
+                                  Đơn giá (₫) <span className="text-error">*</span>
+                                </Label>
+                                <CurrencyInput
+                                  value={item.unit_price}
+                                  onChange={(v) => patchLine(item._key, { unit_price: v })}
+                                  placeholder="0"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                              <Label className="text-sm">Ghi chú</Label>
+                              <Textarea
+                                rows={2}
+                                maxLength={500}
+                                placeholder="Mô tả thêm cho dòng dịch vụ (không bắt buộc)"
+                                className="resize-none"
+                                value={item.note}
+                                onChange={(e) => patchLine(item._key, { note: e.target.value })}
+                              />
+                            </div>
+
+
+                            {/* Xe của dòng — có thể chọn tối đa quantity xe */}
+                            {item.allow_vehicle && (
+                              <div className="space-y-3 rounded-md bg-bg-page p-3">
+                                <div className="space-y-1.5">
+                                  <Label className="text-sm">Xe ({item.vehicles.length}/{item.quantity ?? 0})</Label>
+                                  {item.vehicles.length > 0 && (
+                                    <div className="space-y-2">
+                                      {item.vehicles.map((vehicleDraft) => {
+                                        const vehicle = vehicleOptions.find((option) => option.id === vehicleDraft.vehicle_id);
+                                        return (
+                                          <div key={vehicleDraft.vehicle_id} className="space-y-2 rounded-md border border-border bg-bg-card p-2">
+                                            <div className="flex items-center justify-between text-xs font-medium text-text-primary">
+                                              <span>{vehicle?.model ?? "Xe"} · {vehicle?.serialNumber ?? `#${vehicleDraft.vehicle_id}`}</span>
+                                              <button type="button" className="cursor-pointer text-text-secondary hover:text-error" onClick={() => patchLine(item._key, { vehicles: item.vehicles.filter((entry) => entry.vehicle_id !== vehicleDraft.vehicle_id) })}>
+                                                <X size={14} />
+                                              </button>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                              <DatePicker
+                                                value={vehicleDraft.deploy_date}
+                                                onChange={(date) => patchLine(item._key, {
+                                                  vehicles: item.vehicles.map((entry) => entry.vehicle_id === vehicleDraft.vehicle_id ? { ...entry, deploy_date: date } : entry),
+                                                })}
+                                                placeholder="Ngày xuất bãi"
+                                              />
+                                              <Input
+                                                type="number"
+                                                min={0}
+                                                max={3650}
+                                                step={1}
+                                                value={vehicleDraft.work_days}
+                                                onChange={(event) => patchLine(item._key, {
+                                                  vehicles: item.vehicles.map((entry) => entry.vehicle_id === vehicleDraft.vehicle_id ? { ...entry, work_days: Number(event.target.value) } : entry),
+                                                })}
+                                                placeholder="Số ngày làm"
+                                              />
+                                            </div>
+                                            <Input
+                                              value={vehicleDraft.note}
+                                              maxLength={500}
+                                              onChange={(event) => patchLine(item._key, {
+                                                vehicles: item.vehicles.map((entry) => entry.vehicle_id === vehicleDraft.vehicle_id ? { ...entry, note: event.target.value } : entry),
+                                              })}
+                                              placeholder="Ghi chú giao xe"
+                                            />
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  <Select
+                                    value=""
+                                    onValueChange={(v) => patchLine(item._key, {
+                                      vehicles: [...item.vehicles, { vehicle_id: Number(v), deploy_date: "", work_days: 0, note: "" }],
+                                    })}
+                                    disabled={item.vehicles.length >= (item.quantity ?? 0)}
+                                  >
+                                    <SelectTrigger className="w-full cursor-pointer border-border bg-bg-card">
+                                      <SelectValue placeholder="Chọn thêm xe" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {lineVehicleOptions.filter((mv) => !item.vehicles.some((entry) => entry.vehicle_id === mv.id)).map((mv) => (
+                                        <SelectItem key={mv.id} value={String(mv.id)}>
+                                          {mv.model}
+                                          <span className="text-text-secondary"> · {mv.serialNumber}</span>
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          {selected && (
-                            <p className="text-xs text-text-secondary">
-                              Số serial:{" "}
-                              <span className="font-medium text-text-primary">
-                                {selected.serialNumber}
-                              </span>
-                            </p>
-                          )}
+
+                          {/* Footer dòng: thành tiền */}
+                          <div className="flex items-center justify-between border-t border-border px-3 py-2 text-sm">
+                            <span className="text-text-secondary">Thành tiền</span>
+                            <span className="font-medium text-text-primary">
+                              {formatCurrency((item.unit_price ?? 0) * (item.quantity ?? 0) * (item.duration ?? 1))}
+                            </span>
+                          </div>
                         </div>
                       );
                     })}
+
+                    {/* Tạm tính trước VAT — tổng chính thức (kèm VAT công ty) do BE tính sau khi tạo */}
+                    <div className="flex items-center justify-between rounded-lg bg-primary-light px-3 py-2.5">
+                      <span className="text-sm font-medium text-text-primary">Tổng cộng</span>
+                      <span className="text-base font-semibold text-primary">{formatCurrency(draftTotal)}</span>
+                    </div>
+                    {fileTotals && (
+                      <div className="rounded-lg border border-border bg-bg-page px-3 py-2 text-xs text-text-secondary">
+                        <p className="font-medium text-text-primary">Tổng trong file (để đối chiếu)</p>
+                        <div className="mt-1 grid grid-cols-2 gap-1">
+                          {fileTotals.subtotal != null && <span>Trước thuế: {formatCurrency(fileTotals.subtotal)}</span>}
+                          {fileTotals.vatRate != null && <span>VAT: {fileTotals.vatRate}%</span>}
+                          {fileTotals.taxAmount != null && <span>Tiền thuế: {formatCurrency(fileTotals.taxAmount)}</span>}
+                          {fileTotals.totalAmount != null && <span>Tổng: {formatCurrency(fileTotals.totalAmount)}</span>}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1272,8 +1480,8 @@ export function CreateContractDialog({
       <Button type="button" variant="outline" onClick={handleClose} className="cursor-pointer">
         Hủy
       </Button>
-      <Button type="submit" form="create-contract-form" disabled={mutation.isPending} className="cursor-pointer">
-        {mutation.isPending ? "Đang tạo..." : "Tạo hợp đồng"}
+      <Button type="submit" form="create-contract-form" disabled={mutation.isPending || uploading || extracting} className="cursor-pointer">
+        {mutation.isPending ? "Đang tạo..." : uploading ? "Đang tải file..." : "Tạo hợp đồng"}
       </Button>
     </>
   );
@@ -1289,7 +1497,7 @@ export function CreateContractDialog({
         </p>
       </div>
       <div className="w-full max-w-md space-y-2">
-        <FileUpload value={file} onChange={setFile} label="Kéo thả hoặc nhấp để chọn file hợp đồng" />
+        <FileUpload value={file} onChange={handleFileChange} label="Kéo thả hoặc nhấp để chọn file hợp đồng" />
         <button
           type="button"
           onClick={() => setMockUrl(MOCK_DOC_URL)}
@@ -1341,7 +1549,7 @@ export function CreateContractDialog({
           <MobileSheetBody>
             {mobileTab === "document" ? (
               <div className="flex flex-col gap-4 p-4">
-                <FileUpload value={file} onChange={setFile} label="Kéo thả hoặc nhấp để chọn file hợp đồng" />
+                <FileUpload value={file} onChange={handleFileChange} label="Kéo thả hoặc nhấp để chọn file hợp đồng" />
                 {!file && (
                   <button
                     type="button"
@@ -1351,12 +1559,13 @@ export function CreateContractDialog({
                     [Dev] Dùng file mock để xem preview
                   </button>
                 )}
-                {(file || mockUrl) && <FilePreviewPanel file={file} mockUrl={mockUrl} />}
+                {(file || mockUrl) && <FilePreviewPanel file={file} sasUrl={uploadedDoc?.sasUrl ?? null} uploading={uploading} mockUrl={mockUrl} />}
               </div>
             ) : (
               <>
                 {showCreateCustomer && (
                   <CreateCustomerModal
+                    initialValues={extractedCustomer}
                     onClose={() => setShowCreateCustomer(false)}
                     onCreated={(id) => { setValue("customer_id", id); setShowCreateCustomer(false); }}
                   />
@@ -1391,16 +1600,17 @@ export function CreateContractDialog({
           className="flex flex-row overflow-hidden"
           style={{ height: "calc(90vh - 130px)" }}
         >
-          {/* ── Left: Form — width cố định 420px, ẩn khi chưa có file ── */}
+          {/* ── Left: Form — 40% dialog, ẩn khi chưa có file ── */}
           <div
             className="relative flex flex-col border-r border-border overflow-y-auto shrink-0 transition-all duration-300"
             style={{
-              width: hasPreview ? "420px" : "0px",
+              width: hasPreview ? "40%" : "0px",
               overflow: hasPreview ? undefined : "hidden",
             }}
           >
             {showCreateCustomer && (
               <CreateCustomerModal
+                initialValues={extractedCustomer}
                 onClose={() => setShowCreateCustomer(false)}
                 onCreated={(id) => {
                   setValue("customer_id", id);
@@ -1416,14 +1626,14 @@ export function CreateContractDialog({
             </div>
           </div>
 
-          {/* ── Right: Preview — flex-1 + min-w-0 để không tràn ── */}
+          {/* ── Right: Preview — 60% dialog + min-w-0 để không tràn ── */}
           <div
             className={cn(
               "flex-1 min-w-0 overflow-hidden h-full transition-all duration-300",
               hasPreview ? "pt-4 pl-4" : "p-8",
             )}
           >
-            {!hasPreview ? uploadPanel : <FilePreviewPanel file={file} mockUrl={mockUrl} />}
+            {!hasPreview ? uploadPanel : <FilePreviewPanel file={file} sasUrl={uploadedDoc?.sasUrl ?? null} uploading={uploading} mockUrl={mockUrl} />}
           </div>
         </div>
       </DialogContent>

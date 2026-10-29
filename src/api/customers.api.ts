@@ -3,6 +3,13 @@ import type {
   CustomerListItem,
   CustomerDetail,
   CustomerContractItem,
+  CustomerContact,
+  CustomerContractStatus,
+  CustomerGender,
+  CustomerType,
+  Contact,
+  ContactDetail,
+  ContactListItem,
 } from "@/types/customer.types";
 
 interface ApiResponse<T> {
@@ -21,19 +28,19 @@ interface PagedApiResponse<T> {
   };
 }
 
-interface CreateCustomerResult {
+export interface CreateCustomerResult {
   id: number;
-  customerType: string;
+  customerType: CustomerType;
   displayName: string;
   phone: string;
-  email?: string | null;
+  email?: string;
   isActive: boolean;
   createdAt: string;
 }
 
 export interface GetCustomersParams {
   search?: string;
-  customer_type?: string;
+  customer_type?: CustomerType;
   is_active?: boolean;
   page?: number;
   page_size?: number;
@@ -47,7 +54,7 @@ export interface CreateIndividualCustomerBody {
   nationalIdIssueDate?: string;
   nationalIdIssuePlace?: string;
   dateOfBirth?: string;
-  gender?: string;
+  gender?: CustomerGender;
   nationality?: string;
   hometown?: string;
   permanentAddress?: string;
@@ -73,7 +80,7 @@ export interface UpdateIndividualCustomerBody {
   nationalIdIssueDate?: string;
   nationalIdIssuePlace?: string;
   dateOfBirth?: string;
-  gender?: string;
+  gender?: CustomerGender;
   nationality?: string;
   hometown?: string;
   permanentAddress?: string;
@@ -92,7 +99,35 @@ export interface UpdateBusinessCustomerBody {
 }
 
 export interface GetCustomerContractsParams {
-  status?: string;
+  status?: CustomerContractStatus;
+  page?: number;
+  page_size?: number;
+}
+
+export interface ContactInput {
+  fullName: string;
+  phone?: string | null;
+  email?: string | null;
+}
+
+export interface CustomerContactInput extends ContactInput {
+  title?: string | null;
+  isPrimary?: boolean;
+}
+
+export type UpdateCustomerContactBody = Partial<ContactInput> & {
+  title?: string | null;
+  isPrimary?: boolean;
+};
+
+export interface LinkCustomerContactBody {
+  contactId: number;
+  title?: string | null;
+  isPrimary?: boolean;
+}
+
+export interface GetContactsParams {
+  search?: string;
   page?: number;
   page_size?: number;
 }
@@ -114,30 +149,84 @@ export const createIndividualCustomer = (body: CreateIndividualCustomerBody) =>
 
 export const createBusinessCustomer = (body: CreateBusinessCustomerBody) =>
   axiosInstance
-    .post<ApiResponse<CreateCustomerResult>>("/customers/business", body)
+    .post<ApiResponse<CreateCustomerResult>>("/customers/business", {
+      ...body,
+      shortName: body.shortName.trim().toUpperCase(),
+    })
     .then((r) => r.data);
 
 export const updateIndividualCustomer = (id: number, body: UpdateIndividualCustomerBody) =>
   axiosInstance
-    .put<ApiResponse<null>>(`/customers/${id}/individual`, body)
+    .put<ApiResponse<CustomerDetail>>(`/customers/${id}/individual`, body)
     .then((r) => r.data);
 
 export const updateBusinessCustomer = (id: number, body: UpdateBusinessCustomerBody) =>
   axiosInstance
-    .put<ApiResponse<null>>(`/customers/${id}/business`, body)
+    .put<ApiResponse<CustomerDetail>>(`/customers/${id}/business`, {
+      ...body,
+      ...(body.shortName !== undefined
+        ? { shortName: body.shortName.trim().toUpperCase() }
+        : {}),
+    })
     .then((r) => r.data);
 
 export const activateCustomer = (id: number) =>
   axiosInstance
-    .put<ApiResponse<null>>(`/customers/${id}/activate`)
-    .then((r) => r.data);
+    .put<void>(`/customers/${id}/activate`)
+    .then(() => undefined);
 
 export const deactivateCustomer = (id: number) =>
   axiosInstance
-    .put<ApiResponse<null>>(`/customers/${id}/deactivate`)
-    .then((r) => r.data);
+    .put<void>(`/customers/${id}/deactivate`)
+    .then(() => undefined);
 
 export const getCustomerContracts = (id: number, params?: GetCustomerContractsParams) =>
   axiosInstance
     .get<PagedApiResponse<CustomerContractItem>>(`/customers/${id}/contracts`, { params })
     .then((r) => r.data);
+
+export const getCustomerContacts = (id: number) =>
+  axiosInstance
+    .get<ApiResponse<CustomerContact[]>>(`/customers/${id}/contacts`)
+    .then((r) => r.data);
+
+export const createCustomerContact = (id: number, body: CustomerContactInput) =>
+  axiosInstance
+    .post<ApiResponse<CustomerContact>>(`/customers/${id}/contacts`, body)
+    .then((r) => r.data);
+
+export const linkCustomerContact = (id: number, body: LinkCustomerContactBody) =>
+  axiosInstance
+    .post<ApiResponse<CustomerContact>>(`/customers/${id}/contacts/link`, body)
+    .then((r) => r.data);
+
+export const updateCustomerContact = (
+  id: number,
+  contactId: number,
+  body: UpdateCustomerContactBody,
+) =>
+  axiosInstance
+    .put<ApiResponse<CustomerContact>>(`/customers/${id}/contacts/${contactId}`, body)
+    .then((r) => r.data);
+
+export const deleteCustomerContact = (id: number, contactId: number) =>
+  axiosInstance
+    .delete<void>(`/customers/${id}/contacts/${contactId}`)
+    .then(() => undefined);
+
+export const getContacts = (params?: GetContactsParams) =>
+  axiosInstance
+    .get<PagedApiResponse<ContactListItem>>("/contacts", { params })
+    .then((r) => r.data);
+
+export const getContactById = (id: number) =>
+  axiosInstance.get<ApiResponse<ContactDetail>>(`/contacts/${id}`).then((r) => r.data);
+
+export const createContact = (body: ContactInput) =>
+  axiosInstance.post<ApiResponse<Contact>>("/contacts", body).then((r) => r.data);
+
+export const updateContact = (id: number, body: Partial<ContactInput>) =>
+  axiosInstance.put<ApiResponse<Contact>>(`/contacts/${id}`, body).then((r) => r.data);
+
+export const deactivateContact = (id: number) =>
+  axiosInstance.delete<void>(`/contacts/${id}`).then(() => undefined);

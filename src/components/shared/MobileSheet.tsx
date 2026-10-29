@@ -58,7 +58,7 @@ const MobileSheetContent = React.forwardRef<
       <DialogPrimitive.Content
         ref={ref}
         className={cn(
-          "fixed z-50 bg-background shadow-lg duration-300",
+          "fixed z-50 min-w-0 bg-background shadow-lg duration-300",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           // ── Mobile: bottom sheet ───────────────────────────────────────────
           mobileVariant === "sheet" && [
@@ -74,7 +74,7 @@ const MobileSheetContent = React.forwardRef<
             "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           ],
           // ── Desktop: centered modal ────────────────────────────────────────
-          "sm:inset-auto sm:bottom-auto sm:rounded-lg sm:border sm:overflow-visible sm:h-auto sm:flex-none",
+          "sm:inset-auto sm:bottom-auto sm:rounded-lg sm:border-0 sm:overflow-visible sm:h-auto sm:flex-none",
           "sm:left-[50%] sm:top-[50%] sm:translate-x-[-50%] sm:translate-y-[-50%]",
           "sm:w-full sm:max-w-lg sm:max-h-none",
           "sm:data-[state=closed]:fade-out-0 sm:data-[state=open]:fade-in-0",
@@ -204,7 +204,7 @@ const MobileSheetBody = ({
   ...props
 }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
-    className={cn("px-5 py-4 flex flex-col gap-4 sm:px-0 sm:py-0", className)}
+    className={cn("min-w-0 max-w-full px-5 py-4 flex flex-col gap-4 sm:px-0 sm:py-0", className)}
     {...props}
   />
 )

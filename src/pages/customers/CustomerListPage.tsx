@@ -6,18 +6,22 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
-import { Plus, Search, Building2, User } from "lucide-react";
+import { Plus, Building2, User } from "lucide-react";
 import {
   getCustomers,
   createIndividualCustomer,
   createBusinessCustomer,
 } from "@/api/customers.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
+import { formatDateTime } from "@/utils/format";
+import { getApiError, getApiErrorMessage } from "@/utils/apiError";
 import { useDebounce } from "@/hooks/useDebounce";
 import { usePermission } from "@/hooks/usePermission";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { DataTable } from "@/components/shared/DataTable";
+import { Pagination } from "@/components/shared/Pagination";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { FilterToolbar } from "@/components/shared/FilterToolbar";
 import { DatePicker } from "@/components/shared/DatePicker";
 import {
   MobileSheetDialog,
@@ -34,7 +38,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -50,38 +53,41 @@ import {
   CUSTOMER_TYPE_OPTIONS,
 } from "@/constants/customerType";
 import type { CustomerListItem, CustomerType } from "@/types/customer.types";
+import { isValidPhone, PHONE_INPUT_PATTERN, PHONE_VALIDATION_MESSAGE } from "@/utils/phone";
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 const individualSchema = z.object({
   type: z.literal("individual"),
-  fullName: z.string().min(1, "Bắt buộc"),
-  phone: z.string().min(1, "Bắt buộc"),
+  fullName: z.string().trim().min(1, "Bắt buộc").max(200, "Tối đa 200 ký tự"),
+  phone: z.string().refine((value) => isValidPhone(value, true), PHONE_VALIDATION_MESSAGE),
   nationalId: z.string().regex(/^\d{12}$/, "Phải là 12 số"),
-  email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
-  dateOfBirth: z.string().optional(),
+  email: z.string().email("Email không hợp lệ").max(200).or(z.literal("")).optional(),
+  dateOfBirth: z.string().max(20).optional(),
   gender: z.enum(["male", "female", "other"]).optional(),
-  nationality: z.string().optional(),
-  nationalIdIssueDate: z.string().optional(),
-  nationalIdIssuePlace: z.string().optional(),
-  hometown: z.string().optional(),
-  permanentAddress: z.string().optional(),
+  nationality: z.string().max(100).optional(),
+  nationalIdIssueDate: z.string().max(20).optional(),
+  nationalIdIssuePlace: z.string().max(300).optional(),
+  hometown: z.string().max(300).optional(),
+  permanentAddress: z.string().max(500).optional(),
 });
 
 const businessSchema = z.object({
   type: z.literal("business"),
-  internationalName: z.string().min(1, "Bắt buộc"),
+  internationalName: z.string().trim().min(1, "Bắt buộc").max(300, "Tối đa 300 ký tự"),
   shortName: z
     .string()
     .min(1, "Bắt buộc")
+    .max(50, "Tối đa 50 ký tự")
     .regex(/^[A-Z0-9]+$/, "Chỉ chữ in hoa A–Z và số 0–9, không dấu cách"),
   taxCode: z
     .string()
     .regex(/^\d{10}(\d{3})?$/, "Phải là 10 hoặc 13 số"),
-  taxAddress: z.string().optional(),
-  officeAddress: z.string().optional(),
-  representative: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
+  taxAddress: z.string().max(500).optional(),
+  officeAddress: z.string().max(500).optional(),
+  representative: z.string().max(200).optional(),
+  representativeTitle: z.string().max(100).optional(),
+  phone: z.string().refine((value) => isValidPhone(value, false), PHONE_VALIDATION_MESSAGE).optional(),
+  email: z.string().email("Email không hợp lệ").max(200).or(z.literal("")).optional(),
 });
 
 type IndividualForm = z.infer<typeof individualSchema>;
@@ -92,6 +98,17 @@ const PAGE_SIZE = 10;
 const fieldClass =
   "w-full px-3 py-2 text-sm border border-input rounded-md outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 bg-background";
 const errClass = "text-xs text-error mt-0.5";
+const displayOptionalValue = (value?: string | null) => value?.trim() || "—";
+
+const toDatePickerValue = (value?: string) => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value ?? "");
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : value;
+};
+
+const toBackendDate = (value: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+};
 
 // ─── Form nội dung: Doanh nghiệp ─────────────────────────────────────────────
 function BusinessFormFields({
@@ -161,6 +178,17 @@ function BusinessFormFields({
         />
       </div>
 
+      <div>
+        <Label className="text-xs font-medium text-text-secondary">
+          Chức vụ người đại diện
+        </Label>
+        <input
+          {...register("representativeTitle")}
+          placeholder="Giám đốc"
+          className={`${fieldClass} mt-1`}
+        />
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <div>
           <Label className="text-xs font-medium text-text-secondary">
@@ -169,8 +197,13 @@ function BusinessFormFields({
           <input
             {...register("phone")}
             placeholder="028..."
+            inputMode="tel"
+            pattern={PHONE_INPUT_PATTERN}
             className={`${fieldClass} mt-1`}
           />
+          {errors.phone && (
+            <p className={errClass}>{errors.phone.message}</p>
+          )}
         </div>
         <div>
           <Label className="text-xs font-medium text-text-secondary">
@@ -243,6 +276,8 @@ function IndividualFormFields({
           <input
             {...register("phone")}
             placeholder="0901234567"
+            inputMode="tel"
+            pattern={PHONE_INPUT_PATTERN}
             className={`${fieldClass} mt-1`}
           />
           {errors.phone && (
@@ -289,8 +324,8 @@ function IndividualFormFields({
             name="nationalIdIssueDate"
             render={({ field }) => (
               <DatePicker
-                value={field.value}
-                onChange={field.onChange}
+                value={toDatePickerValue(field.value)}
+                onChange={(value) => field.onChange(toBackendDate(value))}
                 className="mt-1 w-full"
               />
             )}
@@ -305,8 +340,8 @@ function IndividualFormFields({
             name="dateOfBirth"
             render={({ field }) => (
               <DatePicker
-                value={field.value}
-                onChange={field.onChange}
+                value={toDatePickerValue(field.value)}
+                onChange={(value) => field.onChange(toBackendDate(value))}
                 className="mt-1 w-full"
               />
             )}
@@ -402,9 +437,11 @@ function CreateCustomerDialog({
     mutationFn: (body: IndividualForm | BusinessForm) => {
       if (body.type === "individual") {
         const { type, ...rest } = body;
+        void type;
         return createIndividualCustomer(rest);
       } else {
         const { type, ...rest } = body;
+        void type;
         return createBusinessCustomer(rest);
       }
     },
@@ -413,7 +450,45 @@ function CreateCustomerDialog({
       toast.success("Thêm khách hàng thành công");
       handleClose();
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (error: unknown) => {
+      const apiError = getApiError(error);
+      const targetForm = activeType === "individual" ? individualForm : businessForm;
+      apiError.details?.forEach(({ field, message }) => {
+        targetForm.setError(field as never, { type: "server", message });
+      });
+
+      const duplicateField = {
+        CCCD_ALREADY_EXISTS: "nationalId",
+        TAX_CODE_ALREADY_EXISTS: "taxCode",
+        SHORT_NAME_ALREADY_EXISTS: "shortName",
+      }[apiError.code ?? ""];
+      if (duplicateField) {
+        targetForm.setError(duplicateField as never, {
+          type: "server",
+          message: apiError.message ?? "Giá trị đã tồn tại",
+        });
+      }
+      if (apiError.code === "PHONE_ALREADY_EXISTS") {
+        targetForm.setError("phone" as never, {
+          type: "server",
+          message: apiError.message ?? "Số điện thoại đã được sử dụng",
+        });
+      }
+      if (
+        apiError.code === "CONTACT_PHONE_OR_EMAIL_EXISTS" &&
+        !apiError.details?.length
+      ) {
+        targetForm.setError("phone" as never, {
+          type: "server",
+          message: apiError.message ?? "Số điện thoại hoặc email đã được sử dụng",
+        });
+        targetForm.setError("email" as never, {
+          type: "server",
+          message: apiError.message ?? "Số điện thoại hoặc email đã được sử dụng",
+        });
+      }
+      toast.error(getApiErrorMessage(error));
+    },
   });
 
   function handleClose() {
@@ -539,7 +614,7 @@ export default function CustomerListPage() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState<CustomerType | "">("");
   const [activeFilter, setActiveFilter] = useState("");
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
@@ -552,7 +627,7 @@ export default function CustomerListPage() {
   const { data, isLoading } = useQuery({
     queryKey: [
       ...QUERY_KEYS.customers.all,
-      { search: debouncedSearch, typeFilter, activeFilter, page },
+      { search: debouncedSearch, typeFilter, activeFilter, page, pageSize: pagination.pageSize },
     ],
     queryFn: () =>
       getCustomers({
@@ -565,7 +640,7 @@ export default function CustomerListPage() {
               ? false
               : undefined,
         page,
-        page_size: PAGE_SIZE,
+        page_size: pagination.pageSize,
       }),
   });
 
@@ -627,7 +702,7 @@ export default function CustomerListPage() {
       header: "Điện thoại",
       cell: ({ row }) => (
         <span className="text-text-secondary text-[length:var(--fs-sm)]">
-          {row.original.phone ?? "—"}
+          {displayOptionalValue(row.original.phone)}
         </span>
       ),
     },
@@ -636,7 +711,7 @@ export default function CustomerListPage() {
       header: "Email",
       cell: ({ row }) => (
         <span className="text-text-secondary text-[length:var(--fs-sm)]">
-          {row.original.email ?? "—"}
+          {displayOptionalValue(row.original.email)}
         </span>
       ),
     },
@@ -657,10 +732,20 @@ export default function CustomerListPage() {
         );
       },
     },
+    {
+      id: "updated_at",
+      header: "Cập nhật lần cuối",
+      size: 170,
+      cell: ({ row }) => (
+        <span className="whitespace-nowrap text-[length:var(--fs-sm)] text-text-secondary">
+          {formatDateTime(row.original.updatedAt)}
+        </span>
+      ),
+    },
   ];
 
   return (
-    <div className="flex flex-col gap-[var(--sp-section)]">
+    <div className="flex flex-col gap-3 lg:gap-4">
       <PageHeader
         title="Khách hàng"
         subtitle="Danh sách khách hàng của công ty"
@@ -668,7 +753,7 @@ export default function CustomerListPage() {
           canEdit ? (
             <Button
               onClick={() => setCreateOpen(true)}
-              className="cursor-pointer bg-primary text-white hover:bg-primary-dark gap-1.5 text-[length:var(--fs-sm)] sm:text-[length:var(--fs-base)]"
+              className="h-auto cursor-pointer gap-1.5 rounded-lg border-0 bg-primary px-3 py-1.5 text-[length:var(--fs-sm)] text-white shadow-sm hover:bg-primary-dark sm:px-4 sm:py-2 sm:text-[length:var(--fs-base)]"
             >
               <Plus size={16} />
               Thêm khách hàng
@@ -677,58 +762,65 @@ export default function CustomerListPage() {
         }
       />
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
-          <Input
-            placeholder="Tìm tên, SĐT, email..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); resetPage(); }}
-            className="pl-9 border-border"
-          />
+      <FilterToolbar
+        search={search}
+        onSearchChange={(value) => {
+          setSearch(value);
+          resetPage();
+        }}
+        searchPlaceholder="Tìm tên, SĐT, email..."
+        activeFilterCount={Number(!!typeFilter) + Number(!!activeFilter)}
+        onClearFilters={() => {
+          setTypeFilter("");
+          setActiveFilter("");
+          resetPage();
+        }}
+      >
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-[length:var(--fs-sm)]">Loại khách hàng</Label>
+          <Select
+            value={typeFilter || "_all"}
+            onValueChange={(v) => {
+              setTypeFilter(v === "_all" ? "" : (v as CustomerType));
+              resetPage();
+            }}
+          >
+            <SelectTrigger className="w-full cursor-pointer border-border">
+              <SelectValue placeholder="Tất cả loại" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">Tất cả loại</SelectItem>
+              {CUSTOMER_TYPE_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <Select
-          value={typeFilter || "_all"}
-          onValueChange={(v) => { setTypeFilter(v === "_all" ? "" : v); resetPage(); }}
-        >
-          <SelectTrigger className="w-full sm:w-44 border-border cursor-pointer">
-            <SelectValue placeholder="Tất cả loại" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">Tất cả loại</SelectItem>
-            {CUSTOMER_TYPE_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-[length:var(--fs-sm)]">Trạng thái</Label>
+          <Select
+            value={activeFilter || "_all"}
+            onValueChange={(v) => {
+              setActiveFilter(v === "_all" ? "" : v);
+              resetPage();
+            }}
+          >
+            <SelectTrigger className="w-full cursor-pointer border-border">
+              <SelectValue placeholder="Tất cả trạng thái" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">Tất cả trạng thái</SelectItem>
+              <SelectItem value="active">Đang hoạt động</SelectItem>
+              <SelectItem value="inactive">Đã vô hiệu</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </FilterToolbar>
 
-        <Select
-          value={activeFilter || "_all"}
-          onValueChange={(v) => { setActiveFilter(v === "_all" ? "" : v); resetPage(); }}
-        >
-          <SelectTrigger className="w-full sm:w-44 border-border cursor-pointer">
-            <SelectValue placeholder="Tất cả trạng thái" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">Tất cả trạng thái</SelectItem>
-            <SelectItem value="active">Đang hoạt động</SelectItem>
-            <SelectItem value="inactive">Đã vô hiệu</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {meta && (
-          <p className="ml-auto text-[length:var(--fs-base)] text-text-secondary">
-            Tổng{" "}
-            <span className="font-medium text-text-primary">{meta.total}</span>{" "}
-            khách hàng
-          </p>
-        )}
-      </div>
-
+      <div className="rounded-lg border border-border bg-bg-card p-3 shadow-card">
       {/* Desktop table */}
       <div className="hidden sm:block">
         <DataTable
@@ -844,37 +936,16 @@ export default function CustomerListPage() {
         )}
 
         {/* Pagination mobile */}
-        {!isLoading && meta && meta.totalPages > 1 && (
-          <div className="flex items-center justify-between px-1 pt-1">
-            <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              Trang {meta.page}/{meta.totalPages} · {meta.total} KH
-            </p>
-            <div className="flex gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 border-border cursor-pointer"
-                disabled={pagination.pageIndex === 0}
-                onClick={() =>
-                  setPagination((p) => ({ ...p, pageIndex: p.pageIndex - 1 }))
-                }
-              >
-                Trước
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 border-border cursor-pointer"
-                disabled={pagination.pageIndex + 1 >= meta.totalPages}
-                onClick={() =>
-                  setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))
-                }
-              >
-                Tiếp
-              </Button>
-            </div>
-          </div>
+        {!isLoading && meta && (
+          <Pagination
+            pageIndex={pagination.pageIndex}
+            totalPages={meta.totalPages}
+            onPageChange={(pageIndex) => setPagination((p) => ({ ...p, pageIndex }))}
+            pageSize={pagination.pageSize}
+            onPageSizeChange={(pageSize) => setPagination({ pageIndex: 0, pageSize })}
+          />
         )}
+      </div>
       </div>
 
       <CreateCustomerDialog open={createOpen} onOpenChange={setCreateOpen} />

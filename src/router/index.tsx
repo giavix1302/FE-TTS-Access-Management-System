@@ -7,16 +7,20 @@ import LoginPage from "@/pages/auth/LoginPage";
 import DashboardPage from "@/pages/dashboard/DashboardPage";
 import VehicleListPage from "@/pages/vehicles/VehicleListPage";
 import VehicleDetailPage from "@/pages/vehicles/VehicleDetailPage";
+import VehicleQrPage from "@/pages/vehicles/VehicleQrPage";
 import ContractListPage from "@/pages/contracts/ContractListPage";
 import ContractDetailPage from "@/pages/contracts/ContractDetailPage";
 import CustomerListPage from "@/pages/customers/CustomerListPage";
 import CustomerDetailPage from "@/pages/customers/CustomerDetailPage";
+import ContactListPage from "@/pages/contacts/ContactListPage";
+import ContactDetailPage from "@/pages/contacts/ContactDetailPage";
 import UserListPage from "@/pages/users/UserListPage";
 import NotificationsPage from "@/pages/notifications/NotificationsPage";
 import CompanySettingsPage from "@/pages/settings/CompanySettingsPage";
 import ServiceCatalogPage from "@/pages/service-catalog/ServiceCatalogPage";
 import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage";
 import ProfilePage from "@/pages/profile/ProfilePage";
+import AuditLogsPage from "@/pages/audit-logs/AuditLogsPage";
 import ComingSoonPage from "@/pages/coming-soon/ComingSoonPage";
 
 export const router = createBrowserRouter([
@@ -34,17 +38,21 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: "vehicles", element: <VehicleListPage /> },
+      { path: "vehicles/qr/:code", element: <VehicleQrPage /> },
       { path: "vehicles/:id", element: <VehicleDetailPage /> },
       { path: "contracts", element: <ContractListPage /> },
       { path: "contracts/:id", element: <ContractDetailPage /> },
       { path: "customers", element: <CustomerListPage /> },
       { path: "customers/:id", element: <CustomerDetailPage /> },
+      { path: "contacts", element: <ContactListPage /> },
+      { path: "contacts/:id", element: <ContactDetailPage /> },
       { path: "users", element: <UserListPage /> },
       { path: "notifications", element: <NotificationsPage /> },
       { path: "settings", element: <CompanySettingsPage /> },
       { path: "service-catalog", element: <ServiceCatalogPage /> },
       { path: "roles", element: <RolesPermissionsPage /> },
       { path: "profile", element: <ProfilePage /> },
+      { path: "audit-logs", element: <AuditLogsPage /> },
       { path: "analytics", element: <ComingSoonPage title="Thống kê" description="Trang thống kê tổng quan doanh thu, xe và hợp đồng đang được phát triển." /> },
       { path: "reports", element: <ComingSoonPage title="Xuất báo cáo" description="Tính năng xuất báo cáo Excel / PDF theo kỳ đang được phát triển." /> },
     ],

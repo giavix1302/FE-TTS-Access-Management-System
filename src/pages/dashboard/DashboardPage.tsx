@@ -291,7 +291,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-4">
         {/* Chart trái — Bar chart doanh thu 12 tháng */}
         <div className="bg-bg-card rounded-lg border border-border shadow-card p-[var(--sp-card)]">
-          <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary mb-3">
+          <p className="mb-3 border-b border-border pb-3 text-[length:var(--fs-nav)] font-semibold text-text-primary">
             Doanh thu 12 tháng gần nhất
           </p>
           {chartsQuery.isLoading ? (
@@ -341,7 +341,7 @@ export default function DashboardPage() {
 
         {/* Chart phải — Top 5 khách hàng (Tailwind div bars) */}
         <div className="bg-bg-card rounded-lg border border-border shadow-card p-[var(--sp-card)]">
-          <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary mb-3">
+          <p className="mb-3 border-b border-border pb-3 text-[length:var(--fs-nav)] font-semibold text-text-primary">
             Top 5 khách hàng theo doanh thu
           </p>
           {chartsQuery.isLoading ? (
@@ -393,7 +393,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-4">
         {/* Bảng trái — Bảo hiểm / Đăng kiểm sắp hết hạn */}
         <div className="bg-bg-card rounded-lg border border-border shadow-card p-[var(--sp-card)]">
-          <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary mb-3">
+          <p className="mb-3 border-b border-border pb-3 text-[length:var(--fs-nav)] font-semibold text-text-primary">
             Bảo hiểm / Đăng kiểm sắp hết hạn
           </p>
           {alertsQuery.isLoading ? (
@@ -466,7 +466,7 @@ export default function DashboardPage() {
 
         {/* Bảng phải — Hợp đồng sắp hết hạn */}
         <div className="bg-bg-card rounded-lg border border-border shadow-card p-[var(--sp-card)]">
-          <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary mb-3">
+          <p className="mb-3 border-b border-border pb-3 text-[length:var(--fs-nav)] font-semibold text-text-primary">
             Hợp đồng sắp hết hạn
           </p>
           {alertsQuery.isLoading ? (

@@ -17,13 +17,17 @@ import { EmptyState } from '@/components/shared/EmptyState'
 import { FileCard } from '@/components/shared/FileCard'
 import { CurrencyInput } from '@/components/shared/CurrencyInput'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
+import { DocumentExtractButton } from '@/components/shared/DocumentExtractButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getInvoices, createInvoice, updateInvoice, deleteInvoice } from '@/api/contracts.api'
 import { uploadDocument } from '@/api/documents.api'
+import { getCompanySettings } from '@/api/company.api'
+import { getServiceErrorMessage } from '@/constants/serviceErrors'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
+import { getApiError } from '@/utils/apiError'
 import { QUERY_KEYS } from '@/utils/queryKeys'
 import { formatCurrency, formatDate } from '@/utils/format'
-import type { Invoice, ContractSummary } from '@/types/contract.types'
+import type { Invoice, ContractSummary, InvoiceAutofillFields } from '@/types/contract.types'
 
 // ─── InvoiceFileCard ──────────────────────────────────────────────────────────
 function InvoiceFileCard({
@@ -58,12 +62,21 @@ function InvoiceFileCard({
 }
 
 // ─── InvoiceDialog ────────────────────────────────────────────────────────────
+// BE: invoiceSymbol bắt buộc (≤ 20), totalAmount > 0, |subtotal + taxAmount − totalAmount| ≤ 1.000đ
 const invoiceSchema = z.object({
+  invoiceSymbol: z.string().trim().min(1, 'Bắt buộc').max(20, 'Tối đa 20 ký tự'),
   invoiceNumber: z.string().optional(),
   invoiceDate: z.string().min(1, 'Bắt buộc'),
-  amount: z.number({ error: 'Bắt buộc' }).min(1, 'Phải > 0'),
+  subtotal: z.number({ error: 'Bắt buộc' }).min(0),
+  vatRatePercent: z.number({ error: 'Bắt buộc' }).min(0).max(100),
+  taxAmount: z.number({ error: 'Bắt buộc' }).min(0),
+  totalAmount: z.number({ error: 'Bắt buộc' }).positive('Phải > 0'),
   note: z.string().max(500).optional(),
 })
+  .refine(
+    (d) => Math.abs(d.subtotal + d.taxAmount - d.totalAmount) <= 1000,
+    { message: 'Subtotal + VAT lệch quá 1.000₫ so với tổng tiền', path: ['totalAmount'] }
+  )
 
 type InvoiceForm = z.infer<typeof invoiceSchema>
 
@@ -83,18 +96,32 @@ function InvoiceDialog({
   const [docFile, setDocFile] = useState<File | null>(null)
   const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [extracting, setExtracting] = useState(false)
 
-  function buildDefaultValues(): InvoiceForm | Partial<InvoiceForm> {
-    if (!editItem) return {}
+  const { data: companySettingsRes } = useQuery({
+    queryKey: ['company-settings'],
+    queryFn: getCompanySettings,
+    staleTime: 5 * 60 * 1000,
+  })
+  const defaultVatRate: number = companySettingsRes?.data?.[0]?.vatRate ?? 8
+
+  function buildDefaultValues(): Partial<InvoiceForm> {
+    if (!editItem) return { vatRatePercent: defaultVatRate }
     return {
+      invoiceSymbol: editItem.invoiceSymbol ?? '',
       invoiceNumber: editItem.invoiceNumber ?? '',
       invoiceDate: editItem.invoiceDate,
-      amount: editItem.amount,
+      subtotal: editItem.subtotal,
+      vatRatePercent: editItem.subtotal > 0
+        ? Math.round((editItem.taxAmount / editItem.subtotal) * 100 * 100) / 100
+        : defaultVatRate,
+      taxAmount: editItem.taxAmount,
+      totalAmount: editItem.totalAmount,
       note: editItem.note ?? '',
     }
   }
 
-  const { register, handleSubmit, control, reset, formState: { errors } } = useForm<InvoiceForm>({
+  const { register, handleSubmit, control, watch, setValue, setError, reset, formState: { errors } } = useForm<InvoiceForm>({
     resolver: zodResolver(invoiceSchema),
     defaultValues: buildDefaultValues(),
   })
@@ -104,6 +131,31 @@ function InvoiceDialog({
     if (open) reset(buildDefaultValues())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, editItem])
+
+  const subtotal = watch('subtotal')
+  const vatRatePercent = watch('vatRatePercent')
+  const taxAmount = watch('taxAmount')
+
+  // Subtotal hoặc % thuế đổi → tự tính lại tiền thuế (user vẫn sửa tay được ô Tiền thuế nếu cần làm tròn)
+  useEffect(() => {
+    if (subtotal === undefined || vatRatePercent === undefined) return
+    const computed = Math.round(subtotal * vatRatePercent) / 100
+    setValue('taxAmount', computed, { shouldValidate: true })
+  }, [subtotal, vatRatePercent, setValue])
+
+  // Subtotal hoặc tiền thuế đổi → tự tính lại tổng tiền (luôn auto, không cho sửa tay)
+  useEffect(() => {
+    if (subtotal === undefined || taxAmount === undefined) return
+    setValue('totalAmount', subtotal + taxAmount, { shouldValidate: true })
+  }, [subtotal, taxAmount, setValue])
+
+  // Company settings load xong sau khi form đã mount (create mode) → cập nhật % mặc định
+  useEffect(() => {
+    if (!isEdit && companySettingsRes?.data?.[0]?.vatRate !== undefined) {
+      setValue('vatRatePercent', companySettingsRes.data[0].vatRate)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companySettingsRes])
 
   function handleClose(v: boolean) {
     if (!v) { reset(); setDocFile(null); setUploadedDoc(null) }
@@ -130,19 +182,29 @@ function InvoiceDialog({
 
   const mutation = useMutation({
     mutationFn: async (body: InvoiceForm) => {
+      // vatRatePercent chỉ dùng để tính taxAmount ở FE — BE không có field này
+      const rest = Object.fromEntries(
+        Object.entries(body).filter(([key]) => key !== 'vatRatePercent'),
+      ) as Omit<InvoiceForm, 'vatRatePercent'>
       const documentId = uploadedDoc?.id
-      const payload = { ...body, documentId }
+      const payload = { ...rest, documentId }
       return isEdit
         ? updateInvoice(contractId, editItem!.id, payload)
         : createInvoice(contractId, payload)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'invoices'] })
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
+      // amountPaid của summary = tổng totalAmount hóa đơn → contracts.all (prefix) refetch cả summary
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
       toast.success(isEdit ? 'Đã cập nhật hóa đơn' : 'Đã thêm hóa đơn')
       handleClose(false)
     },
-    onError: () => toast.error('Có lỗi xảy ra'),
+    onError: (err) => {
+      if (getApiError(err).code === 'AMOUNT_MISMATCH') {
+        setError('totalAmount', { message: getServiceErrorMessage(err) })
+        return
+      }
+      toast.error(getServiceErrorMessage(err))
+    },
   })
 
   return (
@@ -163,34 +225,96 @@ function InvoiceDialog({
         className="flex flex-col gap-4 px-5 py-4 flex-1"
       >
         <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">Thông tin hóa đơn</p>
+        <DocumentExtractButton<InvoiceAutofillFields>
+          documentId={uploadedDoc?.id ?? editItem?.document?.id}
+          docType="invoice"
+          disabled={uploading}
+          onBusyChange={setExtracting}
+          onExtract={(fields) => {
+            if (fields.invoiceSymbol !== undefined) setValue('invoiceSymbol', fields.invoiceSymbol)
+            if (fields.invoiceNumber !== undefined) setValue('invoiceNumber', fields.invoiceNumber)
+            if (fields.invoiceDate !== undefined) setValue('invoiceDate', fields.invoiceDate)
+            if (fields.subtotal !== undefined) setValue('subtotal', fields.subtotal)
+            if (fields.taxAmount !== undefined) setValue('taxAmount', fields.taxAmount)
+            if (fields.totalAmount !== undefined) setValue('totalAmount', fields.totalAmount)
+            if (fields.note !== undefined) setValue('note', fields.note)
+            if (fields.subtotal && fields.taxAmount !== undefined) {
+              setValue('vatRatePercent', Math.round((fields.taxAmount / fields.subtotal) * 10000) / 100)
+            }
+          }}
+        />
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>Ký hiệu <span className="text-error">*</span></Label>
+            <Input {...register('invoiceSymbol')} maxLength={20} placeholder="1C26TTS" />
+            {errors.invoiceSymbol && <p className="text-xs text-error">{errors.invoiceSymbol.message}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label>Số hóa đơn</Label>
+            <Input {...register('invoiceNumber')} placeholder="Điền sau khi xuất trên MISA/FAST" />
+          </div>
+        </div>
 
         <div className="space-y-1">
-          <Label>Số hóa đơn</Label>
-          <Input {...register('invoiceNumber')} placeholder="Điền sau khi xuất trên MISA/FAST" />
+          <Label>Ngày hóa đơn <span className="text-error">*</span></Label>
+          <Controller
+            control={control}
+            name="invoiceDate"
+            render={({ field }) => (
+              <DatePicker value={field.value} onChange={field.onChange} />
+            )}
+          />
+          {errors.invoiceDate && <p className="text-xs text-error">{errors.invoiceDate.message}</p>}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
-            <Label>Ngày hóa đơn <span className="text-error">*</span></Label>
+            <Label>Tổng trước thuế <span className="text-error">*</span></Label>
             <Controller
               control={control}
-              name="invoiceDate"
-              render={({ field }) => (
-                <DatePicker value={field.value} onChange={field.onChange} />
-              )}
-            />
-            {errors.invoiceDate && <p className="text-xs text-error">{errors.invoiceDate.message}</p>}
-          </div>
-          <div className="space-y-1">
-            <Label>Số tiền <span className="text-error">*</span></Label>
-            <Controller
-              control={control}
-              name="amount"
+              name="subtotal"
               render={({ field }) => (
                 <CurrencyInput value={field.value} onChange={field.onChange} />
               )}
             />
-            {errors.amount && <p className="text-xs text-error">{errors.amount.message}</p>}
+            {errors.subtotal && <p className="text-xs text-error">{errors.subtotal.message}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label>Thuế suất (%) <span className="text-error">*</span></Label>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step="any"
+              {...register('vatRatePercent', { valueAsNumber: true })}
+            />
+            {errors.vatRatePercent && <p className="text-xs text-error">{errors.vatRatePercent.message}</p>}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>Tiền thuế <span className="text-error">*</span></Label>
+            <Controller
+              control={control}
+              name="taxAmount"
+              render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} />
+              )}
+            />
+            {errors.taxAmount && <p className="text-xs text-error">{errors.taxAmount.message}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label>Tổng tiền</Label>
+            <Controller
+              control={control}
+              name="totalAmount"
+              render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} disabled />
+              )}
+            />
+            {errors.totalAmount && <p className="text-xs text-error">{errors.totalAmount.message}</p>}
           </div>
         </div>
 
@@ -207,7 +331,7 @@ function InvoiceDialog({
         <Button
           type="submit"
           form="invoice-form"
-          disabled={mutation.isPending || uploading || (!isEdit && !uploadedDoc)}
+          disabled={mutation.isPending || uploading || extracting}
           className="cursor-pointer"
         >
           {mutation.isPending ? 'Đang lưu...' : uploading ? 'Đang tải file...' : 'Lưu'}
@@ -239,12 +363,11 @@ export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteInvoice(contractId, id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'invoices'] })
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
       toast.success('Đã xóa hóa đơn')
       setDeletingId(null)
     },
-    onError: () => toast.error('Có lỗi xảy ra'),
+    onError: (err) => toast.error(getServiceErrorMessage(err)),
   })
 
   const openAdd = () => { setEditingItem(undefined); setDialogOpen(true) }
@@ -288,8 +411,14 @@ export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) 
             {/* Row 1: info + actions */}
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  {item.invoiceNumber === null ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  {item.invoiceSymbol ? (
+                    <span className="font-mono text-sm text-text-secondary">{item.invoiceSymbol}</span>
+                  ) : (
+                    <Badge variant="outline" className="border-warning text-warning">Chưa có ký hiệu</Badge>
+                  )}
+                  {/* BE bỏ key khi null → so `!` chứ không `=== null` */}
+                  {!item.invoiceNumber ? (
                     <Badge variant="outline" className="border-warning text-warning">Chưa có số HĐ</Badge>
                   ) : (
                     <span className="font-mono font-semibold text-sm text-text-primary">{item.invoiceNumber}</span>
@@ -301,9 +430,12 @@ export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) 
                     {formatDate(item.invoiceDate)}
                   </span>
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                    {formatCurrency(item.amount)}
+                    {formatCurrency(item.totalAmount)}
                   </span>
                 </div>
+                <p className="text-sm text-text-secondary mt-1">
+                  Subtotal: {formatCurrency(item.subtotal)} · VAT: {formatCurrency(item.taxAmount)}
+                </p>
                 {item.note && (
                   <p className="text-sm text-text-secondary mt-1">{item.note}</p>
                 )}

@@ -31,6 +31,7 @@ import { DatePicker } from '@/components/shared/DatePicker'
 import { getIncidents, createIncident, updateIncident } from '@/api/contracts.api'
 import { QUERY_KEYS } from '@/utils/queryKeys'
 import { formatCurrency, formatDate } from '@/utils/format'
+import { getServiceErrorMessage } from '@/constants/serviceErrors'
 import type { ContractStatus, ContractVehicle, Incident, IncidentType, ChargedTo } from '@/types/contract.types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -66,25 +67,15 @@ const incidentCreateSchema = z.object({
   downtimeDays: z.number().nullable().optional(),
   costAmount: z.number().nullable().optional(),
   chargedTo: z.enum(['customer', 'company']).nullable().optional(),
-  replacementContractVehicleId: z.number().nullable().optional(),
   resolvedAt: z.string().nullable().optional(),
 })
-  .refine(
-    (d) => d.incidentType !== 'replacement' || !!d.replacementContractVehicleId,
-    { message: 'Bắt buộc chọn xe thay thế khi loại sự cố là Đổi xe', path: ['replacementContractVehicleId'] }
-  )
-  .refine(
-    (d) => !d.replacementContractVehicleId || d.replacementContractVehicleId !== d.contractVehicleId,
-    { message: 'Xe thay thế không được trùng với xe sự cố', path: ['replacementContractVehicleId'] }
-  )
 
 const incidentEditSchema = z.object({
   description: z.string().min(1, 'Bắt buộc').max(1000),
   downtimeDays: z.number().nullable().optional(),
   costAmount: z.number().nullable().optional(),
   chargedTo: z.enum(['customer', 'company']).nullable().optional(),
-  replacementContractVehicleId: z.number().nullable().optional(),
-  resolvedAt: z.string().nullable().optional(),
+  resolvedAt: z.string().nullable(),
 })
 
 type IncidentCreateForm = z.infer<typeof incidentCreateSchema>
@@ -109,7 +100,7 @@ function IncidentDialog({
   // Create form
   const createForm = useForm<IncidentCreateForm>({
     resolver: zodResolver(incidentCreateSchema),
-    defaultValues: { chargedTo: null, replacementContractVehicleId: null, resolvedAt: null },
+    defaultValues: { chargedTo: null, resolvedAt: null },
   })
 
   // Edit form
@@ -121,26 +112,29 @@ function IncidentDialog({
           downtimeDays: editItem.downtimeDays,
           costAmount: editItem.costAmount,
           chargedTo: editItem.chargedTo,
-          replacementContractVehicleId: editItem.replacementContractVehicle?.id ?? null,
           resolvedAt: editItem.resolvedAt ?? null,
         }
       : {},
   })
 
-  const incidentType = createForm.watch('incidentType')
-  const contractVehicleId = createForm.watch('contractVehicleId')
-
   const mutation = useMutation({
-    mutationFn: (body: IncidentCreateForm | IncidentEditForm) =>
-      isEdit
-        ? updateIncident(contractId, editItem!.id, body)
-        : createIncident(contractId, body),
+    mutationFn: (body: IncidentCreateForm | IncidentEditForm) => {
+      if (isEdit) {
+        const editBody = body as IncidentEditForm
+        return updateIncident(contractId, editItem!.id, {
+          ...editBody,
+          resolvedAt: editBody.resolvedAt ?? null,
+        })
+      }
+      return createIncident(contractId, body as IncidentCreateForm)
+    },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'incidents'] })
       toast.success(isEdit ? 'Đã cập nhật sự cố' : 'Đã ghi nhận sự cố')
       onOpenChange(false)
     },
-    onError: () => toast.error('Có lỗi xảy ra'),
+    onError: (error) => toast.error(getServiceErrorMessage(error)),
   })
 
   const handleCreate = createForm.handleSubmit((d) => mutation.mutate(d))
@@ -206,27 +200,12 @@ function IncidentDialog({
                   )}
                 />
               </div>
-              {editItem.incidentType === 'replacement' && (
+              {editItem.incidentType === 'replacement' && editItem.replacementContractVehicle && (
                 <div className="space-y-1">
-                  <Label>Xe thay thế</Label>
-                  <Controller
-                    control={editForm.control}
-                    name="replacementContractVehicleId"
-                    render={({ field }) => (
-                      <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : Number(v))}>
-                        <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe thay thế" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">Không có</SelectItem>
-                          {contractVehicles.filter((cv) => cv.id !== editItem.contractVehicle.id).map((cv) => (
-                            <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serialNumber}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  {editForm.formState.errors.replacementContractVehicleId && (
-                    <p className="text-xs text-error">{editForm.formState.errors.replacementContractVehicleId.message}</p>
-                  )}
+                  <Label>Xe thay thế (BE tự xác định)</Label>
+                  <p className="rounded-md bg-gray-50 p-3 text-sm font-medium text-text-primary">
+                    {editItem.replacementContractVehicle.vehicle.model} · {editItem.replacementContractVehicle.vehicle.serialNumber}
+                  </p>
                 </div>
               )}
               <div className="space-y-1">
@@ -259,7 +238,7 @@ function IncidentDialog({
                     <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(Number(v))}>
                       <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe" /></SelectTrigger>
                       <SelectContent>
-                        {contractVehicles.map((cv) => (
+                        {contractVehicles.filter((cv) => !!cv.deployDate).map((cv) => (
                           <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serialNumber}</SelectItem>
                         ))}
                       </SelectContent>
@@ -334,28 +313,6 @@ function IncidentDialog({
                   )}
                 />
               </div>
-              {incidentType === 'replacement' && (
-                <div className="space-y-1">
-                  <Label>Xe thay thế <span className="text-error">*</span></Label>
-                  <Controller
-                    control={createForm.control}
-                    name="replacementContractVehicleId"
-                    render={({ field }) => (
-                      <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(v === 'none' ? null : Number(v))}>
-                        <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe thay thế" /></SelectTrigger>
-                        <SelectContent>
-                          {contractVehicles.filter((cv) => cv.id !== contractVehicleId).map((cv) => (
-                            <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serialNumber}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                  />
-                  {createForm.formState.errors.replacementContractVehicleId && (
-                    <p className="text-xs text-error">{createForm.formState.errors.replacementContractVehicleId.message}</p>
-                  )}
-                </div>
-              )}
               <div className="space-y-1">
                 <Label>Thời điểm xử lý xong</Label>
                 <Controller
@@ -397,6 +354,7 @@ export function IncidentsTab({ contractId, contractStatus, contractVehicles, can
     queryFn: () => getIncidents(contractId),
   })
   const incidents: Incident[] = data?.data ?? []
+  const deployedVehicles = contractVehicles.filter((vehicle) => !!vehicle.deployDate)
 
   const openAdd = () => { setEditingItem(undefined); setDialogOpen(true) }
   const openEdit = (item: Incident) => { setEditingItem(item); setDialogOpen(true) }
@@ -406,7 +364,14 @@ export function IncidentsTab({ contractId, contractStatus, contractVehicles, can
       <div className="flex items-center justify-between mb-4">
         <span className="font-medium text-text-primary">Sự cố</span>
         {canEdit && contractStatus === 'active' && (
-          <Button variant="outline" size="sm" onClick={openAdd} className="cursor-pointer">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={openAdd}
+            disabled={deployedVehicles.length === 0}
+            title={deployedVehicles.length === 0 ? 'Chỉ ghi sự cố cho xe đã xuất bãi' : undefined}
+            className="cursor-pointer"
+          >
             <Plus size={14} />
             Ghi nhận sự cố
           </Button>
@@ -434,12 +399,12 @@ export function IncidentsTab({ contractId, contractStatus, contractVehicles, can
                   <CalendarIcon size={10} />
                   {formatDate(item.incidentDate)}
                 </span>
-                {item.downtimeDays !== null && (
+                {item.downtimeDays != null && (
                   <span className="bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-full">
                     {item.downtimeDays} ngày
                   </span>
                 )}
-                {item.costAmount !== null && (
+                {item.costAmount != null && (
                   <span className="bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-full">
                     {formatCurrency(item.costAmount)}
                   </span>

@@ -4,9 +4,8 @@ import { usePermission } from "@/hooks/usePermission";
 import { useQuery } from "@tanstack/react-query";
 import { CreateContractDialog } from "./components/CreateContractDialog";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
-import { Plus, CalendarIcon, Search } from "lucide-react";
+import { Plus, CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import {
   Select,
@@ -17,10 +16,13 @@ import {
 } from "@/components/ui/select";
 import { DatePicker } from "@/components/shared/DatePicker";
 import { DataTable } from "@/components/shared/DataTable";
+import { Pagination } from "@/components/shared/Pagination";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { FilterToolbar } from "@/components/shared/FilterToolbar";
 import { getContracts } from "@/api/contracts.api";
+import { getCustomers } from "@/api/customers.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
-import { formatCurrency, formatDate } from "@/utils/format";
+import { daysUntil, formatCurrency, formatDate } from "@/utils/format";
 import { useDebounce } from "@/hooks/useDebounce";
 import {
   getContractStatusBadge,
@@ -43,6 +45,7 @@ export default function ContractListPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [customerFilter, setCustomerFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [pagination, setPagination] = useState<PaginationState>({
@@ -53,19 +56,26 @@ export default function ContractListPage() {
   const debouncedSearch = useDebounce(search, 400);
   const page = pagination.pageIndex + 1;
 
+  const { data: customersRes } = useQuery({
+    queryKey: [...QUERY_KEYS.customers.all, { forContractFilter: true }],
+    queryFn: () => getCustomers({ page: 1, page_size: 100 }),
+    staleTime: 60 * 1000,
+  });
+
   const { data, isLoading } = useQuery({
     queryKey: [
       ...QUERY_KEYS.contracts.all,
-      { search: debouncedSearch, status: statusFilter, fromDate, toDate, page },
+      { search: debouncedSearch, status: statusFilter, customerId: customerFilter, fromDate, toDate, page, pageSize: pagination.pageSize },
     ],
     queryFn: () =>
       getContracts({
         search: debouncedSearch || undefined,
         status: statusFilter || undefined,
+        customer_id: customerFilter ? Number(customerFilter) : undefined,
         from_date: fromDate || undefined,
         to_date: toDate || undefined,
         page,
-        page_size: PAGE_SIZE,
+        page_size: pagination.pageSize,
       }),
   });
 
@@ -82,7 +92,7 @@ export default function ContractListPage() {
       cell: ({ row }) => (
         <div>
           <p className="font-mono font-semibold text-text-primary">
-            {row.original.contractNumber}
+            {row.original.contractNumber || "Chưa có số HĐ"}
           </p>
           <p className="text-[length:var(--fs-sm)] text-text-secondary mt-0.5">
             {formatDate(row.original.createdAt)}
@@ -110,10 +120,9 @@ export default function ContractListPage() {
       header: "Thời gian",
       cell: ({ row }) => {
         const c = row.original;
-        const daysLeft = Math.ceil(
-          (new Date(c.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24),
-        );
-        const isNearEnd = c.status === "active" && daysLeft <= 7;
+        // HĐ chưa gán xe → không có endDate
+        const isNearEnd =
+          c.status === "active" && !!c.endDate && daysUntil(c.endDate) <= 7;
         return (
           <div className="space-y-1">
             <span
@@ -126,9 +135,6 @@ export default function ContractListPage() {
               <CalendarIcon size={10} />
               {formatDate(c.startDate)} → {formatDate(c.endDate)}
             </span>
-            <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              {c.plannedDays} ngày
-            </p>
           </div>
         );
       },
@@ -161,13 +167,16 @@ export default function ContractListPage() {
   ];
 
   return (
-    <div className="flex flex-col gap-[var(--sp-section)]">
+    <div className="flex flex-col gap-3 lg:gap-4">
       <PageHeader
         title="Hợp đồng"
         subtitle="Tất cả hợp đồng của công ty"
         actions={
           canCreate ? (
-            <Button onClick={() => setCreateOpen(true)} className="cursor-pointer">
+            <Button
+              onClick={() => setCreateOpen(true)}
+              className="h-auto cursor-pointer rounded-lg border-0 bg-primary px-3 py-1.5 text-[length:var(--fs-sm)] text-white shadow-sm hover:bg-primary-dark sm:px-4 sm:py-2 sm:text-[length:var(--fs-base)]"
+            >
               <Plus size={16} />
               Tạo hợp đồng
             </Button>
@@ -175,87 +184,105 @@ export default function ContractListPage() {
         }
       />
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
-          <Input
-            placeholder="Tìm số HĐ, tên khách hàng..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
+      <FilterToolbar
+        search={search}
+        onSearchChange={(value) => {
+          setSearch(value);
+          resetPage();
+        }}
+        searchPlaceholder="Tìm số HĐ, tên khách hàng..."
+        activeFilterCount={
+          Number(!!statusFilter) + Number(!!customerFilter) + Number(!!fromDate) + Number(!!toDate)
+        }
+        onClearFilters={() => {
+          setStatusFilter("");
+          setCustomerFilter("");
+          setFromDate("");
+          setToDate("");
+          resetPage();
+        }}
+      >
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <span className="text-[length:var(--fs-sm)] font-medium text-text-primary">
+            Trạng thái
+          </span>
+          <Select
+            value={statusFilter || "_all"}
+            onValueChange={(v) => {
+              setStatusFilter(v === "_all" ? "" : v);
               resetPage();
             }}
-            className="pl-9 border-border"
-          />
+          >
+            <SelectTrigger className="w-full cursor-pointer border-border">
+              <SelectValue placeholder="Tất cả trạng thái" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">Tất cả trạng thái</SelectItem>
+              {CONTRACT_STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <Select
-          value={statusFilter || "_all"}
-          onValueChange={(v) => {
-            setStatusFilter(v === "_all" ? "" : v);
-            resetPage();
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-48 border-border cursor-pointer">
-            <SelectValue placeholder="Tất cả trạng thái" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">Tất cả trạng thái</SelectItem>
-            {CONTRACT_STATUS_OPTIONS.map((o) => (
-              <SelectItem key={o.value} value={o.value}>
-                {o.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <DatePicker
-          value={fromDate}
-          onChange={(v) => { setFromDate(v); resetPage(); }}
-          placeholder="Từ ngày"
-          className="w-36 shrink-0"
-        />
-        <DatePicker
-          value={toDate}
-          onChange={(v) => { setToDate(v); resetPage(); }}
-          placeholder="Đến ngày"
-          className="w-36 shrink-0"
-        />
-        {(fromDate || toDate) && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setFromDate("");
-              setToDate("");
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <span className="text-[length:var(--fs-sm)] font-medium text-text-primary">
+            Khách hàng
+          </span>
+          <Select
+            value={customerFilter || "_all"}
+            onValueChange={(value) => {
+              setCustomerFilter(value === "_all" ? "" : value);
               resetPage();
             }}
-            className="cursor-pointer text-text-secondary"
           >
-            Xóa ngày
-          </Button>
-        )}
+            <SelectTrigger className="w-full cursor-pointer border-border">
+              <SelectValue placeholder="Tất cả khách hàng" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">Tất cả khách hàng</SelectItem>
+              {(customersRes?.data ?? []).map((customer: { id: number; displayName: string }) => (
+                <SelectItem key={customer.id} value={String(customer.id)}>
+                  {customer.displayName}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-        {meta && (
-          <p className="ml-auto text-[length:var(--fs-base)] text-text-secondary">
-            Tổng{" "}
-            <span className="font-medium text-text-primary">{meta.total}</span>{" "}
-            hợp đồng
-            {meta.totalPages > 1 && (
-              <>
-                {" "}
-                — Trang{" "}
-                <span className="font-medium text-text-primary">
-                  {meta.page}
-                </span>{" "}
-                / {meta.totalPages}
-              </>
-            )}
-          </p>
-        )}
-      </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--fs-sm)] font-medium text-text-primary">
+            Từ ngày
+          </span>
+          <DatePicker
+            value={fromDate}
+            onChange={(v) => {
+              setFromDate(v);
+              resetPage();
+            }}
+            placeholder="Chọn ngày bắt đầu"
+            className="w-full"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--fs-sm)] font-medium text-text-primary">
+            Đến ngày
+          </span>
+          <DatePicker
+            value={toDate}
+            onChange={(v) => {
+              setToDate(v);
+              resetPage();
+            }}
+            placeholder="Chọn ngày kết thúc"
+            className="w-full"
+          />
+        </div>
+      </FilterToolbar>
 
+      <div className="rounded-lg border border-border bg-bg-card p-3 shadow-card">
       {/* Table — desktop */}
       <div className="hidden sm:block">
         <DataTable
@@ -315,11 +342,8 @@ export default function ContractListPage() {
           contracts.map((c) => {
             const { label: statusLabel, className: statusClass } =
               getContractStatusBadge(c.status);
-            const daysLeft = Math.ceil(
-              (new Date(c.endDate).getTime() - new Date().getTime()) /
-                (1000 * 60 * 60 * 24),
-            );
-            const isNearEnd = c.status === "active" && daysLeft <= 7;
+            const isNearEnd =
+              c.status === "active" && !!c.endDate && daysUntil(c.endDate) <= 7;
             return (
               <div
                 key={c.id}
@@ -329,7 +353,7 @@ export default function ContractListPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-mono font-semibold text-text-primary text-[length:var(--fs-base)] truncate">
-                      {c.contractNumber}
+                      {c.contractNumber || "Chưa có số HĐ"}
                     </p>
                     <p className="text-[length:var(--fs-sm)] text-text-secondary mt-0.5 truncate">
                       {c.customer.displayName}
@@ -357,9 +381,6 @@ export default function ContractListPage() {
                     <CalendarIcon size={9} />
                     {formatDate(c.startDate)} → {formatDate(c.endDate)}
                   </span>
-                  <span className="rounded-full bg-primary-light text-primary text-[10px] px-2 py-0.5">
-                    {c.plannedDays} ngày
-                  </span>
                   <span className="rounded-full bg-primary-light text-primary text-[10px] px-2 py-0.5 font-semibold">
                     {formatCurrency(c.totalAmount)}
                   </span>
@@ -370,37 +391,16 @@ export default function ContractListPage() {
         )}
 
         {/* Pagination mobile */}
-        {!isLoading && meta && meta.totalPages > 1 && (
-          <div className="flex items-center justify-between px-1 pt-1">
-            <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              Trang {meta.page}/{meta.totalPages} · {meta.total} HĐ
-            </p>
-            <div className="flex gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 border-border cursor-pointer"
-                disabled={pagination.pageIndex === 0}
-                onClick={() =>
-                  setPagination((p) => ({ ...p, pageIndex: p.pageIndex - 1 }))
-                }
-              >
-                Trước
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 border-border cursor-pointer"
-                disabled={pagination.pageIndex + 1 >= meta.totalPages}
-                onClick={() =>
-                  setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))
-                }
-              >
-                Tiếp
-              </Button>
-            </div>
-          </div>
+        {!isLoading && meta && (
+          <Pagination
+            pageIndex={pagination.pageIndex}
+            totalPages={meta.totalPages}
+            onPageChange={(pageIndex) => setPagination((p) => ({ ...p, pageIndex }))}
+            pageSize={pagination.pageSize}
+            onPageSizeChange={(pageSize) => setPagination({ pageIndex: 0, pageSize })}
+          />
         )}
+      </div>
       </div>
 
       <CreateContractDialog open={createOpen} onOpenChange={setCreateOpen} />

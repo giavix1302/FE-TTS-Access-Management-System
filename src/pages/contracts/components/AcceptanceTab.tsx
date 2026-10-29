@@ -7,22 +7,24 @@ import { toast } from 'sonner'
 import { Pencil, Trash2, Plus, CalendarIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
-import { DatePicker } from '@/components/shared/DatePicker'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { FileCard } from '@/components/shared/FileCard'
 import { CurrencyInput } from '@/components/shared/CurrencyInput'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
+import { DocumentExtractButton } from '@/components/shared/DocumentExtractButton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getAcceptanceRecords, createAcceptanceRecord, updateAcceptanceRecord, deleteAcceptanceRecord } from '@/api/contracts.api'
 import { uploadDocument } from '@/api/documents.api'
 import { getCompanySettings } from '@/api/company.api'
+import { getServiceErrorMessage } from '@/constants/serviceErrors'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
 import { QUERY_KEYS } from '@/utils/queryKeys'
-import { formatCurrency, formatDate } from '@/utils/format'
-import type { AcceptanceRecord } from '@/types/contract.types'
+import { formatCurrency, formatDateTime } from '@/utils/format'
+import type { AcceptanceRecord, AcceptanceAutofillFields } from '@/types/contract.types'
 
 // ─── AcceptanceFileCard ───────────────────────────────────────────────────────
 function AcceptanceFileCard({
@@ -57,20 +59,17 @@ function AcceptanceFileCard({
 }
 
 // ─── AcceptanceDialog ─────────────────────────────────────────────────────────
+// Ngày trừ chuyển từ HĐ sang BBNT; không còn ngày lập / ngày thực tế
 const acceptanceSchema = z.object({
   recordNumber: z.string().min(1, 'Bắt buộc'),
-  recordDate: z.string().min(1, 'Bắt buộc'),
-  actualStartDate: z.string().min(1, 'Bắt buộc'),
-  actualEndDate: z.string().min(1, 'Bắt buộc'),
   subtotal: z.number({ error: 'Bắt buộc' }).min(0),
   vatRatePercent: z.number({ error: 'Bắt buộc' }).min(0).max(100),
   taxAmount: z.number({ error: 'Bắt buộc' }).min(0),
   totalAmount: z.number({ error: 'Bắt buộc' }).min(0),
+  depositAmount: z.number().min(0, 'Phải >= 0').optional(),
+  excludedDays: z.number().int('Phải là số nguyên').min(0, 'Phải >= 0').optional(),
+  excludedReason: z.string().trim().max(500, 'Tối đa 500 ký tự').optional(),
 })
-  .refine(
-    (d) => new Date(d.actualEndDate) >= new Date(d.actualStartDate),
-    { message: 'Ngày kết thúc phải >= ngày bắt đầu', path: ['actualEndDate'] }
-  )
   .refine(
     (d) => Math.abs(d.subtotal + d.taxAmount - d.totalAmount) <= 1000,
     { message: 'Subtotal + VAT lệch quá 1.000₫ so với tổng tiền', path: ['totalAmount'] }
@@ -94,6 +93,7 @@ function AcceptanceDialog({
   const [docFile, setDocFile] = useState<File | null>(null)
   const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [extracting, setExtracting] = useState(false)
 
   const { data: companySettingsRes } = useQuery({
     queryKey: ['company-settings'],
@@ -103,12 +103,12 @@ function AcceptanceDialog({
   const defaultVatRate: number = companySettingsRes?.data?.[0]?.vatRate ?? 8
 
   function buildDefaultValues(): AcceptanceForm | Partial<AcceptanceForm> {
-    if (!editItem) return { vatRatePercent: defaultVatRate }
+    if (!editItem) return { vatRatePercent: defaultVatRate, excludedReason: '' }
     return {
       recordNumber: editItem.recordNumber,
-      recordDate: editItem.recordDate,
-      actualStartDate: editItem.actualStartDate,
-      actualEndDate: editItem.actualEndDate,
+      depositAmount: editItem.depositAmount,
+      excludedDays: editItem.excludedDays,
+      excludedReason: editItem.excludedReason ?? '',
       subtotal: editItem.subtotal,
       vatRatePercent: editItem.subtotal > 0
         ? Math.round((editItem.taxAmount / editItem.subtotal) * 100 * 100) / 100
@@ -180,20 +180,29 @@ function AcceptanceDialog({
   const mutation = useMutation({
     mutationFn: async (body: AcceptanceForm) => {
       // vatRatePercent chỉ dùng để tính taxAmount ở FE — BE không có field này
-      const { vatRatePercent: _vatRatePercent, ...rest } = body
+      const rest = Object.fromEntries(
+        Object.entries(body).filter(([key]) => key !== 'vatRatePercent'),
+      ) as Omit<AcceptanceForm, 'vatRatePercent'>
       const documentId = uploadedDoc?.id
-      const payload = { ...rest, documentId }
+      // Ô trống → 0. excludedReason: tạo không gửi khi trống; sửa gửi "" để xóa
+      const payload = {
+        ...rest,
+        depositAmount: rest.depositAmount ?? 0,
+        excludedDays: rest.excludedDays ?? 0,
+        excludedReason: isEdit ? (rest.excludedReason ?? '') : rest.excludedReason || undefined,
+        documentId,
+      }
       return isEdit
         ? updateAcceptanceRecord(contractId, editItem!.id, payload)
         : createAcceptanceRecord(contractId, payload)
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'acceptance-records'] })
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
+      // contracts.all là prefix của detail/acceptance-records/summary
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
       toast.success(isEdit ? 'Đã cập nhật biên bản' : 'Đã thêm biên bản')
       handleClose(false)
     },
-    onError: () => toast.error('Có lỗi xảy ra'),
+    onError: (err) => toast.error(getServiceErrorMessage(err)),
   })
 
   return (
@@ -214,49 +223,29 @@ function AcceptanceDialog({
         className="flex flex-col gap-4 px-5 py-4 flex-1"
       >
         <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">Thông tin biên bản</p>
+        <DocumentExtractButton<AcceptanceAutofillFields>
+          documentId={uploadedDoc?.id ?? editItem?.document?.id}
+          docType="acceptance"
+          disabled={uploading}
+          onBusyChange={setExtracting}
+          onExtract={(fields) => {
+            if (fields.recordNumber !== undefined) setValue('recordNumber', fields.recordNumber)
+            if (fields.subtotal !== undefined) setValue('subtotal', fields.subtotal)
+            if (fields.taxAmount !== undefined) setValue('taxAmount', fields.taxAmount)
+            if (fields.totalAmount !== undefined) setValue('totalAmount', fields.totalAmount)
+            if (fields.depositAmount !== undefined) setValue('depositAmount', fields.depositAmount)
+            if (fields.excludedDays !== undefined) setValue('excludedDays', fields.excludedDays)
+            if (fields.excludedReason !== undefined) setValue('excludedReason', fields.excludedReason)
+            if (fields.subtotal && fields.taxAmount !== undefined) {
+              setValue('vatRatePercent', Math.round((fields.taxAmount / fields.subtotal) * 10000) / 100)
+            }
+          }}
+        />
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label>Số biên bản <span className="text-error">*</span></Label>
-            <Input {...register('recordNumber')} placeholder="BBNT-2026-001" />
-            {errors.recordNumber && <p className="text-xs text-error">{errors.recordNumber.message}</p>}
-          </div>
-          <div className="space-y-1">
-            <Label>Ngày lập <span className="text-error">*</span></Label>
-            <Controller
-              control={control}
-              name="recordDate"
-              render={({ field }) => (
-                <DatePicker value={field.value} onChange={field.onChange} />
-              )}
-            />
-            {errors.recordDate && <p className="text-xs text-error">{errors.recordDate.message}</p>}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label>Ngày bắt đầu TT <span className="text-error">*</span></Label>
-            <Controller
-              control={control}
-              name="actualStartDate"
-              render={({ field }) => (
-                <DatePicker value={field.value} onChange={field.onChange} />
-              )}
-            />
-            {errors.actualStartDate && <p className="text-xs text-error">{errors.actualStartDate.message}</p>}
-          </div>
-          <div className="space-y-1">
-            <Label>Ngày kết thúc TT <span className="text-error">*</span></Label>
-            <Controller
-              control={control}
-              name="actualEndDate"
-              render={({ field }) => (
-                <DatePicker value={field.value} onChange={field.onChange} align="end" />
-              )}
-            />
-            {errors.actualEndDate && <p className="text-xs text-error">{errors.actualEndDate.message}</p>}
-          </div>
+        <div className="space-y-1">
+          <Label>Số biên bản <span className="text-error">*</span></Label>
+          <Input {...register('recordNumber')} placeholder="BBNT-2026-001" />
+          {errors.recordNumber && <p className="text-xs text-error">{errors.recordNumber.message}</p>}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -307,6 +296,39 @@ function AcceptanceDialog({
             />
           </div>
         </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>Số tiền đã cọc</Label>
+            <Controller
+              control={control}
+              name="depositAmount"
+              render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} placeholder="0" />
+              )}
+            />
+            {errors.depositAmount && <p className="text-xs text-error">{errors.depositAmount.message}</p>}
+          </div>
+          <div className="space-y-1">
+            <Label>Số ngày trừ</Label>
+            <Input
+              type="number"
+              min={0}
+              step={1}
+              placeholder="0"
+              {...register('excludedDays', {
+                setValueAs: (v) => (v === '' || v == null ? undefined : Number(v)),
+              })}
+            />
+            {errors.excludedDays && <p className="text-xs text-error">{errors.excludedDays.message}</p>}
+          </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label>Lý do trừ ngày</Label>
+          <Textarea rows={2} maxLength={500} className="resize-none" {...register('excludedReason')} />
+          {errors.excludedReason && <p className="text-xs text-error">{errors.excludedReason.message}</p>}
+        </div>
       </form>
 
       <div className="px-5 py-4 border-t border-border flex justify-end gap-2 shrink-0">
@@ -316,7 +338,7 @@ function AcceptanceDialog({
         <Button
           type="submit"
           form="acceptance-form"
-          disabled={mutation.isPending || uploading || (!isEdit && !uploadedDoc)}
+          disabled={mutation.isPending || uploading || extracting}
           className="cursor-pointer"
         >
           {mutation.isPending ? 'Đang lưu...' : uploading ? 'Đang tải file...' : 'Lưu'}
@@ -347,8 +369,7 @@ export function AcceptanceTab({ contractId, canEdit }: AcceptanceTabProps) {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deleteAcceptanceRecord(contractId, id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'acceptance-records'] })
-      queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'summary'] })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
       toast.success('Đã xóa biên bản')
       setDeletingId(null)
     },
@@ -384,20 +405,33 @@ export function AcceptanceTab({ contractId, canEdit }: AcceptanceTabProps) {
               <div className="flex-1 min-w-0">
                 <p className="font-mono font-semibold text-sm text-text-primary">{item.recordNumber}</p>
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
+                  <span
+                    className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1"
+                    title="Ngày tạo"
+                  >
                     <CalendarIcon size={10} />
-                    {formatDate(item.recordDate)}
-                  </span>
-                  <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                    {formatDate(item.actualStartDate)} → {formatDate(item.actualEndDate)}
+                    {formatDateTime(item.createdAt)}
                   </span>
                   <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
                     {formatCurrency(item.totalAmount)}
                   </span>
+                  {item.depositAmount > 0 && (
+                    <span className="bg-success-light text-success text-xs px-2.5 py-1 rounded-full">
+                      Đã cọc {formatCurrency(item.depositAmount)}
+                    </span>
+                  )}
+                  {item.excludedDays > 0 && (
+                    <span className="bg-warning-light text-warning text-xs px-2.5 py-1 rounded-full">
+                      Trừ {item.excludedDays} ngày
+                    </span>
+                  )}
                 </div>
                 <p className="text-sm text-text-secondary mt-1">
                   Subtotal: {formatCurrency(item.subtotal)} · VAT: {formatCurrency(item.taxAmount)}
                 </p>
+                {item.excludedReason && (
+                  <p className="text-sm text-text-secondary mt-1">Lý do trừ ngày: {item.excludedReason}</p>
+                )}
               </div>
               {canEdit && (
                 <div className="flex items-center gap-0.5 flex-none">

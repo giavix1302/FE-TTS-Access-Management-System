@@ -40,6 +40,8 @@ export interface FileCardProps {
   onDownload?: () => void;
   /** Called with the new File when user picks a replacement */
   onReplace?: (file: File) => void;
+  /** File types accepted when replacing. */
+  accept?: string;
   /** Show spinner on replace button while uploading */
   isReplacing?: boolean;
 }
@@ -245,6 +247,7 @@ export function FileCard({
   onDelete,
   onDownload,
   onReplace,
+  accept = ".pdf,.docx,.xlsx,image/jpeg,image/png",
   isReplacing,
 }: FileCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -350,7 +353,7 @@ export function FileCard({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.docx,.xlsx,image/jpeg,image/png"
+                accept={accept}
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useLocation, useNavigate, matchPath } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Bell, ChevronDown, LogOut, Menu, UserCircle } from "lucide-react";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { getUnreadCount } from "@/api/notifications.api";
@@ -19,35 +19,6 @@ import { logout } from "@/api/auth.api";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-const ROUTE_TITLES: { pattern: string; title: string }[] = [
-  { pattern: "/", title: "Dashboard" },
-  { pattern: "/vehicles", title: "Quản lý xe nâng" },
-  { pattern: "/vehicles/:id", title: "Chi tiết xe nâng" },
-  { pattern: "/contracts", title: "Hợp đồng" },
-  { pattern: "/contracts/:id", title: "Chi tiết hợp đồng" },
-  { pattern: "/customers", title: "Khách hàng" },
-  { pattern: "/customers/:id", title: "Chi tiết khách hàng" },
-  { pattern: "/users", title: "Người dùng & Phân quyền" },
-  { pattern: "/notifications", title: "Thông báo" },
-  { pattern: "/settings", title: "Cài đặt công ty" },
-  { pattern: "/service-catalog", title: "Danh mục dịch vụ" },
-  { pattern: "/roles", title: "Phân quyền vai trò" },
-  { pattern: "/profile", title: "Hồ sơ của tôi" },
-  { pattern: "/analytics", title: "Thống kê" },
-  { pattern: "/reports", title: "Xuất báo cáo" },
-];
-
-function usePageTitle(): string {
-  const { pathname } = useLocation();
-
-  // Thử khớp exact trước (để "/" không nuốt route khác)
-  for (const { pattern, title } of ROUTE_TITLES) {
-    const match = matchPath({ path: pattern, end: true }, pathname);
-    if (match) return title;
-  }
-  return "";
-}
-
 interface TopbarProps {
   onMobileMenuOpen: () => void;
 }
@@ -57,7 +28,6 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
   const { user, clearAuth } = useAuthStore();
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const setUnreadCount = useNotificationStore((s) => s.setUnreadCount);
-  const pageTitle = usePageTitle();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
 
@@ -67,6 +37,8 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
     queryFn: getUnreadCount,
     refetchInterval: 60_000,
     enabled: !!user,
+    // Polling nền — lỗi thì giữ badge cũ, không toast mỗi phút
+    meta: { silentError: true },
   });
 
   useEffect(() => {
@@ -92,8 +64,8 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
       className="flex h-16 shrink-0 items-center justify-between border-b border-[#E2E8F0] bg-white px-[var(--sp-topbar)]"
       style={{ boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}
     >
-      {/* Bên trái: hamburger (mobile) + tên trang */}
-      <div className="flex items-center gap-3">
+      {/* Bên trái: hamburger trên mobile */}
+      <div className="flex items-center">
         <button
           onClick={onMobileMenuOpen}
           className="rounded p-1.5 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB] lg:hidden cursor-pointer"
@@ -101,9 +73,6 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
         >
           <Menu size={22} />
         </button>
-        <h1 className="hidden text-[length:var(--fs-title)] font-medium text-[#1A202C] lg:block">
-          {pageTitle}
-        </h1>
       </div>
 
       {/* Bên phải */}

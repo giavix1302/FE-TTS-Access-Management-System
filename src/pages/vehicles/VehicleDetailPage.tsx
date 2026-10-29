@@ -5,14 +5,15 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
-import { differenceInDays, format } from "date-fns";
-import { formatDateTime } from "@/utils/format";
+import QRCode from "react-qr-code";
+import { differenceInCalendarDays, parseISO } from "date-fns";
+import { formatDate, formatDateTime } from "@/utils/format";
+import { getApiError, getApiErrorMessage } from "@/utils/apiError";
 import {
   Pencil,
   RefreshCw,
   Trash2,
   Plus,
-  Download,
   Shield,
   CheckCircle2,
   Truck,
@@ -27,6 +28,9 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  MapPin,
+  LocateFixed,
+  Copy,
 } from "lucide-react";
 import {
   getVehicleById,
@@ -47,13 +51,18 @@ import {
   getVehicleProfile,
   upsertVehicleProfile,
   deleteVehicleProfile,
+  updateVehicleLocation,
+  regenerateVehicleQrCode,
 } from "@/api/vehicles.api";
+import { getAuditLogs } from "@/api/audit-logs.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { usePermission } from "@/hooks/usePermission";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { DatePicker } from "@/components/shared/DatePicker";
 import { MobileTwoColDialog } from "@/components/shared/MobileTwoColDialog";
 import { FileCard } from "@/components/shared/FileCard";
+import { DocumentExtractButton } from "@/components/shared/DocumentExtractButton";
+import { uploadDocument } from "@/api/documents.api";
 import { useReplaceDocument } from "@/hooks/useReplaceDocument";
 import {
   Tooltip,
@@ -85,112 +94,30 @@ import {
 import {
   VEHICLE_STATUS_CONFIG,
   getVehicleStatusBadge,
-  type VehicleStatus,
 } from "@/constants/vehicleStatus";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface VehicleDetail {
-  id: number;
-  model: string;
-  serialNumber: string;
-  manufacturer: string;
-  manufactureYear: number;
-  capacity: number | null;
-  occupancy: number | null;
-  platformHeight: number | null;
-  workHeight: number | null;
-  liftingSpeed: number | null;
-  travelingSpeed: number | null;
-  engineType: "Fuel" | "Electric";
-  status: VehicleStatus;
-  primaryImageUrl: string | null;
-  note: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface DocumentRef {
-  id: number;
-  fileName: string;
-  sasUrl: string;
-  sasExpiresAt: string;
-  mimeType: string;
-  fileSizeKb: number;
-  note: string | null;
-  uploadedAt: string;
-}
-
-interface InsuranceRecord {
-  id: number;
-  insuranceNumber: string | null;
-  provider: string | null;
-  issueDate: string | null;
-  expiryDate: string;
-  document: DocumentRef | null;
-  createdAt: string;
-  createdById: number | null;
-  createdByName: string | null;
-}
-
-interface InspectionRecord {
-  id: number;
-  inspectionNumber: string | null;
-  inspectionDate: string | null;
-  expiryDate: string;
-  result: "passed" | "failed" | null;
-  document: DocumentRef | null;
-  createdAt: string;
-  createdById: number | null;
-  createdByName: string | null;
-}
-
-interface ImageItem {
-  id: number;
-  fileName: string;
-  sasUrl: string;
-  sasExpiresAt: string;
-  isPrimary: boolean;
-  uploadedAt: string;
-}
-
-interface ImagesResponse {
-  primaryImageId: number | null;
-  images: ImageItem[];
-  total: number;
-  remainingSlots: number;
-}
-
-interface ProfileItem {
-  id: number;
-  fileName: string;
-  sasUrl: string;
-  sasExpiresAt: string;
-  fileSizeKb: number;
-  uploadedAt: string;
-  uploadedById: number | null;
-  uploadedByName: string | null;
-}
-
-interface StatusLog {
-  id: number;
-  fromStatus: VehicleStatus;
-  toStatus: VehicleStatus;
-  reason: string | null;
-  changedAt: string;
-  changedBy: number;
-  changedByName: string;
-}
-
-interface StatusLogsResponse {
-  data: StatusLog[];
-  meta: { total: number; page: number; pageSize: number; totalPages: number };
-}
+import { getVehicleTypeLabel } from "@/constants/vehicleType";
+import type {
+  InspectionRecord,
+  InsuranceRecord,
+  VehicleStatus,
+  VehicleStatusLogsResponse,
+} from "@/types/vehicle.types";
+import { VehicleFormFields } from "@/pages/vehicles/components/VehicleForm";
+import {
+  applyVehicleServerError,
+  getCurrentPosition,
+  makeVehicleSchema,
+  toVehicleBody,
+  vehicleToFormValues,
+  type VehicleFormInput,
+  type VehicleFormValues,
+} from "@/pages/vehicles/components/vehicleForm.schema";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getExpiryBadge(expiry_date: string) {
-  const days = differenceInDays(new Date(expiry_date), new Date());
+// expiryDate là DateOnly (yyyy-MM-dd) → parseISO ra 00:00 giờ local, so theo ngày lịch
+function getExpiryBadge(expiryDate: string) {
+  const days = differenceInCalendarDays(parseISO(expiryDate), new Date());
   if (days < 0)
     return { label: "Đã hết hạn", className: "bg-error-light text-error" };
   if (days <= 7)
@@ -209,6 +136,7 @@ function getExpiryBadge(expiry_date: string) {
   };
 }
 
+// Spec §3.1 — đổi sai luồng BE trả 400 INVALID_TRANSITION
 const VALID_TRANSITIONS: Record<VehicleStatus, VehicleStatus[]> = {
   at_yard: ["renting", "maintenance", "sold"],
   renting: ["at_yard", "broken"],
@@ -216,6 +144,9 @@ const VALID_TRANSITIONS: Record<VehicleStatus, VehicleStatus[]> = {
   broken: ["at_yard", "maintenance"],
   sold: [],
 };
+
+// Đích cần thêm quyền vehicles.status_all (thiếu → 403)
+const STATUS_ALL_TARGETS: VehicleStatus[] = ["maintenance", "sold"];
 
 const DOT_COLOR: Record<VehicleStatus, string> = {
   at_yard: "ring-success bg-success",
@@ -225,50 +156,43 @@ const DOT_COLOR: Record<VehicleStatus, string> = {
   sold: "ring-text-secondary bg-text-secondary",
 };
 
-function formatFileSize(kb: number): string {
-  if (kb >= 1024) return `${(kb / 1024).toFixed(1)} MB`;
-  return `${kb} KB`;
-}
-
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
 
-const editSchema = z.object({
-  model: z.string().min(1, "Bắt buộc"),
-  manufacturer: z.string().min(1, "Bắt buộc"),
-  engineType: z.enum(["Fuel", "Electric"]),
-  manufactureYear: z.coerce.number().int().min(1990).max(2100).optional(),
-  capacity: z.coerce.number().positive().optional(),
-  occupancy: z.coerce.number().int().positive().optional(),
-  platformHeight: z.coerce.number().positive().optional(),
-  workHeight: z.coerce.number().positive().optional(),
-  liftingSpeed: z.coerce.number().positive().optional(),
-  travelingSpeed: z.coerce.number().positive().optional(),
-  note: z.string().optional(),
-});
-type EditForm = z.output<typeof editSchema>;
-type EditFormInput = z.input<typeof editSchema>;
+const editVehicleSchema = makeVehicleSchema("edit");
 
-const insuranceSchema = z.object({
-  insuranceNumber: z.string().optional(),
-  provider: z.string().optional(),
-  issueDate: z.string().optional(),
-  expiryDate: z.string().min(1, "Bắt buộc"),
-});
+const insuranceSchema = z
+  .object({
+    insuranceNumber: z.string().trim().max(100, "Tối đa 100 ký tự").optional(),
+    provider: z.string().trim().max(200, "Tối đa 200 ký tự").optional(),
+    issueDate: z.string().optional(),
+    expiryDate: z.string().min(1, "Bắt buộc"),
+  })
+  .refine((v) => !v.issueDate || v.expiryDate > v.issueDate, {
+    path: ["expiryDate"],
+    message: "Ngày hết hạn phải sau ngày cấp",
+  });
 type InsuranceForm = z.infer<typeof insuranceSchema>;
+interface InsuranceAutofillFields extends Partial<InsuranceForm> { documentId: number }
 
-const inspectionSchema = z.object({
-  inspectionNumber: z.string().optional(),
-  inspectionDate: z.string().optional(),
-  expiryDate: z.string().min(1, "Bắt buộc"),
-  result: z.enum(["passed", "failed"]).optional(),
-});
+const inspectionSchema = z
+  .object({
+    inspectionNumber: z.string().trim().max(100, "Tối đa 100 ký tự").optional(),
+    inspectionDate: z.string().optional(),
+    expiryDate: z.string().min(1, "Bắt buộc"),
+    result: z.enum(["passed", "failed"]).optional(),
+  })
+  .refine((v) => !v.inspectionDate || v.expiryDate > v.inspectionDate, {
+    path: ["expiryDate"],
+    message: "Ngày hết hạn phải sau ngày kiểm định",
+  });
 type InspectionForm = z.infer<typeof inspectionSchema>;
+interface InspectionAutofillFields extends Partial<InspectionForm> { documentId: number }
 
 // ─── Info row helper ─────────────────────────────────────────────────────────
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5 border-b border-border last:border-0">
+    <div className="flex items-start justify-between gap-4 py-1.5 border-b border-border last:border-0">
       <span className="text-[length:var(--fs-base)] text-text-secondary shrink-0">
         {label}
       </span>
@@ -279,18 +203,128 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function StatusHistoryCard({
+  isLoading,
+  response,
+  page,
+  onPrevious,
+  onNext,
+}: {
+  isLoading: boolean;
+  response?: VehicleStatusLogsResponse;
+  page: number;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="h-full bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5">
+      <p className="mb-3 border-b border-border pb-3 text-[length:var(--fs-nav)] font-semibold text-text-primary">
+        Lịch sử trạng thái
+      </p>
+
+      {isLoading ? (
+        <div className="flex flex-col gap-2">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-14 w-full rounded-lg" />
+          ))}
+        </div>
+      ) : !response?.data?.length ? (
+        <div className="flex flex-col items-center justify-center py-8 gap-2 rounded-lg bg-bg-page border border-dashed border-border">
+          <History className="h-8 w-8 text-text-secondary" />
+          <p className="text-[length:var(--fs-base)] text-text-secondary">
+            Chưa có lịch sử thay đổi
+          </p>
+        </div>
+      ) : (
+        <div className="relative">
+          <div className="absolute left-[9px] top-2 bottom-2 w-px bg-border" />
+
+          <div className="flex flex-col gap-0">
+            {response.data.map((log, idx) => {
+              const newCfg = VEHICLE_STATUS_CONFIG[log.toStatus];
+              const oldCfg = VEHICLE_STATUS_CONFIG[log.fromStatus];
+              const dotColor = DOT_COLOR[log.toStatus];
+              return (
+                <div
+                  key={log.id}
+                  className={`relative flex gap-3 ${idx !== response.data.length - 1 ? "pb-3" : ""}`}
+                >
+                  <div
+                    className={`relative z-10 mt-1 h-4.5 w-4.5 rounded-full ring-2 ring-offset-2 shrink-0 ${dotColor}`}
+                    style={{ width: "18px", height: "18px", marginTop: "2px" }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${oldCfg?.className ?? "bg-bg-page text-text-secondary"}`}
+                      >
+                        {oldCfg?.label ?? log.fromStatus}
+                      </span>
+                      <span className="text-text-secondary text-[length:var(--fs-sm)]">→</span>
+                      <span
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${newCfg?.className ?? "bg-bg-page text-text-secondary"}`}
+                      >
+                        {newCfg?.label ?? log.toStatus}
+                      </span>
+                    </div>
+                    {log.reason && (
+                      <p className="text-[length:var(--fs-sm)] text-text-primary">{log.reason}</p>
+                    )}
+                    <p className="text-[length:var(--fs-sm)] text-text-secondary mt-0.5">
+                      {formatDateTime(log.changedAt)}
+                      {log.changedByName ? ` · ${log.changedByName}` : ""}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {response.meta.totalPages > 1 && (
+            <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
+              <p className="text-[length:var(--fs-sm)] text-text-secondary">
+                Trang {response.meta.page} / {response.meta.totalPages}
+              </p>
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-border h-8 px-3"
+                  disabled={page <= 1}
+                  onClick={onPrevious}
+                >
+                  Trước
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-border h-8 px-3"
+                  disabled={page >= response.meta.totalPages}
+                  onClick={onNext}
+                >
+                  Tiếp
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── InsuranceFileCard ────────────────────────────────────────────────────────
 
 function InsuranceFileCard({
   document,
   insuranceId,
   vehicleId,
-  canEdit,
+  canReplace,
 }: {
   document: InsuranceRecord["document"];
   insuranceId: number;
   vehicleId: number;
-  canEdit: boolean;
+  canReplace: boolean;
 }) {
   const replace = useReplaceDocument({
     documentId: document?.id,
@@ -307,7 +341,7 @@ function InsuranceFileCard({
       fileName={document.fileName}
       url={document.sasUrl}
       documentId={document.id}
-      onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
+      onReplace={canReplace ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
   );
@@ -319,12 +353,12 @@ function InspectionFileCard({
   document,
   inspectionId,
   vehicleId,
-  canEdit,
+  canReplace,
 }: {
   document: InspectionRecord["document"];
   inspectionId: number;
   vehicleId: number;
-  canEdit: boolean;
+  canReplace: boolean;
 }) {
   const replace = useReplaceDocument({
     documentId: document?.id,
@@ -341,7 +375,7 @@ function InspectionFileCard({
       fileName={document.fileName}
       url={document.sasUrl}
       documentId={document.id}
-      onReplace={canEdit ? (file) => replace.mutate(file) : undefined}
+      onReplace={canReplace ? (file) => replace.mutate(file) : undefined}
       isReplacing={replace.isPending}
     />
   );
@@ -356,9 +390,14 @@ export default function VehicleDetailPage() {
   const queryClient = useQueryClient();
   const { hasPermission } = usePermission();
 
-  const isAdminOrManager = hasPermission("vehicles.update");
-  const isAdminOrManagerOrAccountant = hasPermission("vehicles.update");
+  // Spec §6
+  const canUpdate = hasPermission("vehicles.update");
+  const canDelete = hasPermission("vehicles.delete");
   const canChangeStatus = hasPermission("vehicles.status");
+  const canStatusAll = hasPermission("vehicles.status_all");
+  const canUploadFile = canUpdate && hasPermission("documents.upload");
+  const canDeleteFile = canUpdate && hasPermission("documents.delete");
+  const canViewAudit = hasPermission("audit.view");
 
   const [activeTab, setActiveTab] = useState("info");
 
@@ -370,7 +409,9 @@ export default function VehicleDetailPage() {
   const [statusReason, setStatusReason] = useState("");
   // Delete confirm
   const [deleteOpen, setDeleteOpen] = useState(false);
-  // Images (Tab 4)
+  // QR
+  const [regenQrOpen, setRegenQrOpen] = useState(false);
+  // Images (shown in the technical information tab)
   const [imgModalOpen, setImgModalOpen] = useState(false);
   const [imgFiles, setImgFiles] = useState<File[]>([]);
   const [imgUploading, setImgUploading] = useState(false);
@@ -378,11 +419,11 @@ export default function VehicleDetailPage() {
   const imgInputRef = useRef<HTMLInputElement>(null);
   // Lightbox
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  // Profile (Tab 4)
+  // Profile (shown in the technical information tab)
   const [profileUploading, setProfileUploading] = useState(false);
   const [deleteProfileOpen, setDeleteProfileOpen] = useState(false);
   const profileInputRef = useRef<HTMLInputElement>(null);
-  // Status logs (Tab 4)
+  // Status logs (shown in the technical information tab)
   const [statusLogsPage, setStatusLogsPage] = useState(1);
 
   // Insurance modal
@@ -390,61 +431,81 @@ export default function VehicleDetailPage() {
   const [insFile, setInsFile] = useState<File | null>(null);
   const [insUploadedDoc, setInsUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null);
   const [insUploading, setInsUploading] = useState(false);
+  const [insExtracting, setInsExtracting] = useState(false);
   const [deleteInsId, setDeleteInsId] = useState<number | null>(null);
-  const [viewIns, setViewIns] = useState<InsuranceRecord | null>(null);
   // Inspection modal
   const [inspecOpen, setInspecOpen] = useState(false);
   const [inspecFile, setInspecFile] = useState<File | null>(null);
   const [inspecUploadedDoc, setInspecUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null);
   const [inspecUploading, setInspecUploading] = useState(false);
+  const [inspecExtracting, setInspecExtracting] = useState(false);
   const [deleteInspecId, setDeleteInspecId] = useState<number | null>(null);
-  const [viewInspec, setViewInspec] = useState<InspectionRecord | null>(null);
 
   // ── Queries ──────────────────────────────────────────────────────────────
 
-  const vehicleQuery = useQuery<VehicleDetail>({
+  const vehicleQuery = useQuery({
     queryKey: QUERY_KEYS.vehicles.detail(vehicleId),
     queryFn: () => getVehicleById(vehicleId).then((r) => r.data),
     enabled: !!vehicleId,
   });
 
-  const insuranceQuery = useQuery<InsuranceRecord[]>({
+  const insuranceQuery = useQuery({
     queryKey: QUERY_KEYS.vehicles.insurance(vehicleId),
     queryFn: () => getVehicleInsurance(vehicleId).then((r) => r.data),
     enabled: activeTab === "insurance",
   });
 
-  const inspectionQuery = useQuery<InspectionRecord[]>({
+  const inspectionQuery = useQuery({
     queryKey: QUERY_KEYS.vehicles.inspection(vehicleId),
     queryFn: () => getVehicleInspection(vehicleId).then((r) => r.data),
     enabled: activeTab === "inspection",
   });
 
-  const imagesQuery = useQuery<ImagesResponse>({
+  const imagesQuery = useQuery({
     queryKey: QUERY_KEYS.vehicles.images(vehicleId),
     queryFn: () => getVehicleImages(vehicleId).then((r) => r.data),
-    enabled: activeTab === "documents",
+    enabled: activeTab === "info",
   });
 
-  const profileQuery = useQuery<ProfileItem[]>({
+  const profileQuery = useQuery({
     queryKey: QUERY_KEYS.vehicles.profile(vehicleId),
     queryFn: () => getVehicleProfile(vehicleId).then((r) => r.data),
-    enabled: activeTab === "documents",
+    enabled: activeTab === "info",
   });
 
-  const statusLogsQuery = useQuery<StatusLogsResponse>({
+  const statusLogsQuery = useQuery({
     queryKey: [...QUERY_KEYS.vehicles.statusLogs(vehicleId), statusLogsPage],
     queryFn: () =>
-      getVehicleStatusLogs(vehicleId, { page: statusLogsPage, pageSize: 20 }),
-    enabled: activeTab === "documents",
+      getVehicleStatusLogs(vehicleId, { page: statusLogsPage, page_size: 20 }),
+    enabled: activeTab === "info",
+  });
+
+  const lastVehicleUpdateQuery = useQuery({
+    queryKey: [
+      ...QUERY_KEYS.auditLogs.all,
+      { entityType: "vehicles", entityId: String(vehicleId), page: 1, pageSize: 1 },
+    ],
+    queryFn: () =>
+      getAuditLogs({
+        entityType: "vehicles",
+        entityId: String(vehicleId),
+        page: 1,
+        page_size: 1,
+      }),
+    enabled: activeTab === "info" && canViewAudit,
   });
 
   const vehicle = vehicleQuery.data;
 
   // ── Edit mutation ────────────────────────────────────────────────────────
 
+  const editForm = useForm<VehicleFormInput, unknown, VehicleFormValues>({
+    resolver: zodResolver(editVehicleSchema),
+  });
+
   const editMutation = useMutation({
-    mutationFn: (body: EditForm) => updateVehicle(vehicleId, body),
+    // Không gửi lat/lng → BE giữ vị trí cũ
+    mutationFn: (values: VehicleFormValues) => updateVehicle(vehicleId, toVehicleBody(values)),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.detail(vehicleId),
@@ -454,30 +515,13 @@ export default function VehicleDetailPage() {
       setEditOpen(false);
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
-      toast.error(msg);
+      if (!applyVehicleServerError(err, editForm)) toast.error(getApiErrorMessage(err));
     },
   });
 
-  const editForm = useForm<EditFormInput, unknown, EditForm>({ resolver: zodResolver(editSchema) });
-
   const openEdit = () => {
     if (!vehicle) return;
-    editForm.reset({
-      model: vehicle.model,
-      manufacturer: vehicle.manufacturer,
-      engineType: vehicle.engineType,
-      manufactureYear: vehicle.manufactureYear,
-      capacity: vehicle.capacity ?? undefined,
-      occupancy: vehicle.occupancy ?? undefined,
-      platformHeight: vehicle.platformHeight ?? undefined,
-      workHeight: vehicle.workHeight ?? undefined,
-      liftingSpeed: vehicle.liftingSpeed ?? undefined,
-      travelingSpeed: vehicle.travelingSpeed ?? undefined,
-      note: vehicle.note ?? undefined,
-    });
+    editForm.reset(vehicleToFormValues(vehicle));
     setEditOpen(true);
   };
 
@@ -486,8 +530,8 @@ export default function VehicleDetailPage() {
   const statusMutation = useMutation({
     mutationFn: () =>
       changeVehicleStatus(vehicleId, {
-        newStatus: newStatus as string,
-        reason: statusReason || undefined,
+        newStatus: newStatus as VehicleStatus,
+        reason: statusReason.trim() || undefined,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -497,6 +541,8 @@ export default function VehicleDetailPage() {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.statusLogs(vehicleId),
       });
+      // Đổi → renting / renting → at_yard|broken: BE tự ghi ngày xuất / trả xe trong HĐ
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all });
       toast.success("Đổi trạng thái thành công");
       setStatusOpen(false);
       setNewStatus("");
@@ -509,6 +555,56 @@ export default function VehicleDetailPage() {
       toast.error(msg);
     },
   });
+
+  // ── Location + QR mutations ───────────────────────────────────────────────
+
+  const [locating, setLocating] = useState(false);
+
+  const locationMutation = useMutation({
+    mutationFn: (pos: { lat: number; lng: number }) => updateVehicleLocation(vehicleId, pos),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.vehicles.detail(vehicleId),
+      });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.vehicles.all });
+      toast.success("Đã cập nhật vị trí xe");
+    },
+    onError: (err: unknown) => toast.error(getApiErrorMessage(err)),
+  });
+
+  const updateLocationFromDevice = async () => {
+    setLocating(true);
+    try {
+      locationMutation.mutate(await getCurrentPosition());
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const regenQrMutation = useMutation({
+    mutationFn: () => regenerateVehicleQrCode(vehicleId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: QUERY_KEYS.vehicles.detail(vehicleId),
+      });
+      toast.success("Đã sinh mã QR mới — nhớ in lại tem");
+      setRegenQrOpen(false);
+    },
+    onError: (err: unknown) => toast.error(getApiErrorMessage(err)),
+  });
+
+  const copyQrLink = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/vehicles/qr/${encodeURIComponent(code)}`,
+      );
+      toast.success("Đã sao chép link QR");
+    } catch {
+      toast.error("Không sao chép được");
+    }
+  };
 
   // ── Delete mutation ──────────────────────────────────────────────────────
 
@@ -536,12 +632,7 @@ export default function VehicleDetailPage() {
   const uploadInsFile = async (file: File) => {
     setInsUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("files[]", file);
-      fd.append("doc_type", "insurance");
-      fd.append("is_temp", "true");
-      const res = await uploadDocuments(fd);
-      const doc = res.data[0];
+      const doc = await uploadDocument({ file, doc_type: "insurance", is_temp: true });
       setInsUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
     } catch {
       toast.error("Upload file thất bại");
@@ -604,12 +695,7 @@ export default function VehicleDetailPage() {
   const uploadInspecFile = async (file: File) => {
     setInspecUploading(true);
     try {
-      const fd = new FormData();
-      fd.append("files[]", file);
-      fd.append("doc_type", "inspection");
-      fd.append("is_temp", "true");
-      const res = await uploadDocuments(fd);
-      const doc = res.data[0];
+      const doc = await uploadDocument({ file, doc_type: "inspection", is_temp: true });
       setInspecUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
     } catch {
       toast.error("Upload file thất bại");
@@ -632,7 +718,7 @@ export default function VehicleDetailPage() {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.inspection(vehicleId),
       });
-      toast.success("Thêm đăng kiểm thành công");
+      toast.success("Thêm kiểm định thành công");
       setInspecOpen(false);
       inspecForm.reset();
       setInspecFile(null);
@@ -653,7 +739,7 @@ export default function VehicleDetailPage() {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.inspection(vehicleId),
       });
-      toast.success("Đã xóa đăng kiểm");
+      toast.success("Đã xóa kiểm định");
       setDeleteInspecId(null);
     },
     onError: (err: unknown) => {
@@ -788,7 +874,9 @@ export default function VehicleDetailPage() {
       <div className="flex flex-col items-center justify-center py-20 gap-3">
         <Truck className="h-12 w-12 text-text-secondary" />
         <p className="text-[length:var(--fs-title)] text-text-secondary">
-          Không tìm thấy xe
+          {getApiError(vehicleQuery.error).code === "VEHICLE_NOT_FOUND" || !vehicleQuery.error
+            ? "Xe không tồn tại hoặc đã bị xóa"
+            : getApiErrorMessage(vehicleQuery.error, "Không tải được thông tin xe")}
         </p>
         <Button variant="outline" onClick={() => navigate("/vehicles")}>
           <ArrowLeft className="h-4 w-4 mr-1" /> Quay lại
@@ -800,10 +888,19 @@ export default function VehicleDetailPage() {
   const { label: statusLabel, className: statusClass } = getVehicleStatusBadge(
     vehicle.status,
   );
-  const validNextStatuses = VALID_TRANSITIONS[vehicle.status] ?? [];
+  const validNextStatuses = (VALID_TRANSITIONS[vehicle.status] ?? []).filter(
+    (s) => canStatusAll || !STATUS_ALL_TARGETS.includes(s),
+  );
+  const hasLocation = vehicle.lat != null && vehicle.lng != null;
+  const qrUrl = `${window.location.origin}/vehicles/qr/${encodeURIComponent(vehicle.qrCode)}`;
+  const lastVehicleUpdate = lastVehicleUpdateQuery.data?.data[0];
+  const lastUpdatedBy = lastVehicleUpdate
+    ? lastVehicleUpdate.userName ??
+      (lastVehicleUpdate.userId ? `Người dùng #${lastVehicleUpdate.userId}` : "Hệ thống")
+    : "—";
 
   return (
-    <div className="flex flex-col gap-[var(--sp-section)]">
+    <div className="flex flex-col gap-3 lg:gap-4">
       {/* Back */}
       <button
         onClick={() => navigate("/vehicles")}
@@ -853,9 +950,9 @@ export default function VehicleDetailPage() {
         </div>
 
         {/* Row 2: actions — full width, dưới ảnh+info */}
-        {(isAdminOrManager || (canChangeStatus && validNextStatuses.length > 0)) && (
+        {(canUpdate || canDelete || (canChangeStatus && validNextStatuses.length > 0)) && (
           <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border">
-            {isAdminOrManager && (
+            {canUpdate && (
               <Button
                 size="sm"
                 variant="outline"
@@ -875,7 +972,7 @@ export default function VehicleDetailPage() {
                 <RefreshCw className="h-4 w-4 mr-1" /> Đổi trạng thái
               </Button>
             )}
-            {isAdminOrManager && (
+            {canDelete && (
               <Button
                 size="sm"
                 variant="outline"
@@ -895,8 +992,7 @@ export default function VehicleDetailPage() {
           {[
             { value: "info", label: "Thông tin kỹ thuật" },
             { value: "insurance", label: "Bảo hiểm" },
-            { value: "inspection", label: "Đăng kiểm" },
-            { value: "documents", label: "Hồ sơ & Lịch sử" },
+            { value: "inspection", label: "Kiểm định" },
           ].map((tab) => (
             <TabsTrigger
               key={tab.value}
@@ -910,12 +1006,13 @@ export default function VehicleDetailPage() {
 
         {/* ─── TAB 1: Thông tin kỹ thuật ─── */}
         <TabsContent value="info" className="mt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-6 gap-4">
             {/* Card thông số */}
-            <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5">
-              <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary mb-3">
+            <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5 xl:col-span-2">
+              <p className="mb-3 border-b border-border pb-3 text-[length:var(--fs-nav)] font-semibold text-text-primary">
                 Thông số kỹ thuật
               </p>
+              <InfoRow label="Loại xe" value={getVehicleTypeLabel(vehicle.vehicleType)} />
               <InfoRow
                 label="Loại động cơ"
                 value={
@@ -938,7 +1035,7 @@ export default function VehicleDetailPage() {
               />
               <InfoRow
                 label="Tốc độ nâng"
-                value={vehicle.liftingSpeed != null ? `${vehicle.liftingSpeed} m/ph` : "—"}
+                value={vehicle.liftingSpeed != null ? `${vehicle.liftingSpeed} m/s` : "—"}
               />
               <InfoRow
                 label="Tốc độ di chuyển"
@@ -947,8 +1044,8 @@ export default function VehicleDetailPage() {
             </div>
 
             {/* Card quản lý */}
-            <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5">
-              <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary mb-3">
+            <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5 xl:col-span-2">
+              <p className="mb-3 border-b border-border pb-3 text-[length:var(--fs-nav)] font-semibold text-text-primary">
                 Thông tin quản lý
               </p>
               <InfoRow
@@ -961,14 +1058,126 @@ export default function VehicleDetailPage() {
                   </span>
                 }
               />
-              <InfoRow
-                label="Ngày tạo"
-                value={format(new Date(vehicle.createdAt), "dd/MM/yyyy")}
-              />
+              <InfoRow label="Ngày tạo" value={formatDate(vehicle.createdAt)} />
               <InfoRow
                 label="Cập nhật lần cuối"
-                value={format(new Date(vehicle.updatedAt), "dd/MM/yyyy HH:mm")}
+                value={formatDateTime(vehicle.updatedAt)}
               />
+              <InfoRow label="Người cập nhật cuối" value={lastUpdatedBy} />
+              <InfoRow
+                label="Ghi chú"
+                value={
+                  vehicle.note ? (
+                    <span className="whitespace-pre-line font-normal">{vehicle.note}</span>
+                  ) : (
+                    "—"
+                  )
+                }
+              />
+            </div>
+
+            <div className="h-full xl:col-span-2 xl:row-span-2">
+              <StatusHistoryCard
+                isLoading={statusLogsQuery.isLoading}
+                response={statusLogsQuery.data}
+                page={statusLogsPage}
+                onPrevious={() => setStatusLogsPage((page) => page - 1)}
+                onNext={() => setStatusLogsPage((page) => page + 1)}
+              />
+            </div>
+
+            {/* Card mã QR */}
+            <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5 xl:col-span-2">
+              <div className="mb-3 flex items-center justify-between gap-2 border-b border-border pb-3">
+                <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary">
+                  Mã QR (tem xe)
+                </p>
+                {canUpdate && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-border cursor-pointer"
+                    onClick={() => setRegenQrOpen(true)}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-1" /> Sinh lại mã
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-center">
+                <div className="shrink-0 rounded-lg border border-border bg-white p-2">
+                  <QRCode
+                    value={qrUrl}
+                    size={180}
+                    bgColor="#FFFFFF"
+                    fgColor="#000000"
+                    level="M"
+                    title={`Mã QR xe ${vehicle.serialNumber}`}
+                  />
+                </div>
+                <div className="min-w-0 flex-1 self-stretch sm:self-center">
+                  <p className="font-mono text-[length:var(--fs-base)] font-semibold tracking-wider text-text-primary break-all">
+                    {vehicle.qrCode}
+                  </p>
+                  <p className="text-[length:var(--fs-sm)] text-text-secondary break-all">
+                    {qrUrl}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyQrLink(vehicle.qrCode)}
+                  className="p-1.5 rounded-md text-text-secondary hover:bg-primary-light hover:text-primary cursor-pointer transition-colors shrink-0"
+                  title="Sao chép link QR"
+                >
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Card vị trí */}
+            <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5 xl:col-span-2">
+              <div className="mb-3 flex items-center justify-between gap-2 border-b border-border pb-3">
+                <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary">
+                  Vị trí
+                </p>
+                {canChangeStatus && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-border cursor-pointer"
+                    onClick={updateLocationFromDevice}
+                    disabled={locating || locationMutation.isPending}
+                  >
+                    {locating || locationMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : (
+                      <LocateFixed className="h-4 w-4 mr-1" />
+                    )}
+                    Lấy vị trí hiện tại
+                  </Button>
+                )}
+              </div>
+              {hasLocation ? (
+                <div className="flex items-center gap-3">
+                  <MapPin className="h-8 w-8 text-primary shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <a
+                      href={`https://www.google.com/maps?q=${vehicle.lat},${vehicle.lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[length:var(--fs-base)] font-medium text-primary hover:underline cursor-pointer"
+                    >
+                      {vehicle.lat}, {vehicle.lng}
+                    </a>
+                    <p className="text-[length:var(--fs-sm)] text-text-secondary">
+                      Cập nhật: {formatDateTime(vehicle.locationUpdatedAt)}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[length:var(--fs-base)] text-text-secondary">
+                  Chưa có vị trí
+                </p>
+              )}
             </div>
           </div>
         </TabsContent>
@@ -977,7 +1186,7 @@ export default function VehicleDetailPage() {
         <TabsContent value="insurance" className="mt-4">
           <div className="flex flex-col gap-4">
             {/* Toolbar */}
-            {isAdminOrManagerOrAccountant && (
+            {canUploadFile && (
               <div className="flex justify-end">
                 <Button
                   size="sm"
@@ -1024,11 +1233,7 @@ export default function VehicleDetailPage() {
                           </p>
                           <div className="flex flex-wrap gap-1.5 mt-1.5">
                             <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                              {ins.issueDate
-                                ? format(new Date(ins.issueDate), "dd/MM/yyyy")
-                                : "—"}{" "}
-                              →{" "}
-                              {format(new Date(ins.expiryDate), "dd/MM/yyyy")}
+                              {formatDate(ins.issueDate)} → {formatDate(ins.expiryDate)}
                             </span>
                             <span
                               className={`text-xs px-2.5 py-1 rounded-full ${expiry.className}`}
@@ -1038,19 +1243,8 @@ export default function VehicleDetailPage() {
                           </div>
                         </div>
                       </div>
-                      {isAdminOrManagerOrAccountant && (
+                      {canUpdate && (
                         <div className="flex items-center gap-0.5 flex-none">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={() => setViewIns(ins)}
-                                className="p-1.5 rounded-md text-text-secondary hover:bg-primary-light hover:text-primary cursor-pointer transition-colors"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Xem / Chỉnh sửa</TooltipContent>
-                          </Tooltip>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
@@ -1071,8 +1265,13 @@ export default function VehicleDetailPage() {
                         document={ins.document}
                         insuranceId={ins.id}
                         vehicleId={vehicleId}
-                        canEdit={isAdminOrManagerOrAccountant}
+                        canReplace={canUploadFile}
                       />
+                      {ins.createdByName && (
+                        <p className="mt-2 text-[length:var(--fs-sm)] text-text-secondary">
+                          Tạo bởi {ins.createdByName} · {formatDateTime(ins.createdAt)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
@@ -1081,17 +1280,17 @@ export default function VehicleDetailPage() {
           </div>
         </TabsContent>
 
-        {/* ─── TAB 3: Đăng kiểm ─── */}
+        {/* ─── TAB 3: Kiểm định ─── */}
         <TabsContent value="inspection" className="mt-4">
           <div className="flex flex-col gap-4">
-            {isAdminOrManagerOrAccountant && (
+            {canUploadFile && (
               <div className="flex justify-end">
                 <Button
                   size="sm"
                   className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
                   onClick={() => setInspecOpen(true)}
                 >
-                  <Plus className="h-4 w-4 mr-1" /> Thêm đăng kiểm
+                  <Plus className="h-4 w-4 mr-1" /> Thêm kiểm định
                 </Button>
               </div>
             )}
@@ -1106,7 +1305,7 @@ export default function VehicleDetailPage() {
               <div className="flex flex-col items-center justify-center py-12 gap-2 bg-bg-card rounded-lg border border-border">
                 <CheckCircle2 className="h-8 w-8 text-text-secondary" />
                 <p className="text-[length:var(--fs-base)] text-text-secondary">
-                  Chưa có hồ sơ đăng kiểm
+                  Chưa có hồ sơ kiểm định
                 </p>
               </div>
             ) : (
@@ -1137,15 +1336,8 @@ export default function VehicleDetailPage() {
                           </p>
                           <div className="flex flex-wrap gap-1.5 mt-1.5">
                             <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                              Ngày kiểm:{" "}
-                              {ins.inspectionDate
-                                ? format(
-                                    new Date(ins.inspectionDate),
-                                    "dd/MM/yyyy",
-                                  )
-                                : "—"}{" "}
-                              →{" "}
-                              {format(new Date(ins.expiryDate), "dd/MM/yyyy")}
+                              Ngày kiểm: {formatDate(ins.inspectionDate)} →{" "}
+                              {formatDate(ins.expiryDate)}
                             </span>
                             {ins.result && (
                               <span
@@ -1162,19 +1354,8 @@ export default function VehicleDetailPage() {
                           </div>
                         </div>
                       </div>
-                      {isAdminOrManagerOrAccountant && (
+                      {canUpdate && (
                         <div className="flex items-center gap-0.5 flex-none">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={() => setViewInspec(ins)}
-                                className="p-1.5 rounded-md text-text-secondary hover:bg-primary-light hover:text-primary cursor-pointer transition-colors"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Xem / Chỉnh sửa</TooltipContent>
-                          </Tooltip>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button
@@ -1195,8 +1376,13 @@ export default function VehicleDetailPage() {
                         document={ins.document}
                         inspectionId={ins.id}
                         vehicleId={vehicleId}
-                        canEdit={isAdminOrManagerOrAccountant}
+                        canReplace={canUploadFile}
                       />
+                      {ins.createdByName && (
+                        <p className="mt-2 text-[length:var(--fs-sm)] text-text-secondary">
+                          Tạo bởi {ins.createdByName} · {formatDateTime(ins.createdAt)}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
@@ -1205,16 +1391,16 @@ export default function VehicleDetailPage() {
           </div>
         </TabsContent>
 
-        {/* ─── TAB 4: Hồ sơ & Lịch sử ─── */}
-        <TabsContent value="documents" className="mt-4">
-          <div className="flex flex-col gap-6">
+        {/* ─── Hồ sơ & lịch sử — gộp vào tab Thông tin kỹ thuật ─── */}
+        {activeTab === "info" && <div className="mt-4">
+          <div className="flex flex-col gap-4">
             {/* ── Section 1: Thư viện ảnh ── */}
             <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5">
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex items-center justify-between border-b border-border pb-3">
                 <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary">
                   Thư viện ảnh
                 </p>
-                {isAdminOrManager && (
+                {canUploadFile && (
                   <Button
                     size="sm"
                     className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
@@ -1269,7 +1455,7 @@ export default function VehicleDetailPage() {
                         >
                           <ZoomIn className="h-3.5 w-3.5" />
                         </button>
-                        {isAdminOrManager && !img.isPrimary && (
+                        {canUpdate && !img.isPrimary && (
                           <button
                             onClick={() => setPrimaryMutation.mutate(img.id)}
                             disabled={setPrimaryMutation.isPending}
@@ -1279,7 +1465,7 @@ export default function VehicleDetailPage() {
                             <Star className="h-3.5 w-3.5" />
                           </button>
                         )}
-                        {isAdminOrManager && (
+                        {canDeleteFile && (
                           <button
                             onClick={() => setDeleteImgId(img.id)}
                             className="p-1.5 bg-white rounded-full text-error hover:bg-error hover:text-white transition-colors cursor-pointer"
@@ -1304,7 +1490,7 @@ export default function VehicleDetailPage() {
 
             {/* ── Section 2: Lý lịch xe (PDF) ── */}
             <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5">
-              <div className="flex items-center justify-between mb-4">
+              <div className="mb-4 flex items-center justify-between border-b border-border pb-3">
                 <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary">
                   Lý lịch xe
                 </p>
@@ -1318,7 +1504,7 @@ export default function VehicleDetailPage() {
                   <p className="text-[length:var(--fs-base)] text-text-secondary">
                     Chưa có lý lịch xe
                   </p>
-                  {isAdminOrManager && (
+                  {canUpdate && (
                     <>
                       <input
                         ref={profileInputRef}
@@ -1355,182 +1541,27 @@ export default function VehicleDetailPage() {
                 </div>
               ) : (
                 profileQuery.data.map((profile) => (
-                  <div
+                  <FileCard
                     key={profile.id}
-                    className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-page"
-                  >
-                    <FileText className="h-8 w-8 text-primary shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[length:var(--fs-base)] font-medium text-text-primary truncate">
-                        {profile.fileName}
-                      </p>
-                      <p className="text-[length:var(--fs-sm)] text-text-secondary">
-                        {formatFileSize(profile.fileSizeKb)} · Cập nhật:{" "}
-                        {format(new Date(profile.uploadedAt), "dd/MM/yyyy")}
-                        {profile.uploadedByName ? ` bởi ${profile.uploadedByName}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <a
-                        href={profile.sasUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
-                        title="Tải xuống"
-                      >
-                        <Download className="h-4 w-4" />
-                      </a>
-                      {isAdminOrManager && (
-                        <>
-                          <input
-                            ref={profileInputRef}
-                            type="file"
-                            accept=".pdf"
-                            className="hidden"
-                            onChange={(e) => {
-                              const f = e.target.files?.[0];
-                              if (f) uploadProfile(f);
-                              e.target.value = "";
-                            }}
-                          />
-                          <button
-                            onClick={() => profileInputRef.current?.click()}
-                            disabled={profileUploading}
-                            className="p-1.5 rounded text-text-secondary hover:text-primary hover:bg-primary-light transition-colors cursor-pointer"
-                            title="Thay thế file"
-                          >
-                            {profileUploading ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : (
-                              <RefreshCw className="h-4 w-4" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => setDeleteProfileOpen(true)}
-                            className="p-1.5 rounded text-text-secondary hover:text-white hover:bg-error transition-colors cursor-pointer"
-                            title="Xóa lý lịch"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
+                    fileName={profile.fileName}
+                    url={profile.sasUrl}
+                    documentId={profile.id}
+                    fileSize={profile.fileSizeKb * 1024}
+                    createdAt={profile.uploadedAt}
+                    createdBy={profile.uploadedByName ?? undefined}
+                    accept=".pdf"
+                    onReplace={canUpdate ? uploadProfile : undefined}
+                    isReplacing={profileUploading}
+                    onDelete={
+                      canUpdate ? () => setDeleteProfileOpen(true) : undefined
+                    }
+                  />
                 ))
               )}
             </div>
 
-            {/* ── Section 3: Lịch sử trạng thái ── */}
-            <div className="bg-bg-card rounded-lg border border-border p-[var(--sp-card)] lg:p-5">
-              <p className="text-[length:var(--fs-nav)] font-semibold text-text-primary mb-4">
-                Lịch sử trạng thái
-              </p>
-
-              {statusLogsQuery.isLoading ? (
-                <div className="flex flex-col gap-3">
-                  {[1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-16 w-full rounded-lg" />
-                  ))}
-                </div>
-              ) : !statusLogsQuery.data?.data?.length ? (
-                <div className="flex flex-col items-center justify-center py-10 gap-2 rounded-lg bg-bg-page border border-dashed border-border">
-                  <History className="h-8 w-8 text-text-secondary" />
-                  <p className="text-[length:var(--fs-base)] text-text-secondary">
-                    Chưa có lịch sử thay đổi
-                  </p>
-                </div>
-              ) : (
-                <div className="relative">
-                  {/* Vertical line */}
-                  <div className="absolute left-[9px] top-2 bottom-2 w-px bg-border" />
-
-                  <div className="flex flex-col gap-0">
-                    {statusLogsQuery.data.data.map((log, idx) => {
-                      const newCfg = VEHICLE_STATUS_CONFIG[log.toStatus];
-                      const oldCfg = VEHICLE_STATUS_CONFIG[log.fromStatus];
-                      const dotColor = DOT_COLOR[log.toStatus];
-                      return (
-                        <div
-                          key={log.id}
-                          className={`relative flex gap-4 ${idx !== statusLogsQuery.data!.data.length - 1 ? "pb-5" : ""}`}
-                        >
-                          {/* Dot */}
-                          <div
-                            className={`relative z-10 mt-1 h-4.5 w-4.5 rounded-full ring-2 ring-offset-2 shrink-0 ${dotColor}`}
-                            style={{
-                              width: "18px",
-                              height: "18px",
-                              marginTop: "2px",
-                            }}
-                          />
-                          {/* Content */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
-                              <span
-                                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${oldCfg?.className ?? "bg-bg-page text-text-secondary"}`}
-                              >
-                                {oldCfg?.label ?? log.fromStatus}
-                              </span>
-                              <span className="text-text-secondary text-[length:var(--fs-sm)]">
-                                →
-                              </span>
-                              <span
-                                className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${newCfg?.className ?? "bg-bg-page text-text-secondary"}`}
-                              >
-                                {newCfg?.label ?? log.toStatus}
-                              </span>
-                            </div>
-                            {log.reason && (
-                              <p className="text-[length:var(--fs-sm)] text-text-primary">
-                                {log.reason}
-                              </p>
-                            )}
-                            <p className="text-[length:var(--fs-sm)] text-text-secondary mt-0.5">
-                              {formatDateTime(log.changedAt)} · {log.changedByName}
-                            </p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Pagination */}
-                  {statusLogsQuery.data.meta.totalPages > 1 && (
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
-                      <p className="text-[length:var(--fs-sm)] text-text-secondary">
-                        Trang {statusLogsQuery.data.meta.page} /{" "}
-                        {statusLogsQuery.data.meta.totalPages}
-                      </p>
-                      <div className="flex gap-1">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-border h-8 px-3"
-                          disabled={statusLogsPage <= 1}
-                          onClick={() => setStatusLogsPage((p) => p - 1)}
-                        >
-                          Trước
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-border h-8 px-3"
-                          disabled={
-                            statusLogsPage >=
-                            statusLogsQuery.data.meta.totalPages
-                          }
-                          onClick={() => setStatusLogsPage((p) => p + 1)}
-                        >
-                          Tiếp
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
-        </TabsContent>
+        </div>}
       </Tabs>
 
       {/* ══ MODALS ══════════════════════════════════════════════════════════════ */}
@@ -1544,133 +1575,11 @@ export default function VehicleDetailPage() {
           </MobileSheetHeader>
           <form onSubmit={editForm.handleSubmit((v) => editMutation.mutate(v))}>
             <MobileSheetBody>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Model <span className="text-error">*</span>
-                    </Label>
-                    <Input
-                      {...editForm.register("model")}
-                      className="border-border"
-                    />
-                    {editForm.formState.errors.model && (
-                      <p className="text-[length:var(--fs-sm)] text-error">
-                        {editForm.formState.errors.model.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Hãng SX <span className="text-error">*</span>
-                    </Label>
-                    <Input
-                      {...editForm.register("manufacturer")}
-                      className="border-border"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Năm SX
-                    </Label>
-                    <Input
-                      {...editForm.register("manufactureYear")}
-                      type="number"
-                      className="border-border"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Loại động cơ <span className="text-error">*</span>
-                    </Label>
-                    <Select
-                      defaultValue={vehicle.engineType}
-                      onValueChange={(v) =>
-                        editForm.setValue(
-                          "engineType",
-                          v as "Fuel" | "Electric",
-                        )
-                      }
-                    >
-                      <SelectTrigger className="border-border cursor-pointer">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Electric">Điện</SelectItem>
-                        <SelectItem value="Fuel">Xăng/Dầu</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Tải trọng (kg)
-                    </Label>
-                    <Input
-                      {...editForm.register("capacity")}
-                      type="number"
-                      className="border-border"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Số người
-                    </Label>
-                    <Input
-                      {...editForm.register("occupancy")}
-                      type="number"
-                      className="border-border"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Chiều cao sàn (m)
-                    </Label>
-                    <Input
-                      {...editForm.register("platformHeight")}
-                      type="number"
-                      step="any"
-                      className="border-border"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Cao LV (m)
-                  </Label>
-                  <Input
-                    {...editForm.register("workHeight")}
-                    type="number"
-                    step="any"
-                    className="border-border"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Tốc độ nâng (m/s)
-                  </Label>
-                  <Input
-                    {...editForm.register("liftingSpeed")}
-                    type="number"
-                    step="any"
-                    className="border-border"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Tốc độ di chuyển (km/h)
-                  </Label>
-                  <Input
-                    {...editForm.register("travelingSpeed")}
-                    type="number"
-                    step="any"
-                    className="border-border"
-                  />
-                </div>
-              </div>
+              <p className="text-[length:var(--fs-sm)] text-text-secondary">
+                Serial: <span className="font-medium text-text-primary">{vehicle.serialNumber}</span>{" "}
+                (không sửa được)
+              </p>
+              <VehicleFormFields form={editForm} mode="edit" />
             </MobileSheetBody>
             <MobileSheetFooter>
               <Button
@@ -1767,28 +1676,27 @@ export default function VehicleDetailPage() {
         </MobileSheetContent>
       </MobileSheetDialog>
 
-      {/* Modal Thêm / Chỉnh sửa bảo hiểm */}
+      {/* Modal Thêm bảo hiểm */}
       <MobileTwoColDialog
-        open={insOpen || viewIns !== null}
+        open={insOpen}
         onOpenChange={(o) => {
           if (!o) {
             setInsOpen(false);
-            setViewIns(null);
             insForm.reset();
             setInsFile(null);
             setInsUploadedDoc(null);
           }
         }}
-        title={viewIns ? "Chỉnh sửa bảo hiểm" : "Thêm bảo hiểm"}
+        title="Thêm bảo hiểm"
         file={insUploadedDoc ? null : insFile}
         onFileChange={(f) => {
           setInsFile(f);
           setInsUploadedDoc(null);
           if (f) uploadInsFile(f);
         }}
-        isEdit={viewIns !== null || !!insUploadedDoc}
-        existingFileName={insUploadedDoc?.fileName ?? viewIns?.document?.fileName}
-        existingFileUrl={insUploadedDoc?.sasUrl ?? viewIns?.document?.sasUrl}
+        isEdit={!!insUploadedDoc}
+        existingFileName={insUploadedDoc?.fileName}
+        existingFileUrl={insUploadedDoc?.sasUrl}
         uploadLabel="Kéo thả hoặc chọn file bảo hiểm (PDF, JPEG, PNG)"
       >
         <form
@@ -1799,6 +1707,18 @@ export default function VehicleDetailPage() {
           <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">
             Thông tin bảo hiểm
           </p>
+          <DocumentExtractButton<InsuranceAutofillFields>
+            documentId={insUploadedDoc?.id}
+            docType="insurance"
+            disabled={insUploading}
+            onBusyChange={setInsExtracting}
+            onExtract={(fields) => {
+              if (fields.insuranceNumber !== undefined) insForm.setValue("insuranceNumber", fields.insuranceNumber)
+              if (fields.provider !== undefined) insForm.setValue("provider", fields.provider)
+              if (fields.issueDate !== undefined) insForm.setValue("issueDate", fields.issueDate)
+              if (fields.expiryDate !== undefined) insForm.setValue("expiryDate", fields.expiryDate)
+            }}
+          />
           <div className="flex flex-col gap-1.5">
             <Label className="text-[length:var(--fs-base)] font-medium">
               Số bảo hiểm
@@ -1808,6 +1728,11 @@ export default function VehicleDetailPage() {
               placeholder="VD: BH-2024-001"
               className="border-border"
             />
+            {insForm.formState.errors.insuranceNumber && (
+              <p className="text-[length:var(--fs-sm)] text-error">
+                {insForm.formState.errors.insuranceNumber.message}
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-1.5">
             <Label className="text-[length:var(--fs-base)] font-medium">
@@ -1818,6 +1743,11 @@ export default function VehicleDetailPage() {
               placeholder="VD: Bảo Việt"
               className="border-border"
             />
+            {insForm.formState.errors.provider && (
+              <p className="text-[length:var(--fs-sm)] text-error">
+                {insForm.formState.errors.provider.message}
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
@@ -1869,7 +1799,9 @@ export default function VehicleDetailPage() {
             className="border-border cursor-pointer"
             onClick={() => {
               setInsOpen(false);
-              setViewIns(null);
+              insForm.reset();
+              setInsFile(null);
+              setInsUploadedDoc(null);
             }}
             disabled={addInsMutation.isPending}
           >
@@ -1880,7 +1812,7 @@ export default function VehicleDetailPage() {
             form="insurance-form"
             className="bg-primary hover:bg-primary-dark text-white cursor-pointer"
             disabled={
-              addInsMutation.isPending || insUploading || (!viewIns && !insUploadedDoc)
+              addInsMutation.isPending || insUploading || insExtracting || !insUploadedDoc
             }
           >
             {addInsMutation.isPending ? "Đang lưu..." : insUploading ? "Đang tải file..." : "Lưu"}
@@ -1888,29 +1820,28 @@ export default function VehicleDetailPage() {
         </div>
       </MobileTwoColDialog>
 
-      {/* Modal Thêm / Chỉnh sửa đăng kiểm */}
+      {/* Modal Thêm kiểm định */}
       <MobileTwoColDialog
-        open={inspecOpen || viewInspec !== null}
+        open={inspecOpen}
         onOpenChange={(o) => {
           if (!o) {
             setInspecOpen(false);
-            setViewInspec(null);
             inspecForm.reset();
             setInspecFile(null);
             setInspecUploadedDoc(null);
           }
         }}
-        title={viewInspec ? "Chỉnh sửa đăng kiểm" : "Thêm đăng kiểm"}
+        title="Thêm kiểm định"
         file={inspecUploadedDoc ? null : inspecFile}
         onFileChange={(f) => {
           setInspecFile(f);
           setInspecUploadedDoc(null);
           if (f) uploadInspecFile(f);
         }}
-        isEdit={viewInspec !== null || !!inspecUploadedDoc}
-        existingFileName={inspecUploadedDoc?.fileName ?? viewInspec?.document?.fileName}
-        existingFileUrl={inspecUploadedDoc?.sasUrl ?? viewInspec?.document?.sasUrl}
-        uploadLabel="Kéo thả hoặc chọn file đăng kiểm (PDF, JPEG, PNG)"
+        isEdit={!!inspecUploadedDoc}
+        existingFileName={inspecUploadedDoc?.fileName}
+        existingFileUrl={inspecUploadedDoc?.sasUrl}
+        uploadLabel="Kéo thả hoặc chọn file kiểm định (PDF, JPEG, PNG)"
       >
         <form
           id="inspection-form"
@@ -1918,17 +1849,34 @@ export default function VehicleDetailPage() {
           className="flex flex-col gap-4 px-5 py-4 flex-1"
         >
           <p className="text-xs font-medium text-text-secondary uppercase tracking-wide">
-            Thông tin đăng kiểm
+            Thông tin kiểm định
           </p>
+          <DocumentExtractButton<InspectionAutofillFields>
+            documentId={inspecUploadedDoc?.id}
+            docType="inspection"
+            disabled={inspecUploading}
+            onBusyChange={setInspecExtracting}
+            onExtract={(fields) => {
+              if (fields.inspectionNumber !== undefined) inspecForm.setValue("inspectionNumber", fields.inspectionNumber)
+              if (fields.inspectionDate !== undefined) inspecForm.setValue("inspectionDate", fields.inspectionDate)
+              if (fields.expiryDate !== undefined) inspecForm.setValue("expiryDate", fields.expiryDate)
+              if (fields.result !== undefined) inspecForm.setValue("result", fields.result)
+            }}
+          />
           <div className="flex flex-col gap-1.5">
             <Label className="text-[length:var(--fs-base)] font-medium">
               Số kiểm định
             </Label>
             <Input
               {...inspecForm.register("inspectionNumber")}
-              placeholder="VD: DK-2024-001"
+              placeholder="VD: KD-2024-001"
               className="border-border"
             />
+            {inspecForm.formState.errors.inspectionNumber && (
+              <p className="text-[length:var(--fs-sm)] text-error">
+                {inspecForm.formState.errors.inspectionNumber.message}
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
@@ -1971,19 +1919,27 @@ export default function VehicleDetailPage() {
             <Label className="text-[length:var(--fs-base)] font-medium">
               Kết quả
             </Label>
-            <Select
-              onValueChange={(v) =>
-                inspecForm.setValue("result", v as "passed" | "failed")
-              }
-            >
-              <SelectTrigger className="border-border cursor-pointer">
-                <SelectValue placeholder="Chọn kết quả" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="passed">Đạt</SelectItem>
-                <SelectItem value="failed">Không đạt</SelectItem>
-              </SelectContent>
-            </Select>
+            <Controller
+              control={inspecForm.control}
+              name="result"
+              render={({ field }) => (
+                <Select
+                  value={field.value ?? "_none"}
+                  onValueChange={(v) =>
+                    field.onChange(v === "_none" ? undefined : v)
+                  }
+                >
+                  <SelectTrigger className="border-border cursor-pointer">
+                    <SelectValue placeholder="Chọn kết quả" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="_none">Chưa có</SelectItem>
+                    <SelectItem value="passed">Đạt</SelectItem>
+                    <SelectItem value="failed">Không đạt</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+            />
           </div>
           {inspecUploading && (
             <p className="text-[length:var(--fs-sm)] text-text-secondary">
@@ -1998,7 +1954,9 @@ export default function VehicleDetailPage() {
             className="border-border cursor-pointer"
             onClick={() => {
               setInspecOpen(false);
-              setViewInspec(null);
+              inspecForm.reset();
+              setInspecFile(null);
+              setInspecUploadedDoc(null);
             }}
             disabled={addInspecMutation.isPending}
           >
@@ -2011,7 +1969,8 @@ export default function VehicleDetailPage() {
             disabled={
               addInspecMutation.isPending ||
               inspecUploading ||
-              (!viewInspec && !inspecUploadedDoc)
+              inspecExtracting ||
+              !inspecUploadedDoc
             }
           >
             {addInspecMutation.isPending ? "Đang lưu..." : inspecUploading ? "Đang tải file..." : "Lưu"}
@@ -2024,11 +1983,23 @@ export default function VehicleDetailPage() {
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="Xóa xe này?"
-        description={`Xe ${vehicle.model} (${vehicle.serialNumber}) sẽ bị ẩn khỏi hệ thống. Dữ liệu lịch sử vẫn được giữ lại.`}
+        description={`Xe ${vehicle.model} (${vehicle.serialNumber}) sẽ bị ẩn khỏi hệ thống. Kiểm tra xe không còn nằm trong hợp đồng đang hiệu lực trước khi xóa.`}
         variant="danger"
         confirmLabel="Xóa"
         loading={deleteMutation.isPending}
         onConfirm={() => deleteMutation.mutate()}
+      />
+
+      {/* Confirm sinh lại QR */}
+      <ConfirmModal
+        open={regenQrOpen}
+        onOpenChange={setRegenQrOpen}
+        title="Sinh lại mã QR?"
+        description="Tem cũ sẽ không dùng được nữa. Cần in và dán lại tem mới cho xe."
+        variant="danger"
+        confirmLabel="Sinh lại"
+        loading={regenQrMutation.isPending}
+        onConfirm={() => regenQrMutation.mutate()}
       />
 
       {/* Confirm xóa bảo hiểm */}
@@ -2038,6 +2009,7 @@ export default function VehicleDetailPage() {
           if (!o) setDeleteInsId(null);
         }}
         title="Xóa bảo hiểm này?"
+        description="Nhắc hạn liên quan cũng bị xóa. Nếu nhập sai, xóa rồi tạo lại."
         variant="danger"
         confirmLabel="Xóa"
         loading={deleteInsMutation.isPending}
@@ -2046,13 +2018,13 @@ export default function VehicleDetailPage() {
         }
       />
 
-      {/* Confirm xóa đăng kiểm */}
+      {/* Confirm xóa kiểm định */}
       <ConfirmModal
         open={deleteInspecId !== null}
         onOpenChange={(o) => {
           if (!o) setDeleteInspecId(null);
         }}
-        title="Xóa đăng kiểm này?"
+        title="Xóa kiểm định này?"
         variant="danger"
         confirmLabel="Xóa"
         loading={deleteInspecMutation.isPending}

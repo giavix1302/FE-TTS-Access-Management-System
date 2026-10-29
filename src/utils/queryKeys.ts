@@ -7,15 +7,23 @@ export const QUERY_KEYS = {
     images: (id: number) => ["vehicles", id, "images"] as const,
     profile: (id: number) => ["vehicles", id, "profile"] as const,
     statusLogs: (id: number) => ["vehicles", id, "status-logs"] as const,
+    byQr: (code: string) => ["vehicles", "by-qr", code] as const,
   },
   contracts: {
     all: ["contracts"] as const,
     detail: (id: number) => ["contracts", id] as const,
+    history: (id: number, page?: number) => ["contracts", id, "history", ...(page ? [page] : [])] as const,
   },
   customers: {
     all: ["customers"] as const,
     detail: (id: number) => ["customers", id] as const,
+    contacts: (id: number) => ["customers", id, "contacts"] as const,
     contracts: (id: number) => ["customers", id, "contracts"] as const,
+    history: (id: number) => ["customers", id, "history"] as const,
+  },
+  contacts: {
+    all: ["contacts"] as const,
+    detail: (id: number) => ["contacts", id] as const,
   },
   users: {
     all: ["users"] as const,
@@ -40,5 +48,9 @@ export const QUERY_KEYS = {
   },
   permissions: {
     all: ["permissions"] as const,
+  },
+  auditLogs: {
+    all: ["audit-logs"] as const,
+    detail: (id: number) => ["audit-logs", id] as const,
   },
 };

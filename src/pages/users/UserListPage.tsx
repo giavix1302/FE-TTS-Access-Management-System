@@ -5,13 +5,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
-import { Plus, Search, Pencil, ShieldOff, ShieldCheck, KeyRound, Copy, Check } from "lucide-react";
+import { Plus, Pencil, ShieldOff, ShieldCheck, KeyRound, Copy, Check } from "lucide-react";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useAuthStore } from "@/stores/authStore";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { DataTable } from "@/components/shared/DataTable";
+import { Pagination } from "@/components/shared/Pagination";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { FilterToolbar } from "@/components/shared/FilterToolbar";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import {
   MobileSheetDialog,
@@ -34,7 +36,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -681,7 +682,7 @@ export default function UserListPage() {
   const { data, isLoading } = useQuery({
     queryKey: [
       ...QUERY_KEYS.users.all,
-      { search: debouncedSearch, roleFilter, activeFilter, page },
+      { search: debouncedSearch, roleFilter, activeFilter, page, pageSize: pagination.pageSize },
     ],
     queryFn: () =>
       getUsers({
@@ -689,7 +690,7 @@ export default function UserListPage() {
         role: roleFilter || undefined,
         isActive: activeFilter === "active" ? true : activeFilter === "inactive" ? false : undefined,
         page,
-        page_size: PAGE_SIZE,
+        page_size: pagination.pageSize,
       }),
   });
 
@@ -825,7 +826,7 @@ export default function UserListPage() {
   ];
 
   return (
-    <div className="flex flex-col gap-[var(--sp-section)]">
+    <div className="flex flex-col gap-3 lg:gap-4">
       <PageHeader
         title="Người dùng"
         subtitle="Quản lý tài khoản nhân viên hệ thống"
@@ -833,7 +834,7 @@ export default function UserListPage() {
           isAdmin ? (
             <Button
               onClick={() => setCreateOpen(true)}
-              className="cursor-pointer bg-primary text-white hover:bg-primary-dark gap-1.5 text-[length:var(--fs-sm)] sm:text-[length:var(--fs-base)]"
+              className="h-auto cursor-pointer gap-1.5 rounded-lg border-0 bg-primary px-3 py-1.5 text-[length:var(--fs-sm)] text-white shadow-sm hover:bg-primary-dark sm:px-4 sm:py-2 sm:text-[length:var(--fs-base)]"
             >
               <Plus size={16} />
               Thêm người dùng
@@ -842,58 +843,65 @@ export default function UserListPage() {
         }
       />
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
-          <Input
-            placeholder="Tìm tên, SĐT, email..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); resetPage(); }}
-            className="pl-9 border-border"
-          />
+      <FilterToolbar
+        search={search}
+        onSearchChange={(value) => {
+          setSearch(value);
+          resetPage();
+        }}
+        searchPlaceholder="Tìm tên, SĐT, email..."
+        activeFilterCount={Number(!!roleFilter) + Number(!!activeFilter)}
+        onClearFilters={() => {
+          setRoleFilter("");
+          setActiveFilter("");
+          resetPage();
+        }}
+      >
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-[length:var(--fs-sm)]">Vai trò</Label>
+          <Select
+            value={roleFilter || "_all"}
+            onValueChange={(v) => {
+              setRoleFilter(v === "_all" ? "" : v);
+              resetPage();
+            }}
+          >
+            <SelectTrigger className="w-full cursor-pointer border-border">
+              <SelectValue placeholder="Tất cả vai trò" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">Tất cả vai trò</SelectItem>
+              {ROLE_OPTIONS.map((r) => (
+                <SelectItem key={r.value} value={r.value}>
+                  {r.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
-        <Select
-          value={roleFilter || "_all"}
-          onValueChange={(v) => { setRoleFilter(v === "_all" ? "" : v); resetPage(); }}
-        >
-          <SelectTrigger className="w-full sm:w-44 border-border cursor-pointer">
-            <SelectValue placeholder="Tất cả vai trò" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">Tất cả vai trò</SelectItem>
-            {ROLE_OPTIONS.map((r) => (
-              <SelectItem key={r.value} value={r.value}>
-                {r.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-[length:var(--fs-sm)]">Trạng thái</Label>
+          <Select
+            value={activeFilter || "_all"}
+            onValueChange={(v) => {
+              setActiveFilter(v === "_all" ? "" : v);
+              resetPage();
+            }}
+          >
+            <SelectTrigger className="w-full cursor-pointer border-border">
+              <SelectValue placeholder="Tất cả trạng thái" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">Tất cả trạng thái</SelectItem>
+              <SelectItem value="active">Đang hoạt động</SelectItem>
+              <SelectItem value="inactive">Đã vô hiệu</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </FilterToolbar>
 
-        <Select
-          value={activeFilter || "_all"}
-          onValueChange={(v) => { setActiveFilter(v === "_all" ? "" : v); resetPage(); }}
-        >
-          <SelectTrigger className="w-full sm:w-44 border-border cursor-pointer">
-            <SelectValue placeholder="Tất cả trạng thái" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">Tất cả trạng thái</SelectItem>
-            <SelectItem value="active">Đang hoạt động</SelectItem>
-            <SelectItem value="inactive">Đã vô hiệu</SelectItem>
-          </SelectContent>
-        </Select>
-
-        {meta && (
-          <p className="ml-auto text-[length:var(--fs-base)] text-text-secondary">
-            Tổng{" "}
-            <span className="font-medium text-text-primary">{meta.total}</span>{" "}
-            người dùng
-          </p>
-        )}
-      </div>
-
+      <div className="rounded-lg border border-border bg-bg-card p-3 shadow-card">
       {/* Desktop table */}
       <div className="hidden sm:block">
         <DataTable
@@ -1029,33 +1037,16 @@ export default function UserListPage() {
         )}
 
         {/* Pagination mobile */}
-        {!isLoading && meta && meta.total_pages > 1 && (
-          <div className="flex items-center justify-between px-1 pt-1">
-            <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              Trang {meta.page}/{meta.total_pages} · {meta.total} người dùng
-            </p>
-            <div className="flex gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 border-border cursor-pointer"
-                disabled={pagination.pageIndex === 0}
-                onClick={() => setPagination((p) => ({ ...p, pageIndex: p.pageIndex - 1 }))}
-              >
-                Trước
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 border-border cursor-pointer"
-                disabled={pagination.pageIndex + 1 >= meta.total_pages}
-                onClick={() => setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))}
-              >
-                Tiếp
-              </Button>
-            </div>
-          </div>
+        {!isLoading && meta && (
+          <Pagination
+            pageIndex={pagination.pageIndex}
+            totalPages={meta.total_pages}
+            onPageChange={(pageIndex) => setPagination((p) => ({ ...p, pageIndex }))}
+            pageSize={pagination.pageSize}
+            onPageSizeChange={(pageSize) => setPagination({ pageIndex: 0, pageSize })}
+          />
         )}
+      </div>
       </div>
 
       {/* ── Dialogs ─────────────────────────────────────────────────────────── */}

@@ -40,7 +40,7 @@ export function DatePicker({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0 w-[300px]" align={align}>
+      <PopoverContent className="w-[300px] border-0 p-0" align={align}>
         <Calendar
           mode="single"
           className="w-full"

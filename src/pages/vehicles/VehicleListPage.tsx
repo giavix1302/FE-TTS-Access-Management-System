@@ -4,18 +4,20 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { toast } from "sonner";
-import { Plus, Truck, Search } from "lucide-react";
+import { Plus, Truck, MapPin, RefreshCw } from "lucide-react";
 import { getVehicles, createVehicle } from "@/api/vehicles.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
+import { formatDateTime } from "@/utils/format";
+import { getApiErrorMessage } from "@/utils/apiError";
 import { useDebounce } from "@/hooks/useDebounce";
 import { usePermission } from "@/hooks/usePermission";
 import { DataTable } from "@/components/shared/DataTable";
+import { Pagination } from "@/components/shared/Pagination";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { FilterToolbar } from "@/components/shared/FilterToolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -34,47 +36,41 @@ import {
 import {
   VEHICLE_STATUS_OPTIONS,
   getVehicleStatusBadge,
-  type VehicleStatus,
 } from "@/constants/vehicleStatus";
+import { VEHICLE_TYPE_OPTIONS, getVehicleTypeLabel } from "@/constants/vehicleType";
+import type { VehicleListItem, VehicleStatus, VehicleType } from "@/types/vehicle.types";
+import { VehicleFormFields } from "@/pages/vehicles/components/VehicleForm";
+import {
+  EMPTY_VEHICLE_FORM,
+  applyVehicleServerError,
+  makeVehicleSchema,
+  toCreateVehicleBody,
+  type VehicleFormInput,
+  type VehicleFormValues,
+} from "@/pages/vehicles/components/vehicleForm.schema";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+const createVehicleSchema = makeVehicleSchema("create");
 
-interface Vehicle {
-  id: number;
-  model: string;
-  serialNumber: string;
-  manufacturer: string;
-  manufactureYear: number;
-  engineType: "Fuel" | "Electric";
-  workHeight: number | null;
-  status: VehicleStatus;
-  primaryImageUrl: string | null;
-  createdAt: string;
+const toHeightParam = (v: string) => {
+  const n = Number(v);
+  return v.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : undefined;
+};
+
+function LocationLink({ v }: { v: VehicleListItem }) {
+  if (v.lat == null || v.lng == null) return <span className="text-text-secondary">—</span>;
+  return (
+    <a
+      href={`https://www.google.com/maps?q=${v.lat},${v.lng}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={v.locationUpdatedAt ? `Cập nhật: ${formatDateTime(v.locationUpdatedAt)}` : undefined}
+      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[length:var(--fs-sm)] text-primary hover:bg-primary-light cursor-pointer"
+    >
+      <MapPin className="h-3.5 w-3.5" /> Bản đồ
+    </a>
+  );
 }
-
-interface VehicleListResponse {
-  data: Vehicle[];
-  meta: { total: number; page: number; pageSize: number; totalPages: number };
-}
-
-// ─── Zod schema ───────────────────────────────────────────────────────────────
-
-const addVehicleSchema = z.object({
-  model: z.string().min(1, "Bắt buộc"),
-  serial_number: z.string().min(1, "Bắt buộc"),
-  manufacturer: z.string().min(1, "Bắt buộc"),
-  engine_type: z.enum(["Fuel", "Electric"], { error: "Bắt buộc" }),
-  manufacture_year: z.coerce.number().int().min(1990).max(2100).optional(),
-  capacity: z.coerce.number().positive().optional(),
-  occupancy: z.coerce.number().int().positive().optional(),
-  platform_height: z.coerce.number().positive().optional(),
-  work_height: z.coerce.number().positive().optional(),
-  lifting_speed: z.coerce.number().positive().optional(),
-  traveling_speed: z.coerce.number().positive().optional(),
-});
-
-type AddVehicleForm = z.output<typeof addVehicleSchema>;
-type AddVehicleFormInput = z.input<typeof addVehicleSchema>;
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -83,106 +79,102 @@ export default function VehicleListPage() {
   const queryClient = useQueryClient();
   const { hasPermission } = usePermission();
 
-  const isAdminOrManager = hasPermission("vehicles.create");
+  const canCreate = hasPermission("vehicles.create");
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<VehicleStatus | "">("");
+  const [typeFilter, setTypeFilter] = useState<VehicleType | "">("");
+  const [minHeight, setMinHeight] = useState("");
+  const [maxHeight, setMaxHeight] = useState("");
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 10,
   });
   const [addOpen, setAddOpen] = useState(false);
 
-  const debouncedSearch = useDebounce(search, 400);
+  const debouncedSearch = useDebounce(search, 300);
+  const minWorkHeight = toHeightParam(useDebounce(minHeight, 300));
+  const maxWorkHeight = toHeightParam(useDebounce(maxHeight, 300));
   const page = pagination.pageIndex + 1;
+  const resetPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
 
   // ── Query ────────────────────────────────────────────────────────────────
 
-  const { data, isLoading } = useQuery<VehicleListResponse>({
-    queryKey: [
-      ...QUERY_KEYS.vehicles.all,
-      { search: debouncedSearch, status: statusFilter, page },
-    ],
-    queryFn: () =>
-      getVehicles({
-        search: debouncedSearch || undefined,
-        status: statusFilter || undefined,
-        page,
-        pageSize: pagination.pageSize,
-      }),
+  const listParams = {
+    search: debouncedSearch.trim() || undefined,
+    status: statusFilter || undefined,
+    vehicle_type: typeFilter || undefined,
+    min_work_height: minWorkHeight,
+    max_work_height: maxWorkHeight,
+    page,
+    page_size: pagination.pageSize,
+  };
+
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
+    queryKey: [...QUERY_KEYS.vehicles.all, listParams],
+    queryFn: () => getVehicles(listParams),
   });
+
+  // Lỗi tải (toast đã báo ở QueryCache) — không hiện nhầm thành "không có xe"
+  const retryButton = (
+    <Button
+      size="sm"
+      variant="outline"
+      className="cursor-pointer"
+      disabled={isFetching}
+      onClick={() => refetch()}
+    >
+      <RefreshCw className={`h-4 w-4 mr-1 ${isFetching ? "animate-spin" : ""}`} />
+      Thử lại
+    </Button>
+  );
 
   // ── Mutation ─────────────────────────────────────────────────────────────
 
+  const form = useForm<VehicleFormInput, unknown, VehicleFormValues>({
+    resolver: zodResolver(createVehicleSchema),
+    defaultValues: EMPTY_VEHICLE_FORM,
+  });
+
   const addMutation = useMutation({
-    mutationFn: (body: AddVehicleForm) => createVehicle(body),
-    onSuccess: () => {
+    mutationFn: (values: VehicleFormValues) => createVehicle(toCreateVehicleBody(values)),
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.vehicles.all });
       toast.success("Thêm xe thành công");
       setAddOpen(false);
-      reset();
+      form.reset(EMPTY_VEHICLE_FORM);
+      // Sang trang chi tiết để thêm ảnh / bảo hiểm / kiểm định
+      if (res?.data?.id) navigate(`/vehicles/${res.data.id}`);
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
-      toast.error(msg);
+      if (!applyVehicleServerError(err, form)) toast.error(getApiErrorMessage(err));
     },
   });
 
-  // ── Form ─────────────────────────────────────────────────────────────────
-
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    reset,
-    formState: { errors },
-  } = useForm<AddVehicleFormInput, unknown, AddVehicleForm>({ resolver: zodResolver(addVehicleSchema) });
-
-  const onSubmit = (values: AddVehicleForm) =>
-    addMutation.mutate({
-      serialNumber: values.serial_number,
-      model: values.model,
-      manufacturer: values.manufacturer,
-      manufactureYear: values.manufacture_year,
-      engineType: values.engine_type,
-      capacity: values.capacity,
-      occupancy: values.occupancy,
-      platformHeight: values.platform_height,
-      workHeight: values.work_height,
-      liftingSpeed: values.lifting_speed,
-      travelingSpeed: values.traveling_speed,
-    } as unknown as AddVehicleForm);
+  const closeAdd = () => {
+    setAddOpen(false);
+    form.reset(EMPTY_VEHICLE_FORM);
+  };
 
   // ── Columns ──────────────────────────────────────────────────────────────
 
-  const columns: ColumnDef<Vehicle>[] = [
-    {
-      id: "image",
-      header: "Ảnh",
-      cell: ({ row }) =>
-        row.original.primaryImageUrl ? (
-          <img
-            src={row.original.primaryImageUrl}
-            alt={row.original.model}
-            className="h-12 w-12 rounded-lg object-cover border border-border"
-          />
-        ) : (
-          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-bg-page border border-border">
-            <Truck className="h-5 w-5 text-text-secondary" />
-          </div>
-        ),
-    },
+  const columns: ColumnDef<VehicleListItem>[] = [
     {
       id: "model",
       header: "Model / Serial",
+      size: 280,
       cell: ({ row }) => (
-        <div>
-          <p className="font-semibold text-text-primary">
+        <div className="min-w-0 max-w-full">
+          <p
+            className="truncate font-semibold text-text-primary"
+            title={row.original.model}
+          >
             {row.original.model}
           </p>
-          <p className="text-[length:var(--fs-sm)] text-text-secondary">
+          <p
+            className="truncate text-[length:var(--fs-sm)] text-text-secondary"
+            title={row.original.serialNumber}
+          >
             {row.original.serialNumber}
           </p>
         </div>
@@ -198,6 +190,13 @@ export default function VehicleListPage() {
             {row.original.manufactureYear}
           </p>
         </div>
+      ),
+    },
+    {
+      id: "vehicle_type",
+      header: "Loại xe",
+      cell: ({ row }) => (
+        <span className="text-text-primary">{getVehicleTypeLabel(row.original.vehicleType)}</span>
       ),
     },
     {
@@ -228,6 +227,11 @@ export default function VehicleListPage() {
       ),
     },
     {
+      id: "location",
+      header: "Vị trí",
+      cell: ({ row }) => <LocationLink v={row.original} />,
+    },
+    {
       id: "status",
       header: "Trạng thái",
       cell: ({ row }) => {
@@ -241,20 +245,33 @@ export default function VehicleListPage() {
         );
       },
     },
+    {
+      id: "updated_at",
+      header: "Cập nhật lần cuối",
+      size: 170,
+      cell: ({ row }) => (
+        <span
+          className="whitespace-nowrap text-[length:var(--fs-sm)] text-text-secondary"
+          title="Thời điểm cập nhật thông tin xe gần nhất"
+        >
+          {formatDateTime(row.original.updatedAt)}
+        </span>
+      ),
+    },
   ];
 
   const vehicles = data?.data ?? [];
   const meta = data?.meta;
 
   return (
-    <div className="flex flex-col gap-[var(--sp-section)]">
+    <div className="flex flex-col gap-3 lg:gap-4">
       <PageHeader
         title="Quản lý xe nâng"
         subtitle="Danh sách toàn bộ xe nâng người"
         actions={
-          isAdminOrManager ? (
+          canCreate ? (
             <Button
-              className="cursor-pointer bg-primary hover:bg-primary-dark text-white text-[length:var(--fs-sm)] sm:text-[length:var(--fs-base)] px-3 py-1.5 sm:px-4 sm:py-2 h-auto"
+              className="h-auto cursor-pointer rounded-lg border-0 bg-primary px-3 py-1.5 text-[length:var(--fs-sm)] text-white shadow-sm hover:bg-primary-dark sm:px-4 sm:py-2 sm:text-[length:var(--fs-base)]"
               onClick={() => setAddOpen(true)}
             >
               <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
@@ -264,89 +281,143 @@ export default function VehicleListPage() {
         }
       />
 
-      {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-secondary" />
-          <Input
-            placeholder="Tìm theo model, số chế tạo, hãng..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPagination((p) => ({ ...p, pageIndex: 0 }));
+      <FilterToolbar
+        search={search}
+        onSearchChange={(value) => {
+          setSearch(value);
+          resetPage();
+        }}
+        searchPlaceholder="Tìm theo model, số chế tạo, hãng..."
+        activeFilterCount={
+          Number(!!statusFilter) + Number(!!typeFilter) + Number(!!minHeight) + Number(!!maxHeight)
+        }
+        onClearFilters={() => {
+          setStatusFilter("");
+          setTypeFilter("");
+          setMinHeight("");
+          setMaxHeight("");
+          resetPage();
+        }}
+      >
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--fs-sm)] font-medium text-text-primary">
+            Loại xe
+          </span>
+          <Select
+            value={typeFilter || "_all"}
+            onValueChange={(v) => {
+              setTypeFilter(v === "_all" ? "" : (v as VehicleType));
+              resetPage();
             }}
-            className="pl-9 border-border"
+          >
+            <SelectTrigger className="w-full cursor-pointer border-border">
+              <SelectValue placeholder="Tất cả loại xe" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">Tất cả loại xe</SelectItem>
+              {VEHICLE_TYPE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--fs-sm)] font-medium text-text-primary">
+            Trạng thái
+          </span>
+          <Select
+            value={statusFilter || "_all"}
+            onValueChange={(v) => {
+              setStatusFilter(v === "_all" ? "" : (v as VehicleStatus));
+              resetPage();
+            }}
+          >
+            <SelectTrigger className="w-full cursor-pointer border-border">
+              <SelectValue placeholder="Tất cả trạng thái" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_all">Tất cả trạng thái</SelectItem>
+              {VEHICLE_STATUS_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--fs-sm)] font-medium text-text-primary">
+            Chiều cao làm việc từ (m)
+          </span>
+          <Input
+            type="number"
+            step="any"
+            min={0}
+            placeholder="Nhập chiều cao tối thiểu"
+            value={minHeight}
+            onChange={(e) => {
+              setMinHeight(e.target.value);
+              resetPage();
+            }}
+            className="border-border"
+          />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[length:var(--fs-sm)] font-medium text-text-primary">
+            Chiều cao làm việc đến (m)
+          </span>
+          <Input
+            type="number"
+            step="any"
+            min={0}
+            placeholder="Nhập chiều cao tối đa"
+            value={maxHeight}
+            onChange={(e) => {
+              setMaxHeight(e.target.value);
+              resetPage();
+            }}
+            className="border-border"
+          />
+        </div>
+      </FilterToolbar>
+
+      {/* Card danh sách xe */}
+      <div className="rounded-lg border border-border bg-bg-card p-3 shadow-card">
+        {/* Table — desktop */}
+        <div className="hidden sm:block">
+          <DataTable
+            columns={columns}
+            data={vehicles}
+            loading={isLoading}
+            pagination={pagination}
+            pageCount={meta?.totalPages ?? 1}
+            onPaginationChange={setPagination}
+            onRowClick={(row) => navigate(`/vehicles/${row.id}`)}
+            emptyTitle={isError ? "Không tải được danh sách xe" : "Không tìm thấy xe nào"}
+            emptyDescription={
+              isError ? "Đã có lỗi khi tải dữ liệu, vui lòng thử lại" : "Thử thay đổi bộ lọc hoặc thêm xe mới"
+            }
+            emptyAction={
+              isError ? retryButton : canCreate ? (
+                <Button
+                  size="sm"
+                  className="bg-primary hover:bg-primary-dark text-white"
+                  onClick={() => setAddOpen(true)}
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Thêm xe
+                </Button>
+              ) : undefined
+            }
           />
         </div>
 
-        <Select
-          value={statusFilter || "_all"}
-          onValueChange={(v) => {
-            setStatusFilter(v === "_all" ? "" : v);
-            setPagination((p) => ({ ...p, pageIndex: 0 }));
-          }}
-        >
-          <SelectTrigger className="w-full sm:w-48 border-border cursor-pointer">
-            <SelectValue placeholder="Tất cả trạng thái" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_all">Tất cả</SelectItem>
-            {VEHICLE_STATUS_OPTIONS.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        {meta && (
-          <p className="ml-auto text-[length:var(--fs-base)] text-text-secondary">
-            Tổng{" "}
-            <span className="font-medium text-text-primary">{meta.total}</span>{" "}
-            xe
-            {meta.totalPages > 1 && (
-              <>
-                {" "}
-                — Trang{" "}
-                <span className="font-medium text-text-primary">
-                  {meta.page}
-                </span>{" "}
-                / {meta.totalPages}
-              </>
-            )}
-          </p>
-        )}
-      </div>
-
-      {/* Table — desktop */}
-      <div className="hidden sm:block">
-        <DataTable
-          columns={columns}
-          data={vehicles}
-          loading={isLoading}
-          pagination={pagination}
-          pageCount={meta?.totalPages ?? 1}
-          onPaginationChange={setPagination}
-          onRowClick={(row) => navigate(`/vehicles/${row.id}`)}
-          emptyTitle="Không tìm thấy xe nào"
-          emptyDescription="Thử thay đổi bộ lọc hoặc thêm xe mới"
-          emptyAction={
-            isAdminOrManager ? (
-              <Button
-                size="sm"
-                className="bg-primary hover:bg-primary-dark text-white"
-                onClick={() => setAddOpen(true)}
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                Thêm xe
-              </Button>
-            ) : undefined
-          }
-        />
-      </div>
-
       {/* Card list — mobile */}
-      <div className="flex flex-col gap-3 sm:hidden">
+        <div className="flex flex-col gap-3 sm:hidden">
         {isLoading ? (
           Array.from({ length: 5 }).map((_, i) => (
             <div
@@ -365,9 +436,9 @@ export default function VehicleListPage() {
           <div className="flex flex-col items-center justify-center py-16 gap-2 bg-bg-card rounded-xl border border-border">
             <Truck className="h-8 w-8 text-text-secondary" />
             <p className="text-[length:var(--fs-base)] text-text-secondary">
-              Không tìm thấy xe nào
+              {isError ? "Không tải được danh sách xe" : "Không tìm thấy xe nào"}
             </p>
-            {isAdminOrManager && (
+            {isError ? retryButton : canCreate && (
               <Button
                 size="sm"
                 className="bg-primary hover:bg-primary-dark text-white mt-1"
@@ -421,6 +492,11 @@ export default function VehicleListPage() {
                     <span className="text-[length:var(--fs-sm)] text-text-secondary">
                       {v.manufacturer} · {v.manufactureYear}
                     </span>
+                    {v.vehicleType && (
+                      <span className="inline-flex items-center rounded-full bg-bg-page px-2 py-0.5 text-[10px] font-medium text-text-secondary">
+                        {getVehicleTypeLabel(v.vehicleType)}
+                      </span>
+                    )}
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${isElectric ? "bg-primary-light text-primary" : "bg-warning-light text-warning"}`}
                     >
@@ -429,6 +505,7 @@ export default function VehicleListPage() {
                     <span className="text-[length:var(--fs-sm)] text-text-secondary">
                       Cao LV: {v.workHeight != null ? `${v.workHeight}m` : "—"}
                     </span>
+                    {v.lat != null && v.lng != null && <LocationLink v={v} />}
                   </div>
                 </div>
               </div>
@@ -437,226 +514,39 @@ export default function VehicleListPage() {
         )}
 
         {/* Pagination mobile */}
-        {!isLoading && meta && meta.totalPages > 1 && (
-          <div className="flex items-center justify-between px-1 pt-1">
-            <p className="text-[length:var(--fs-sm)] text-text-secondary">
-              Trang {meta.page}/{meta.totalPages} · {meta.total} xe
-            </p>
-            <div className="flex gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 border-border"
-                disabled={pagination.pageIndex === 0}
-                onClick={() =>
-                  setPagination((p) => ({ ...p, pageIndex: p.pageIndex - 1 }))
-                }
-              >
-                Trước
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-3 border-border"
-                disabled={pagination.pageIndex + 1 >= meta.totalPages}
-                onClick={() =>
-                  setPagination((p) => ({ ...p, pageIndex: p.pageIndex + 1 }))
-                }
-              >
-                Tiếp
-              </Button>
-            </div>
-          </div>
+        {!isLoading && meta && (
+          <Pagination
+            pageIndex={pagination.pageIndex}
+            totalPages={meta.totalPages}
+            onPageChange={(i) => setPagination((p) => ({ ...p, pageIndex: i }))}
+            pageSize={pagination.pageSize}
+            onPageSizeChange={(pageSize) => setPagination({ pageIndex: 0, pageSize })}
+          />
         )}
+        </div>
       </div>
 
       {/* ── Modal Thêm xe ── */}
       <MobileSheetDialog
         open={addOpen}
-        onOpenChange={(o) => {
-          setAddOpen(o);
-          if (!o) reset();
-        }}
+        onOpenChange={(o) => (o ? setAddOpen(true) : closeAdd())}
       >
         <MobileSheetContent mobileVariant="fullscreen" className="sm:max-w-2xl">
           <MobileSheetHeader>
             <MobileSheetTitle>Thêm xe mới</MobileSheetTitle>
           </MobileSheetHeader>
 
-          <form onSubmit={handleSubmit(onSubmit)}>
+          <form onSubmit={form.handleSubmit((v) => addMutation.mutate(v))}>
             <MobileSheetBody>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Cột 1 */}
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Model <span className="text-error">*</span>
-                    </Label>
-                    <Input
-                      {...register("model")}
-                      placeholder="VD: AWP 20S"
-                      className="border-border"
-                    />
-                    {errors.model && (
-                      <p className="text-[length:var(--fs-sm)] text-error">
-                        {errors.model.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Serial Number <span className="text-error">*</span>
-                    </Label>
-                    <Input
-                      {...register("serial_number")}
-                      placeholder="VD: SN-2021-001"
-                      className="border-border"
-                    />
-                    {errors.serial_number && (
-                      <p className="text-[length:var(--fs-sm)] text-error">
-                        {errors.serial_number.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Hãng SX <span className="text-error">*</span>
-                    </Label>
-                    <Input
-                      {...register("manufacturer")}
-                      placeholder="VD: Genie"
-                      className="border-border"
-                    />
-                    {errors.manufacturer && (
-                      <p className="text-[length:var(--fs-sm)] text-error">
-                        {errors.manufacturer.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Năm SX
-                    </Label>
-                    <Input
-                      {...register("manufacture_year")}
-                      type="number"
-                      placeholder="VD: 2021"
-                      className="border-border"
-                    />
-                  </div>
-                </div>
-
-                {/* Cột 2 */}
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Loại động cơ <span className="text-error">*</span>
-                    </Label>
-                    <Select
-                      onValueChange={(v) =>
-                        setValue("engine_type", v as "Fuel" | "Electric")
-                      }
-                    >
-                      <SelectTrigger className="border-border cursor-pointer">
-                        <SelectValue placeholder="Chọn loại động cơ" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Electric">Điện</SelectItem>
-                        <SelectItem value="Fuel">Xăng/Dầu</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {errors.engine_type && (
-                      <p className="text-[length:var(--fs-sm)] text-error">
-                        {errors.engine_type.message}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Tải trọng (kg)
-                    </Label>
-                    <Input
-                      {...register("capacity")}
-                      type="number"
-                      placeholder="VD: 230"
-                      className="border-border"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Số người
-                    </Label>
-                    <Input
-                      {...register("occupancy")}
-                      type="number"
-                      placeholder="VD: 1"
-                      className="border-border"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label className="text-[length:var(--fs-base)] font-medium">
-                      Chiều cao sàn (m)
-                    </Label>
-                    <Input
-                      {...register("platform_height")}
-                      type="number"
-                      step="any"
-                      placeholder="VD: 7.79"
-                      className="border-border"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Chiều cao LV (m)
-                  </Label>
-                  <Input
-                    {...register("work_height")}
-                    type="number"
-                    step="any"
-                    placeholder="VD: 9.8"
-                    className="border-border"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Tốc độ nâng (m/ph)
-                  </Label>
-                  <Input
-                    {...register("lifting_speed")}
-                    type="number"
-                    step="any"
-                    placeholder="VD: 0.20"
-                    className="border-border"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <Label className="text-[length:var(--fs-base)] font-medium">
-                    Tốc độ di chuyển (km/h)
-                  </Label>
-                  <Input
-                    {...register("traveling_speed")}
-                    type="number"
-                    step="any"
-                    placeholder="VD: 4.0"
-                    className="border-border"
-                  />
-                </div>
-              </div>
+              <VehicleFormFields form={form} mode="create" />
             </MobileSheetBody>
 
-            <MobileSheetFooter>
+            <MobileSheetFooter className="sm:mt-4">
               <Button
                 type="button"
                 variant="outline"
                 className="border-border text-text-secondary cursor-pointer"
-                onClick={() => {
-                  setAddOpen(false);
-                  reset();
-                }}
+                onClick={closeAdd}
                 disabled={addMutation.isPending}
               >
                 Hủy

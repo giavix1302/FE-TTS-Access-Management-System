@@ -15,9 +15,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Button } from "@/components/ui/button"
-import { ChevronLeft, ChevronRight } from "lucide-react"
 import { EmptyState } from "./EmptyState"
+import { Pagination } from "./Pagination"
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
@@ -75,23 +74,25 @@ export function DataTable<TData, TValue>({
     ? (pageCount ?? 1)
     : table.getPageCount()
 
-  const from = pageIndex * pageSize + 1
-  const to = Math.min(
-    (pageIndex + 1) * pageSize,
-    isControlled ? (pageCount ?? 1) * pageSize : data.length
-  )
-
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-xl border border-[#E2E8F0] bg-white overflow-hidden">
+      <div className="overflow-hidden rounded-lg border border-border bg-white">
         <Table>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="bg-[#1A5FAB] hover:bg-[#1A5FAB] border-b border-[#154D8A]">
+              <TableRow key={headerGroup.id} className="border-b border-border bg-primary-light hover:bg-primary-light">
                 {headerGroup.headers.map((header) => (
                   <TableHead
                     key={header.id}
-                    className="text-[length:var(--fs-sm)] font-semibold text-white uppercase tracking-wide h-11 px-[var(--sp-card)]"
+                    className="h-[52px] px-[var(--sp-card)] text-[length:var(--fs-sm)] font-semibold uppercase tracking-wide text-primary"
+                    style={
+                      header.column.columnDef.size
+                        ? {
+                            width: header.column.columnDef.size,
+                            maxWidth: header.column.columnDef.size,
+                          }
+                        : undefined
+                    }
                   >
                     {header.isPlaceholder
                       ? null
@@ -127,11 +128,22 @@ export function DataTable<TData, TValue>({
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
-                  className={`border-b border-[#E2E8F0] hover:bg-[#E8F0FB] transition-colors ${onRowClick ? "cursor-pointer" : ""}`}
+                  className={`border-b border-border transition-colors hover:bg-bg-page ${onRowClick ? "cursor-pointer" : ""}`}
                   onClick={() => onRowClick?.(row.original)}
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="px-[var(--sp-card)] py-3 text-[length:var(--fs-base)] text-[#1A202C]">
+                    <TableCell
+                      key={cell.id}
+                      className="overflow-hidden px-[var(--sp-card)] py-3 text-[length:var(--fs-base)] text-[#1A202C]"
+                      style={
+                        cell.column.columnDef.size
+                          ? {
+                              width: cell.column.columnDef.size,
+                              maxWidth: cell.column.columnDef.size,
+                            }
+                          : undefined
+                      }
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
@@ -143,66 +155,21 @@ export function DataTable<TData, TValue>({
       </div>
 
       {/* Pagination */}
-      {!loading && table.getRowModel().rows.length > 0 && totalPages > 1 && (
-        <div className="flex items-center justify-between px-1">
-          <p className="text-[length:var(--fs-base)] text-[#718096]">
-            Hiển thị {from}–{to} bản ghi
-          </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 border-[#E2E8F0] text-[#5A5A66] hover:bg-[#F4F6F8]"
-              onClick={() => table.previousPage()}
-              disabled={!table.getCanPreviousPage()}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-
-            {(() => {
-              const pages: (number | "...")[] = []
-              if (totalPages <= 7) {
-                for (let i = 0; i < totalPages; i++) pages.push(i)
-              } else {
-                pages.push(0)
-                if (pageIndex > 2) pages.push("...")
-                for (let i = Math.max(1, pageIndex - 1); i <= Math.min(totalPages - 2, pageIndex + 1); i++) pages.push(i)
-                if (pageIndex < totalPages - 3) pages.push("...")
-                pages.push(totalPages - 1)
-              }
-              return pages.map((item, idx) =>
-                item === "..." ? (
-                  <span key={`ellipsis-${idx}`} className="h-8 w-8 flex items-center justify-center text-[#718096] text-[length:var(--fs-base)]">…</span>
-                ) : (
-                  <Button
-                    key={item}
-                    variant="outline"
-                    size="sm"
-                    className="h-8 w-8 text-[length:var(--fs-base)] border-[#E2E8F0] cursor-pointer"
-                    style={
-                      pageIndex === item
-                        ? { backgroundColor: "#1A5FAB", color: "#fff", borderColor: "#1A5FAB" }
-                        : { color: "#5A5A66" }
-                    }
-                    onClick={() => table.setPageIndex(item)}
-                  >
-                    {item + 1}
-                  </Button>
-                )
-              )
-            })()}
-
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8 border-[#E2E8F0] text-[#5A5A66] hover:bg-[#F4F6F8]"
-              onClick={() => table.nextPage()}
-              disabled={!table.getCanNextPage()}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+      {!loading && table.getRowModel().rows.length > 0 && (
+        <Pagination
+          pageIndex={pageIndex}
+          totalPages={totalPages}
+          onPageChange={(i) => table.setPageIndex(i)}
+          pageSize={pageSize}
+          onPageSizeChange={(nextPageSize) => {
+            if (isControlled) {
+              onPaginationChange!({ pageIndex: 0, pageSize: nextPageSize })
+            } else {
+              table.setPageSize(nextPageSize)
+              table.setPageIndex(0)
+            }
+          }}
+        />
       )}
     </div>
   )

@@ -1,5 +1,9 @@
 import axiosInstance from "./axios";
-import type { ContractDocument } from "@/types/contract.types";
+import type {
+  ContractDocument,
+  ExtractDocumentType,
+  ExtractResponse,
+} from "@/types/contract.types";
 
 export interface DocumentUrlDto {
   id: number;
@@ -28,7 +32,7 @@ export interface UploadDocumentPayload {
 
 export const uploadDocument = ({ file, doc_type, note, is_temp }: UploadDocumentPayload): Promise<ContractDocument> => {
   const form = new FormData();
-  form.append("files[]", file);
+  form.append("files", file);
   form.append("doc_type", doc_type);
   if (note) form.append("note", note);
   if (is_temp) form.append("is_temp", "true");
@@ -36,6 +40,14 @@ export const uploadDocument = ({ file, doc_type, note, is_temp }: UploadDocument
     .post("/documents", form, { headers: { "Content-Type": "multipart/form-data" } })
     .then((r) => r.data.data[0]);
 };
+
+export const extractDocument = <TFields>(
+  documentId: number,
+  docType: ExtractDocumentType,
+): Promise<ExtractResponse<TFields>> =>
+  axiosInstance
+    .post(`/documents/${documentId}/extract`, { docType })
+    .then((r) => r.data);
 
 export type EntityType =
   | "contract"

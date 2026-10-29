@@ -13,6 +13,8 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
+  History,
+  Contact,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -38,6 +40,12 @@ const NAV_MAIN: NavItem[] = [
 const NAV_BUSINESS: NavItem[] = [
   { label: "Quản lý xe nâng", icon: Truck, to: "/vehicles" },
   { label: "Khách hàng", icon: Users, to: "/customers" },
+  {
+    label: "Người liên hệ",
+    icon: Contact,
+    to: "/contacts",
+    guard: (_roles, permissions) => permissions.includes("contacts.view"),
+  },
   { label: "Hợp đồng", icon: FileText, to: "/contracts" },
   {
     label: "Danh mục dịch vụ",
@@ -71,6 +79,12 @@ const NAV_SYSTEM: NavItem[] = [
     icon: ShieldCheck,
     to: "/roles",
     guard: (roles) => roles.includes("admin"),
+  },
+  {
+    label: "Nhật ký hệ thống",
+    icon: History,
+    to: "/audit-logs",
+    guard: (_roles, permissions) => permissions.includes("audit.view"),
   },
 ];
 

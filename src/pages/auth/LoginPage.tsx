@@ -1,170 +1,99 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, type KeyboardEvent } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Phone, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { Phone, Lock, Eye, EyeOff, Loader2, AlertCircle, ArrowRight } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { login } from "@/api/auth.api";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils";
+import { getSafeRedirect } from "@/utils/loginRedirect";
 import { loginSchema, type LoginFormValues } from "./login.schema";
 
-// ---------------------------------------------------------------------------
-// Slides config
-// ---------------------------------------------------------------------------
-interface Slide {
-  image: string;
-  title: string;
+// Chỉ ghi nhớ số điện thoại — KHÔNG lưu token (xem CLAUDE.md mục Auth)
+const REMEMBER_PHONE_KEY = "tts-remember-phone";
+
+function readRememberedPhone(): string {
+  try {
+    return localStorage.getItem(REMEMBER_PHONE_KEY) ?? "";
+  } catch {
+    return "";
+  }
 }
 
-const SLIDES: Slide[] = [
-  { image: "/slides/slide-1.jpg", title: "Quản lý xe nâng người toàn diện" },
-  { image: "/slides/slide-2.jpg", title: "Hợp đồng & Phụ lục dễ dàng" },
-  { image: "/slides/slide-3.jpg", title: "Cảnh báo hết hạn tự động" },
-  { image: "/slides/slide-4.jpg", title: "Quản lý khách hàng chuyên nghiệp" },
-  { image: "/slides/slide-5.jpg", title: "Phân quyền & Bảo mật" },
-];
+function writeRememberedPhone(phone: string | null) {
+  try {
+    if (phone) localStorage.setItem(REMEMBER_PHONE_KEY, phone);
+    else localStorage.removeItem(REMEMBER_PHONE_KEY);
+  } catch {
+    // Trình duyệt chặn storage — bỏ qua
+  }
+}
 
-const SLIDE_INTERVAL = 4000;
+const inputClass =
+  "h-12 w-full rounded-lg border bg-white pl-10 text-[15px] text-[#1A202C] placeholder:text-[#A0AEC0] outline-none transition-all duration-200 hover:border-[#CBD5E0] focus:bg-white focus:border-[#1A5FAB] focus:ring-4 focus:ring-[#1A5FAB]/10";
 
-// ---------------------------------------------------------------------------
-// RightPanel — Slideshow
-// ---------------------------------------------------------------------------
-function RightPanel() {
-  const [current, setCurrent] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const goTo = (index: number) => setCurrent(index);
-
-  const resetTimer = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % SLIDES.length);
-    }, SLIDE_INTERVAL);
-  };
-
-  useEffect(() => {
-    resetTimer();
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, []);
-
-  const handleDotClick = (i: number) => {
-    goTo(i);
-    resetTimer();
-  };
-
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
   return (
-    <div className="hidden lg:flex w-[60%] items-center justify-center">
-      {/* Floating card — gradient cố định theo slide, không fade */}
-      <div
-        className="relative flex h-full w-full flex-col overflow-hidden p-20"
-        style={{
-          background: "linear-gradient(135deg, #1A5FAB 0%, #2E86C1 100%)",
-        }}
-      >
-        {/* Phần trên — cố định, không animate */}
-        <div>
-          {/* Tag */}
-          <span
-            className="inline-block rounded-full px-3 py-1 text-[12px] font-medium text-white"
-            style={{ background: "rgba(255,255,255,0.2)" }}
-          >
-            Ứng dụng nội bộ
-          </span>
-
-          {/* Title cố định */}
-          <h2 className="mt-4 text-[34px] font-bold leading-[1.25] text-white">
-            Hệ thống quản lý xe nâng người
-          </h2>
-
-          {/* Subtitle cố định */}
-          <p className="mt-2 text-[16px] font-semibold tracking-wide text-white/70">
-            Công ty TNHH Thương mại dịch vụ TTS - mua bán và cho thuê xe nâng
-            người
-          </p>
-        </div>
-
-        {/* Slider — trượt ngang */}
-        <div
-          className="relative mt-6 overflow-hidden rounded-2xl"
-          style={{
-            flex: 1,
-            maxHeight: "calc(100% - 100px)",
-            width: "100%",
-            background: "rgba(255,255,255,0.1)",
-            border: "1px solid rgba(255,255,255,0.2)",
-          }}
-        >
-          <div
-            className="flex h-full"
-            style={{
-              width: `${SLIDES.length * 100}%`,
-              transform: `translateX(-${(current * 100) / SLIDES.length}%)`,
-              transition: "transform 0.45s cubic-bezier(0.4, 0, 0.2, 1)",
-            }}
-          >
-            {SLIDES.map((s, i) => (
-              <div
-                key={i}
-                className="relative h-full flex-shrink-0"
-                style={{ width: `${100 / SLIDES.length}%` }}
-              >
-                <img
-                  src={s.image}
-                  alt={s.title}
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Dots */}
-        <div className="mt-8 flex items-center justify-center gap-1.5">
-          {SLIDES.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => handleDotClick(i)}
-              className="h-2 rounded-full transition-all duration-300 cursor-pointer"
-              style={{
-                width: i === current ? "24px" : "8px",
-                backgroundColor:
-                  i === current ? "#ffffff" : "rgba(255,255,255,0.4)",
-              }}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
+    <p className="flex items-center gap-1 text-[13px] text-[#E74C3C]">
+      <AlertCircle size={13} className="shrink-0" />
+      {message}
+    </p>
   );
 }
 
 // ---------------------------------------------------------------------------
-// LeftPanel — Form đăng nhập
+// LoginCard — Form đăng nhập
 // ---------------------------------------------------------------------------
-function LeftPanel() {
+function LoginCard() {
   const navigate = useNavigate();
   const { setAuth, accessToken } = useAuthStore();
+  const [searchParams] = useSearchParams();
+  const redirectTo = getSafeRedirect(searchParams.get("redirect"));
 
+  const [rememberedPhone] = useState(readRememberedPhone);
+  const [rememberPhone, setRememberPhone] = useState(rememberedPhone !== "");
   const [showPassword, setShowPassword] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (accessToken) navigate("/", { replace: true });
-  }, [accessToken, navigate]);
+    if (accessToken) navigate(redirectTo, { replace: true });
+  }, [accessToken, navigate, redirectTo]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const {
     register,
     handleSubmit,
+    setFocus,
     formState: { errors },
-  } = useForm<LoginFormValues>({ resolver: zodResolver(loginSchema) });
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { phone: rememberedPhone, password: "" },
+  });
+
+  // Đã nhớ SĐT → focus thẳng vào mật khẩu
+  useEffect(() => {
+    setFocus(rememberedPhone ? "password" : "phone");
+  }, [setFocus, rememberedPhone]);
+
+  const handlePasswordKey = (e: KeyboardEvent<HTMLInputElement>) => {
+    setCapsLockOn(e.getModifierState("CapsLock"));
+  };
 
   const onSubmit = async (values: LoginFormValues) => {
     setIsLoading(true);
     try {
       const res = await login({ phone: values.phone, password: values.password });
       if (res.success) {
+        writeRememberedPhone(rememberPhone ? values.phone : null);
         const { accessToken, user } = res.data;
         setAuth(
           {
@@ -178,7 +107,7 @@ function LeftPanel() {
           },
           accessToken,
         );
-        navigate("/", { replace: true });
+        navigate(redirectTo, { replace: true });
       }
     } catch (err: unknown) {
       const data = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data;
@@ -192,108 +121,126 @@ function LeftPanel() {
   };
 
   return (
-    <div className="flex w-full lg:w-[40%] flex-col items-center justify-center bg-[#F4F6F8] lg:px-12">
-      <div className="w-full h-screen lg:h-auto max-w-[500px] bg-white lg:rounded-3xl p-5 lg:p-8 shadow-md overflow-y-auto flex flex-col justify-center">
-        {/* Logo */}
-        <img
-          src="/LOGOTTS.png"
-          alt="TTS Logo"
-          className="mb-3 h-14 lg:h-20 w-auto object-contain lg:object-left block mx-auto lg:mx-0"
-        />
+    <div
+      className={cn(
+        "relative z-10 w-full max-w-[480px] overflow-hidden rounded-2xl border border-white/80 bg-white/70 px-6 py-8 shadow-[0_30px_80px_-20px_rgba(11,37,69,0.65),0_0_0_1px_rgba(11,37,69,0.06)] backdrop-blur-2xl backdrop-saturate-150 transition-all duration-500 ease-out sm:px-10 sm:py-14",
+        mounted ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0",
+      )}
+    >
+      {/* Dải màu thương hiệu (xanh → cam như logo) */}
+      <div className="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-[#1A5FAB] via-[#2E86C1] to-[#F5A623]" />
 
-        {/* Tiêu đề */}
-        <h1 className="text-[32px] font-bold text-[#1A202C] text-center lg:text-left">Đăng nhập</h1>
-        <p className="mt-1.5 text-[18px] leading-relaxed text-[#718096] text-center lg:text-left">
-          Chào mừng bạn đến công ty TTS
-        </p>
+      {/* Tiêu đề */}
+      <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-[#1A5FAB]">
+        Hệ thống quản lý AWPMS
+      </p>
+      <h1 className="mt-3 text-[28px] font-bold leading-tight text-[#1A202C]">Đăng nhập</h1>
+      <p className="mt-2 text-[14px] text-[#4A5568]">
+        Nhập thông tin tài khoản để tiếp tục
+      </p>
 
-        {/* Form */}
-        <form
-          onSubmit={handleSubmit(onSubmit)}
-          className="mt-4 lg:mt-8 flex flex-col gap-3 lg:gap-5"
-          noValidate
+      {/* Form */}
+      <form onSubmit={handleSubmit(onSubmit)} className="mt-9 flex flex-col gap-6" noValidate>
+        {/* Số điện thoại */}
+        <div className="flex flex-col gap-2">
+          <label htmlFor="login-phone" className="text-[14px] font-medium text-[#2D3748]">
+            Số điện thoại
+          </label>
+          <div className="relative">
+            <Phone
+              size={16}
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#A0AEC0]"
+            />
+            <input
+              id="login-phone"
+              {...register("phone")}
+              type="tel"
+              inputMode="numeric"
+              placeholder="0901 234 567"
+              autoComplete="tel"
+              aria-invalid={!!errors.phone}
+              className={cn(inputClass, "pr-3", errors.phone ? "border-[#E74C3C]" : "border-[#E2E8F0]")}
+            />
+          </div>
+          <FieldError message={errors.phone?.message} />
+        </div>
+
+        {/* Mật khẩu */}
+        <div className="flex flex-col gap-2">
+          <label htmlFor="login-password" className="text-[14px] font-medium text-[#2D3748]">
+            Mật khẩu
+          </label>
+          <div className="relative">
+            <Lock
+              size={16}
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#A0AEC0]"
+            />
+            <input
+              id="login-password"
+              {...register("password")}
+              type={showPassword ? "text" : "password"}
+              placeholder="Nhập mật khẩu"
+              autoComplete="current-password"
+              aria-invalid={!!errors.password}
+              onKeyUp={handlePasswordKey}
+              onKeyDown={handlePasswordKey}
+              className={cn(
+                inputClass,
+                "pr-11 [&::-ms-reveal]:hidden [&::-ms-clear]:hidden",
+                errors.password ? "border-[#E74C3C]" : "border-[#E2E8F0]",
+              )}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+              className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[#A0AEC0] transition-colors hover:bg-[#EDF2F7] hover:text-[#4A5568] cursor-pointer"
+            >
+              {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+            </button>
+          </div>
+          {capsLockOn && (
+            <p className="flex items-center gap-1 text-[13px] text-[#D68910]">
+              <AlertCircle size={13} className="shrink-0" />
+              Caps Lock đang bật
+            </p>
+          )}
+          <FieldError message={errors.password?.message} />
+        </div>
+
+        {/* Ghi nhớ SĐT */}
+        <label className="flex w-fit items-center gap-2 text-[14px] text-[#4A5568] cursor-pointer select-none">
+          <Checkbox
+            checked={rememberPhone}
+            onCheckedChange={(v) => setRememberPhone(v === true)}
+            className="border-[#A0AEC0] bg-white data-[state=checked]:border-[#1A5FAB] data-[state=checked]:bg-[#1A5FAB] cursor-pointer"
+          />
+          Ghi nhớ số điện thoại
+        </label>
+
+        {/* Nút đăng nhập */}
+        <button
+          type="submit"
+          disabled={isLoading}
+          className="group mt-1 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#1A5FAB] text-[15px] font-semibold text-white shadow-[0_8px_20px_-6px_rgba(26,95,171,0.6)] transition-all duration-200 hover:bg-[#154D8A] hover:shadow-[0_10px_24px_-6px_rgba(26,95,171,0.7)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
         >
-          {/* Số điện thoại */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[17px] font-medium text-[#1A202C]">
-              Số điện thoại
-            </label>
-            <div className="relative">
-              <Phone
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#718096]"
-              />
-              <input
-                {...register("phone")}
-                type="tel"
-                placeholder="Nhập số điện thoại"
-                autoComplete="tel"
-                className="h-11 w-full rounded-lg border bg-white pl-10 pr-3 py-6 text-[18px] text-[#1A202C] placeholder:text-[#CBD5E0] outline-none transition-colors focus:border-[#1A5FAB] focus:ring-2 focus:ring-[#1A5FAB]/20"
-                style={{ borderColor: errors.phone ? "#E74C3C" : "#E2E8F0" }}
-              />
-            </div>
-            {errors.phone && (
-              <p className="text-[12px] text-[#E74C3C]">
-                {errors.phone.message}
-              </p>
-            )}
-          </div>
+          {isLoading ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Đang đăng nhập...
+            </>
+          ) : (
+            <>
+              Đăng nhập
+              <ArrowRight size={16} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+            </>
+          )}
+        </button>
+      </form>
 
-          {/* Mật khẩu */}
-          <div className="flex flex-col gap-1.5">
-            <label className="text-[17px] font-medium text-[#1A202C]">
-              Mật khẩu
-            </label>
-            <div className="relative">
-              <Lock
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#718096]"
-              />
-              <input
-                {...register("password")}
-                type={showPassword ? "text" : "password"}
-                placeholder="Nhập mật khẩu"
-                autoComplete="current-password"
-                className="h-11 w-full rounded-lg border bg-white pl-10 pr-10 py-6 text-[18px] text-[#1A202C] placeholder:text-[#CBD5E0] outline-none transition-colors focus:border-[#1A5FAB] focus:ring-2 focus:ring-[#1A5FAB]/20"
-                style={{ borderColor: errors.password ? "#E74C3C" : "#E2E8F0" }}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#718096] hover:text-[#1A202C] cursor-pointer"
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-            {errors.password && (
-              <p className="text-[12px] text-[#E74C3C]">
-                {errors.password.message}
-              </p>
-            )}
-          </div>
-
-          {/* Nút đăng nhập */}
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="mt-2 flex h-[46px] w-full items-center justify-center gap-2 rounded-lg bg-[#1A5FAB] text-[19px] font-medium text-white transition-colors hover:bg-[#154D8A] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Đang đăng nhập...
-              </>
-            ) : (
-              "Đăng nhập"
-            )}
-          </button>
-        </form>
-
-        {/* Footer */}
-        <p className="mt-4 lg:mt-8 text-center text-[14px] text-[#718096]">
-          Gặp sự cố? Liên hệ quản trị viên để được hỗ trợ
-        </p>
+      {/* Hỗ trợ */}
+      <div className="mt-9 border-t border-[#1A202C]/10 pt-6 text-center text-[13px] text-[#4A5568]">
+        Gặp sự cố khi đăng nhập? Liên hệ quản trị viên
       </div>
     </div>
   );
@@ -304,9 +251,15 @@ function LeftPanel() {
 // ---------------------------------------------------------------------------
 export default function LoginPage() {
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#F4F6F8]">
-      <LeftPanel />
-      <RightPanel />
+    <div
+      className="relative flex min-h-screen w-full flex-col items-center justify-center bg-[#1A5FAB] bg-cover bg-center px-4 py-10"
+      style={{ backgroundImage: "url('/background-login.png')" }}
+    >
+      <LoginCard />
+
+      <p className="absolute inset-x-0 bottom-4 z-10 text-center text-[12px] font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
+        © {new Date().getFullYear()} Công ty TNHH Thương mại Dịch vụ TTS
+      </p>
     </div>
   );
 }

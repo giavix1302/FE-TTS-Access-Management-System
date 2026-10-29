@@ -1,7 +1,8 @@
 import axios from "axios";
+import { buildLoginUrl } from "@/utils/loginRedirect";
 import { useAuthStore } from "@/stores/authStore";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5062";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5062/api/v1";
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -49,7 +50,7 @@ axiosInstance.interceptors.response.use(
     // Chính /auth/refresh bị 401 → cookie hết hạn, logout hẳn
     if (url.includes("/auth/refresh")) {
       useAuthStore.getState().clearAuth();
-      window.location.href = "/login";
+      window.location.href = buildLoginUrl();
       return Promise.reject(error);
     }
 
@@ -84,12 +85,12 @@ axiosInstance.interceptors.response.use(
 
       processQueue(error, null);
       useAuthStore.getState().clearAuth();
-      window.location.href = "/login";
+      window.location.href = buildLoginUrl();
       return Promise.reject(error);
     } catch (refreshError) {
       processQueue(refreshError, null);
       useAuthStore.getState().clearAuth();
-      window.location.href = "/login";
+      window.location.href = buildLoginUrl();
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

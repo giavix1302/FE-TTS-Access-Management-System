@@ -88,7 +88,7 @@ interface TwoColDialogProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   title: string;
-  /** Width of the left form panel (default 420px) */
+  /** Width (px) of the left form panel. Mặc định 40% dialog (form 40 / preview 60, như dialog Tạo hợp đồng) */
   leftWidth?: number;
   /** File selected by user */
   file: File | null;
@@ -109,7 +109,7 @@ export function TwoColDialog({
   open,
   onOpenChange,
   title,
-  leftWidth = 420,
+  leftWidth,
   file,
   onFileChange,
   isEdit = false,
@@ -120,6 +120,9 @@ export function TwoColDialog({
 }: TwoColDialogProps) {
   // Show left panel if: edit mode OR file has been selected
   const hasPreview = isEdit || !!file;
+  // Dialog rộng 80vw → 40% dialog = 32vw. Panel trong dùng vw cố định để nội dung không co lại khi panel đang trượt ra
+  const panelWidth = leftWidth ? `${leftWidth}px` : "40%";
+  const innerWidth = leftWidth ? `${leftWidth}px` : "32vw";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -139,14 +142,14 @@ export function TwoColDialog({
           <div
             className="relative flex flex-col border-r border-border shrink-0 transition-all duration-300"
             style={{
-              width: hasPreview ? `${leftWidth}px` : "0px",
+              width: hasPreview ? panelWidth : "0px",
               overflow: "hidden",
             }}
           >
             {/* Inner scroll wrapper — fixed width so content doesn't collapse during animation */}
             <div
               className="w-full h-full overflow-y-auto flex flex-col"
-              style={{ width: `${leftWidth}px` }}
+              style={{ width: innerWidth }}
             >
               {children}
             </div>

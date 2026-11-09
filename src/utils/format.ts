@@ -28,6 +28,10 @@ export const formatDate = (date: string | null | undefined): string => {
 export const toDateOnly = (value: string | null | undefined): string | undefined =>
   value ? value.slice(0, 10) : undefined;
 
+// Hôm nay theo giờ VN, dạng yyyy-MM-dd — BE so ngày theo giờ VN, không theo múi giờ máy người dùng
+export const todayInVietnam = (): string =>
+  new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
+
 // Format datetime: ISO → "05/01/2026 08:00" (giờ VN UTC+7)
 export const formatDateTime = (date: string | null | undefined): string => {
   if (!date) return "—";

@@ -1,8 +1,9 @@
 import type { VehicleStatus } from '@/types/vehicle.types'
 
-export type ContractStatus = 'active' | 'completed' | 'cancelled'
-export type AddendumType = 'extension' | 'price_change' | 'add_service' | 'mixed'
+export type ContractStatus = 'not_started' | 'active' | 'completed' | 'cancelled'
+// breakdown: chỉ còn ở dữ liệu cũ (BE sẽ đổi sang repair_onsite bằng SQL) → giữ để hiển thị, không tạo mới được
 export type IncidentType = 'breakdown' | 'replacement' | 'repair_onsite'
+export type CreatableIncidentType = Exclude<IncidentType, 'breakdown'>
 export type ChargedTo = 'customer' | 'company'
 
 export interface CreateContractInput {
@@ -27,9 +28,9 @@ export interface CreateContractLineItemInput {
   vehicles?: CreateContractVehicleInput[]
 }
 
+// Không có deployDate: BE tự ghi khi xe chuyển sang renting (gửi có giá trị → 400)
 export interface CreateContractVehicleInput {
   vehicleId: number
-  deployDate?: string
   workDays?: number
   note?: string
 }
@@ -73,19 +74,20 @@ export interface UpdateLineItemInput {
   note?: string
 }
 
+// Không có deployDate: BE tự ghi khi xe chuyển sang renting (gửi có giá trị → 400)
 export interface AddContractVehicleInput {
   lineItemId: number
   vehicleId: number
-  deployDate?: string
   workDays?: number
   note?: string
   replacesContractVehicleId?: number
 }
 
+// BE không nhận returnDate ở đây — ngày trả chỉ ghi qua PATCH /vehicles/{id}/status
 export interface UpdateContractVehicleInput {
+  /** Chỉ sửa được khi HĐ active và xe đã xuất bãi / đang renting (ngược lại 400 VEHICLE_NOT_DEPLOYED) */
   deployDate?: string
-  returnDate?: string
-  /** Số ngày làm, 0–3650 (0 = chưa nhập). Đổi → endDate của HĐ đổi theo */
+  /** Số ngày làm của riêng xe này, 0–3650 (0 = chưa nhập). HĐ đã đóng → 400 CONTRACT_NOT_ACTIVE */
   workDays?: number
   /** Không gửi = không đổi; chuỗi rỗng = xóa. */
   note?: string
@@ -93,14 +95,21 @@ export interface UpdateContractVehicleInput {
   vehicleId?: number
 }
 
-// Tiền phụ lục BE tự tính từ các dòng của phụ lục → body không có tiền / ngày kết thúc mới
+// Tiền phụ lục BE tự tính từ các dòng của phụ lục → body không có tiền / ngày kết thúc mới.
+// Không còn addendumType (BE bỏ 04/11 — gửi lên là thừa)
 export interface CreateAddendumInput {
   addendumNumber: string
-  addendumType: AddendumType
-  startDate?: string
+  /** Bắt buộc khi tạo (thiếu → 400 VALIDATION_ERROR field startDate); PUT thì tùy chọn, không xóa về trống được.
+   *  Trước ngày bắt đầu HĐ → 400 ADDENDUM_START_BEFORE_CONTRACT */
+  startDate: string
   content?: string
   documentId?: number
+  /** Cùng dạng với POST /contracts (mỗi dòng kèm `vehicles[]` được). Lưu 1 lượt: một dòng lỗi → không tạo gì */
+  lineItems?: CreateContractLineItemInput[]
 }
+
+/** PUT phụ lục chỉ sửa 4 field này — KHÔNG nhận lineItems (thêm/sửa/xóa dòng dùng /line-items kèm addendumId) */
+export type UpdateAddendumInput = Partial<Omit<CreateAddendumInput, 'lineItems'>>
 
 export interface CreateAcceptanceRecordInput {
   recordNumber: string
@@ -132,7 +141,7 @@ export interface CreateInvoiceInput {
 export interface CreateIncidentInput {
   contractVehicleId: number
   incidentDate: string
-  incidentType: IncidentType
+  incidentType: CreatableIncidentType
   description: string
   downtimeDays?: number | null
   costAmount?: number | null
@@ -197,17 +206,21 @@ export interface ContractListItem {
   status: ContractStatus
   customer: ContractCustomerBrief
   startDate: string
-  /** startDate + max workDays − 1 trong các xe của HĐ (kể cả dòng phụ lục).
+  /** startDate + tổng workDays của chuỗi thay xe dài nhất − 1 (kể cả dòng phụ lục).
    *  Chưa có xe hoặc mọi xe workDays = 0 → không có */
   endDate?: string
+  /** BE tính (HĐ active và endDate < hôm nay giờ VN). Chỉ là chip phụ — status vẫn là active. FE KHÔNG tự tính lại */
+  isExpired: boolean
   /** Chỉ để hiển thị, không ảnh hưởng công nợ */
   depositAmount: number
   /** Chỉ cộng dòng HĐ gốc */
   totalAmount: number
+  /** Chỉ có ở list. Số xe đã gán vào dòng dịch vụ (kể cả dòng phụ lục), tính cả xe đã trả; xe được thay vẫn chỉ tính 1. ≥ 0 */
+  vehicleCount: number
   createdAt: string
 }
 
-export interface ContractDetail extends Omit<ContractListItem, 'customer'> {
+export interface ContractDetail extends Omit<ContractListItem, 'customer' | 'vehicleCount'> {
   customer: ContractCustomer
   siteAddress: string
   subtotal: number
@@ -266,7 +279,7 @@ export interface ContractVehicle {
   vehicle: { id: number; model: string; serialNumber: string; status: VehicleStatus }
   deployDate?: string
   returnDate?: string
-  /** Số ngày làm (trước là extraDays) — max workDays quyết định endDate của HĐ */
+  /** Số ngày xe này làm, không cộng dồn với xe trước — BE cộng theo chuỗi thay xe để ra endDate */
   workDays: number
   note?: string
   replacesContractVehicleId?: number
@@ -287,7 +300,6 @@ export interface ContractDocument {
 export interface Addendum {
   id: number
   addendumNumber?: string
-  addendumType: AddendumType
   startDate?: string
   /** Tự tính từ lineItems của phụ lục (cùng VAT công ty) — chỉ đọc */
   subtotal: number
@@ -409,31 +421,40 @@ export interface ContractAutofillFields {
     customerName?: string
     extracted?: ExtractedCustomerFields
   }
-  lineItems: Array<{
-    serviceId: number
-    serviceName: string
-    allowVehicle: boolean
-    unit: string
-    quantity?: number
-    duration?: number
-    unitPrice?: number
-    lineTotal?: number
-    note?: string
-  }>
-  fileTotals: {
-    subtotal?: number
-    vatRate?: number
-    taxAmount?: number
-    totalAmount?: number
-  }
+  lineItems: ExtractedLineItem[]
+  fileTotals: ExtractedFileTotals
 }
 
+/** Dòng AI đọc được: chỉ gồm dòng khớp danh mục dịch vụ, không có xe (người dùng tự gán) */
+export interface ExtractedLineItem {
+  serviceId: number
+  serviceName: string
+  allowVehicle: boolean
+  unit: string
+  quantity?: number
+  duration?: number
+  unitPrice?: number
+  lineTotal?: number
+  note?: string
+}
+
+/** Tổng tiền ghi trong file — chỉ để đối chiếu, BE tự tính lại khi lưu. Không có bảng giá → các tổng là null */
+export interface ExtractedFileTotals {
+  subtotal?: number | null
+  vatRate?: number | null
+  taxAmount?: number | null
+  totalAmount?: number | null
+}
+
+// Extract phụ lục: cùng phần dòng dịch vụ + fileTotals như extract hợp đồng (không còn addendumType).
+// Không có bảng giá → lineItems = []
 export interface AddendumAutofillFields {
   documentId: number
   addendumNumber?: string
-  addendumType?: AddendumType
   startDate?: string
   content?: string
+  lineItems?: ExtractedLineItem[]
+  fileTotals?: ExtractedFileTotals
 }
 
 export interface AcceptanceAutofillFields {
@@ -456,15 +477,4 @@ export interface InvoiceAutofillFields {
   taxAmount?: number
   totalAmount?: number
   note?: string
-}
-
-export interface ContractStatusWarning {
-  code: 'VEHICLES_STILL_RENTING' | string
-  message: string
-  vehicleIds: number[]
-}
-
-export interface ChangeContractStatusResult {
-  success: boolean
-  warnings?: ContractStatusWarning[]
 }

@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -7,8 +7,13 @@ import { z } from "zod";
 import { toast } from "sonner";
 import QRCode from "react-qr-code";
 import { differenceInCalendarDays, parseISO } from "date-fns";
-import { formatDate, formatDateTime } from "@/utils/format";
-import { getApiError, getApiErrorMessage } from "@/utils/apiError";
+import { formatCurrency, formatDate, formatDateTime, toDateOnly, todayInVietnam } from "@/utils/format";
+import {
+  applyApiErrors,
+  getApiError,
+  getApiErrorMessage,
+  isConcurrentUpdateError,
+} from "@/utils/apiError";
 import {
   Pencil,
   RefreshCw,
@@ -64,11 +69,7 @@ import { FileCard } from "@/components/shared/FileCard";
 import { DocumentExtractButton } from "@/components/shared/DocumentExtractButton";
 import { uploadDocument } from "@/api/documents.api";
 import { useReplaceDocument } from "@/hooks/useReplaceDocument";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -95,7 +96,7 @@ import {
   VEHICLE_STATUS_CONFIG,
   getVehicleStatusBadge,
 } from "@/constants/vehicleStatus";
-import { getVehicleTypeLabel } from "@/constants/vehicleType";
+import { getContractStatusBadge } from "@/constants/contractStatus";
 import type {
   InspectionRecord,
   InsuranceRecord,
@@ -103,6 +104,7 @@ import type {
   VehicleStatusLogsResponse,
 } from "@/types/vehicle.types";
 import { VehicleFormFields } from "@/pages/vehicles/components/VehicleForm";
+import { VehicleTypeChip } from "@/pages/vehicles/components/VehicleTypeChip";
 import {
   applyVehicleServerError,
   getCurrentPosition,
@@ -136,10 +138,10 @@ function getExpiryBadge(expiryDate: string) {
   };
 }
 
-// Spec §3.1 — đổi sai luồng BE trả 400 INVALID_TRANSITION
+// docs-04112026.md §1 — đổi sai luồng BE trả 400 INVALID_TRANSITION
 const VALID_TRANSITIONS: Record<VehicleStatus, VehicleStatus[]> = {
-  at_yard: ["renting", "maintenance", "sold"],
-  renting: ["at_yard", "broken"],
+  at_yard: ["renting", "maintenance", "broken", "sold"],
+  renting: ["at_yard"],
   maintenance: ["at_yard"],
   broken: ["at_yard", "maintenance"],
   sold: [],
@@ -165,7 +167,7 @@ const insuranceSchema = z
     insuranceNumber: z.string().trim().max(100, "Tối đa 100 ký tự").optional(),
     provider: z.string().trim().max(200, "Tối đa 200 ký tự").optional(),
     issueDate: z.string().optional(),
-    expiryDate: z.string().min(1, "Bắt buộc"),
+    expiryDate: z.string({ error: "Bắt buộc chọn ngày hết hạn" }).min(1, "Bắt buộc chọn ngày hết hạn"),
   })
   .refine((v) => !v.issueDate || v.expiryDate > v.issueDate, {
     path: ["expiryDate"],
@@ -178,7 +180,7 @@ const inspectionSchema = z
   .object({
     inspectionNumber: z.string().trim().max(100, "Tối đa 100 ký tự").optional(),
     inspectionDate: z.string().optional(),
-    expiryDate: z.string().min(1, "Bắt buộc"),
+    expiryDate: z.string({ error: "Bắt buộc chọn ngày hết hạn" }).min(1, "Bắt buộc chọn ngày hết hạn"),
     result: z.enum(["passed", "failed"]).optional(),
   })
   .refine((v) => !v.inspectionDate || v.expiryDate > v.inspectionDate, {
@@ -398,6 +400,7 @@ export default function VehicleDetailPage() {
   const canUploadFile = canUpdate && hasPermission("documents.upload");
   const canDeleteFile = canUpdate && hasPermission("documents.delete");
   const canViewAudit = hasPermission("audit.view");
+  const canViewContracts = hasPermission("contracts.view");
 
   const [activeTab, setActiveTab] = useState("info");
 
@@ -407,6 +410,16 @@ export default function VehicleDetailPage() {
   const [statusOpen, setStatusOpen] = useState(false);
   const [newStatus, setNewStatus] = useState<VehicleStatus | "">("");
   const [statusReason, setStatusReason] = useState("");
+  const [statusReturnDate, setStatusReturnDate] = useState("");
+  const [statusReturnDateError, setStatusReturnDateError] = useState("");
+  // Mọi đường đóng dialog (Hủy, bấm nền, Esc, thành công, lỗi) đều xóa sạch: ngày trả đã ghi vào HĐ thì không sửa được nữa
+  const closeStatusDialog = () => {
+    setStatusOpen(false);
+    setNewStatus("");
+    setStatusReason("");
+    setStatusReturnDate("");
+    setStatusReturnDateError("");
+  };
   // Delete confirm
   const [deleteOpen, setDeleteOpen] = useState(false);
   // QR
@@ -515,7 +528,8 @@ export default function VehicleDetailPage() {
       setEditOpen(false);
     },
     onError: (err: unknown) => {
-      if (!applyVehicleServerError(err, editForm)) toast.error(getApiErrorMessage(err));
+      applyVehicleServerError(err, editForm, "edit");
+      if (isConcurrentUpdateError(err)) setEditOpen(false);
     },
   });
 
@@ -525,13 +539,36 @@ export default function VehicleDetailPage() {
     setEditOpen(true);
   };
 
+  const submitEdit = editForm.handleSubmit((values) => {
+    // BE coi giá mua trống là "giữ giá cũ" → báo rõ thay vì lưu xong mà giá vẫn còn
+    if (vehicle?.purchasePrice != null && values.purchasePrice == null) {
+      editForm.setError("purchasePrice", {
+        message: "Chưa xóa trống được giá mua, chỉ sửa sang giá trị khác",
+      });
+      return;
+    }
+    // Tương tự ngày mua: toVehicleBody bỏ ô trống nên BE giữ ngày cũ → không để lưu "thành công" mà ngày vẫn còn
+    if (vehicle?.purchaseDate && !values.purchaseDate) {
+      editForm.setError("purchaseDate", {
+        message: "Chưa xóa trống được ngày mua, chỉ sửa sang ngày khác",
+      });
+      return;
+    }
+    editMutation.mutate(values);
+  });
+
   // ── Status mutation ──────────────────────────────────────────────────────
+
+  // Xe về bãi → BE ghi ngày trả vào lần giao đang chưa trả; chỉ chuyển trạng thái này nhận returnDate
+  const recordsReturnDate = vehicle?.status === "renting" && newStatus === "at_yard";
+  const recordsDeployDate = vehicle?.status === "at_yard" && newStatus === "renting";
 
   const statusMutation = useMutation({
     mutationFn: () =>
       changeVehicleStatus(vehicleId, {
         newStatus: newStatus as VehicleStatus,
         reason: statusReason.trim() || undefined,
+        ...(recordsReturnDate && statusReturnDate ? { returnDate: statusReturnDate } : {}),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({
@@ -541,18 +578,20 @@ export default function VehicleDetailPage() {
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.vehicles.statusLogs(vehicleId),
       });
-      // Đổi → renting / renting → at_yard|broken: BE tự ghi ngày xuất / trả xe trong HĐ
+      // Đổi → renting / renting → at_yard: BE tự ghi ngày xuất / trả xe trong HĐ
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all });
       toast.success("Đổi trạng thái thành công");
-      setStatusOpen(false);
-      setNewStatus("");
-      setStatusReason("");
+      closeStatusDialog();
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
-      toast.error(msg);
+      applyApiErrors(err, (_name: string, { message }) => setStatusReturnDateError(message), ["returnDate"]);
+      const { code } = getApiError(err);
+      // Xe vừa được gán / đổi trạng thái → tải lại để dropdown đúng, lựa chọn cũ không còn hợp lệ
+      if (code === "VEHICLE_ALREADY_IN_CONTRACT" || code === "INVALID_TRANSITION") {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.vehicles.detail(vehicleId) });
+        closeStatusDialog();
+      }
+      if (isConcurrentUpdateError(err)) closeStatusDialog();
     },
   });
 
@@ -616,10 +655,12 @@ export default function VehicleDetailPage() {
       navigate("/vehicles");
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
-      toast.error(msg);
+      toast.error(getApiErrorMessage(err));
+      const { code } = getApiError(err);
+      if (code === "VEHICLE_ALREADY_IN_CONTRACT" || code === "VEHICLE_STILL_RENTING") {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.vehicles.detail(vehicleId) });
+        setDeleteOpen(false);
+      }
     },
   });
 
@@ -634,8 +675,8 @@ export default function VehicleDetailPage() {
     try {
       const doc = await uploadDocument({ file, doc_type: "insurance", is_temp: true });
       setInsUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
-    } catch {
-      toast.error("Upload file thất bại");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Upload file thất bại"));
       setInsFile(null);
     } finally {
       setInsUploading(false);
@@ -662,10 +703,7 @@ export default function VehicleDetailPage() {
       setInsUploadedDoc(null);
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
-      toast.error(msg);
+      applyApiErrors(err, insForm.setError, ["insuranceNumber", "provider", "expiryDate"]);
     },
   });
 
@@ -697,8 +735,8 @@ export default function VehicleDetailPage() {
     try {
       const doc = await uploadDocument({ file, doc_type: "inspection", is_temp: true });
       setInspecUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
-    } catch {
-      toast.error("Upload file thất bại");
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Upload file thất bại"));
       setInspecFile(null);
     } finally {
       setInspecUploading(false);
@@ -725,10 +763,7 @@ export default function VehicleDetailPage() {
       setInspecUploadedDoc(null);
     },
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
-      toast.error(msg);
+      applyApiErrors(err, inspecForm.setError, ["inspectionNumber", "expiryDate"]);
     },
   });
 
@@ -812,11 +847,10 @@ export default function VehicleDetailPage() {
       toast.success("Đã xóa ảnh");
       setDeleteImgId(null);
     },
+    // Lỗi → ảnh vẫn còn trên màn hình (DB giữ nguyên); 409 thì dữ liệu đang tải lại nên đóng xác nhận
     onError: (err: unknown) => {
-      const msg =
-        (err as { response?: { data?: { error?: { message?: string } } } })
-          ?.response?.data?.error?.message ?? "Có lỗi xảy ra";
-      toast.error(msg);
+      toast.error(getApiErrorMessage(err));
+      if (isConcurrentUpdateError(err)) setDeleteImgId(null);
     },
   });
 
@@ -888,8 +922,13 @@ export default function VehicleDetailPage() {
   const { label: statusLabel, className: statusClass } = getVehicleStatusBadge(
     vehicle.status,
   );
+  const currentContract = vehicle.currentContract;
+  // Xe at_yard còn lần giao chưa trả chỉ được renting. Thiếu quyền contracts.view thì không có
+  // currentContract nên không lọc được ở đây, BE trả 409 VEHICLE_ALREADY_IN_CONTRACT
   const validNextStatuses = (VALID_TRANSITIONS[vehicle.status] ?? []).filter(
-    (s) => canStatusAll || !STATUS_ALL_TARGETS.includes(s),
+    (s) =>
+      (canStatusAll || !STATUS_ALL_TARGETS.includes(s)) &&
+      (vehicle.status !== "at_yard" || !currentContract || s === "renting"),
   );
   const hasLocation = vehicle.lat != null && vehicle.lng != null;
   const qrUrl = `${window.location.origin}/vehicles/qr/${encodeURIComponent(vehicle.qrCode)}`;
@@ -1012,7 +1051,7 @@ export default function VehicleDetailPage() {
               <p className="mb-3 border-b border-border pb-3 text-[length:var(--fs-nav)] font-semibold text-text-primary">
                 Thông số kỹ thuật
               </p>
-              <InfoRow label="Loại xe" value={getVehicleTypeLabel(vehicle.vehicleType)} />
+              <InfoRow label="Loại xe" value={<VehicleTypeChip type={vehicle.vehicleType} />} />
               <InfoRow
                 label="Loại động cơ"
                 value={
@@ -1057,6 +1096,38 @@ export default function VehicleDetailPage() {
                     {statusLabel}
                   </span>
                 }
+              />
+              {currentContract && (
+                <>
+                  <InfoRow
+                    label="Hợp đồng hiện tại"
+                    value={
+                      <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                        <Link
+                          to={`/contracts/${currentContract.id}`}
+                          className="text-primary hover:underline cursor-pointer break-all"
+                        >
+                          {currentContract.contractNumber || "Chưa có số HĐ"}
+                        </Link>
+                        {currentContract.status !== "active" && (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium ${getContractStatusBadge(currentContract.status).className}`}
+                          >
+                            {getContractStatusBadge(currentContract.status).label}
+                          </span>
+                        )}
+                      </span>
+                    }
+                  />
+                  <InfoRow label="Khách hàng" value={currentContract.customerName || "—"} />
+                  <InfoRow label="Công trường" value={currentContract.siteAddress || "—"} />
+                </>
+              )}
+              <InfoRow label="Người sở hữu" value={vehicle.ownerName || "—"} />
+              <InfoRow label="Ngày mua" value={formatDate(toDateOnly(vehicle.purchaseDate))} />
+              <InfoRow
+                label="Giá mua"
+                value={vehicle.purchasePrice != null ? formatCurrency(vehicle.purchasePrice) : "—"}
               />
               <InfoRow label="Ngày tạo" value={formatDate(vehicle.createdAt)} />
               <InfoRow
@@ -1111,7 +1182,7 @@ export default function VehicleDetailPage() {
                     bgColor="#FFFFFF"
                     fgColor="#000000"
                     level="M"
-                    title={`Mã QR xe ${vehicle.serialNumber}`}
+                    aria-label={`Mã QR xe ${vehicle.serialNumber}`}
                   />
                 </div>
                 <div className="min-w-0 flex-1 self-stretch sm:self-center">
@@ -1122,14 +1193,16 @@ export default function VehicleDetailPage() {
                     {qrUrl}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => copyQrLink(vehicle.qrCode)}
-                  className="p-1.5 rounded-md text-text-secondary hover:bg-primary-light hover:text-primary cursor-pointer transition-colors shrink-0"
-                  title="Sao chép link QR"
-                >
-                  <Copy className="h-4 w-4" />
-                </button>
+                <AppTooltip content="Sao chép link QR">
+                  <button
+                    type="button"
+                    onClick={() => copyQrLink(vehicle.qrCode)}
+                    aria-label="Sao chép link QR"
+                    className="p-1.5 rounded-md text-text-secondary hover:bg-primary-light hover:text-primary cursor-pointer transition-colors shrink-0"
+                  >
+                    <Copy className="h-4 w-4" />
+                  </button>
+                </AppTooltip>
               </div>
             </div>
 
@@ -1245,17 +1318,14 @@ export default function VehicleDetailPage() {
                       </div>
                       {canUpdate && (
                         <div className="flex items-center gap-0.5 flex-none">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={() => setDeleteInsId(ins.id)}
-                                className="p-1.5 rounded-md text-text-secondary hover:bg-error hover:text-white cursor-pointer transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Xóa</TooltipContent>
-                          </Tooltip>
+                          <AppTooltip content="Xóa">
+                            <button
+                              onClick={() => setDeleteInsId(ins.id)}
+                              className="p-1.5 rounded-md text-text-secondary hover:bg-error hover:text-white cursor-pointer transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </AppTooltip>
                         </div>
                       )}
                     </div>
@@ -1356,17 +1426,14 @@ export default function VehicleDetailPage() {
                       </div>
                       {canUpdate && (
                         <div className="flex items-center gap-0.5 flex-none">
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                onClick={() => setDeleteInspecId(ins.id)}
-                                className="p-1.5 rounded-md text-text-secondary hover:bg-error hover:text-white cursor-pointer transition-colors"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>Xóa</TooltipContent>
-                          </Tooltip>
+                          <AppTooltip content="Xóa">
+                            <button
+                              onClick={() => setDeleteInspecId(ins.id)}
+                              className="p-1.5 rounded-md text-text-secondary hover:bg-error hover:text-white cursor-pointer transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </AppTooltip>
                         </div>
                       )}
                     </div>
@@ -1448,31 +1515,37 @@ export default function VehicleDetailPage() {
                         </span>
                       )}
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center gap-2">
-                        <button
-                          onClick={() => setLightboxIndex(idx)}
-                          className="p-1.5 bg-white rounded-full text-text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
-                          title="Xem ảnh"
-                        >
-                          <ZoomIn className="h-3.5 w-3.5" />
-                        </button>
-                        {canUpdate && !img.isPrimary && (
+                        <AppTooltip content="Xem ảnh">
                           <button
-                            onClick={() => setPrimaryMutation.mutate(img.id)}
-                            disabled={setPrimaryMutation.isPending}
-                            className="p-1.5 bg-white rounded-full text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
-                            title="Đặt làm ảnh chính"
+                            onClick={() => setLightboxIndex(idx)}
+                            aria-label="Xem ảnh"
+                            className="p-1.5 bg-white rounded-full text-text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
                           >
-                            <Star className="h-3.5 w-3.5" />
+                            <ZoomIn className="h-3.5 w-3.5" />
                           </button>
+                        </AppTooltip>
+                        {canUpdate && !img.isPrimary && (
+                          <AppTooltip content="Đặt làm ảnh chính">
+                            <button
+                              onClick={() => setPrimaryMutation.mutate(img.id)}
+                              disabled={setPrimaryMutation.isPending}
+                              aria-label="Đặt làm ảnh chính"
+                              className="p-1.5 bg-white rounded-full text-primary hover:bg-primary hover:text-white transition-colors cursor-pointer"
+                            >
+                              <Star className="h-3.5 w-3.5" />
+                            </button>
+                          </AppTooltip>
                         )}
                         {canDeleteFile && (
-                          <button
-                            onClick={() => setDeleteImgId(img.id)}
-                            className="p-1.5 bg-white rounded-full text-error hover:bg-error hover:text-white transition-colors cursor-pointer"
-                            title="Xóa ảnh"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          <AppTooltip content="Xóa ảnh">
+                            <button
+                              onClick={() => setDeleteImgId(img.id)}
+                              aria-label="Xóa ảnh"
+                              className="p-1.5 bg-white rounded-full text-error hover:bg-error hover:text-white transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </AppTooltip>
                         )}
                       </div>
                     </div>
@@ -1573,7 +1646,7 @@ export default function VehicleDetailPage() {
           <MobileSheetHeader className="hidden sm:flex">
             <MobileSheetTitle>Chỉnh sửa xe</MobileSheetTitle>
           </MobileSheetHeader>
-          <form onSubmit={editForm.handleSubmit((v) => editMutation.mutate(v))}>
+          <form onSubmit={submitEdit}>
             <MobileSheetBody>
               <p className="text-[length:var(--fs-sm)] text-text-secondary">
                 Serial: <span className="font-medium text-text-primary">{vehicle.serialNumber}</span>{" "}
@@ -1604,8 +1677,14 @@ export default function VehicleDetailPage() {
       </MobileSheetDialog>
 
       {/* Modal Đổi trạng thái */}
-      <MobileSheetDialog open={statusOpen} onOpenChange={setStatusOpen}>
-        <MobileSheetContent mobileVariant="sheet" className="sm:max-w-sm">
+      <MobileSheetDialog
+        open={statusOpen}
+        onOpenChange={(o) => {
+          if (o) setStatusOpen(true);
+          else closeStatusDialog();
+        }}
+      >
+        <MobileSheetContent mobileVariant="sheet" className="sm:max-w-lg">
           <MobileSheetHeader>
             <MobileSheetTitle>Đổi trạng thái</MobileSheetTitle>
           </MobileSheetHeader>
@@ -1626,7 +1705,10 @@ export default function VehicleDetailPage() {
               </Label>
               <Select
                 value={newStatus}
-                onValueChange={(v) => setNewStatus(v as VehicleStatus)}
+                onValueChange={(v) => {
+                  setNewStatus(v as VehicleStatus);
+                  setStatusReturnDateError("");
+                }}
               >
                 <SelectTrigger className="border-border cursor-pointer">
                   <SelectValue placeholder="Chọn trạng thái" />
@@ -1643,6 +1725,73 @@ export default function VehicleDetailPage() {
                 </SelectContent>
               </Select>
             </div>
+            {/* Đổi trạng thái có thể ghi ngày xuất/trả vào HĐ → cho người dùng đối chiếu trước khi xác nhận */}
+            {currentContract ? (
+              <div className="flex flex-col gap-1.5 rounded-md bg-primary-light px-3 py-2.5 text-[length:var(--fs-sm)]">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-text-secondary">Hợp đồng:</span>
+                  <span className="font-medium text-text-primary break-all">
+                    {currentContract.contractNumber || "Chưa có số HĐ"}
+                  </span>
+                  {currentContract.status !== "active" && (
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 font-medium ${getContractStatusBadge(currentContract.status).className}`}
+                    >
+                      {getContractStatusBadge(currentContract.status).label}
+                    </span>
+                  )}
+                </div>
+                <p>
+                  <span className="text-text-secondary">Khách hàng: </span>
+                  <span className="text-text-primary">{currentContract.customerName || "—"}</span>
+                </p>
+                <p>
+                  <span className="text-text-secondary">Công trường: </span>
+                  <span className="text-text-primary">{currentContract.siteAddress || "—"}</span>
+                </p>
+                {recordsDeployDate && (
+                  <p className="font-medium text-text-primary">
+                    Xác nhận sẽ ghi ngày xuất bãi cho hợp đồng này.
+                  </p>
+                )}
+                {recordsReturnDate && (
+                  <p className="font-medium text-text-primary">
+                    Xác nhận sẽ ghi ngày trả xe cho hợp đồng này.
+                  </p>
+                )}
+              </div>
+            ) : (
+              // Thiếu contracts.view thì BE không trả currentContract → không kết luận được xe chưa gán
+              recordsDeployDate &&
+              canViewContracts && (
+                <p className="rounded-md bg-warning-light px-3 py-2.5 text-[length:var(--fs-sm)] text-text-primary">
+                  Xe chưa được gán vào hợp đồng nào. Kiểm tra lại trước khi đổi sang Đang cho thuê.
+                </p>
+              )
+            )}
+            {recordsReturnDate && (
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-[length:var(--fs-base)] font-medium">
+                  Ngày trả xe (tùy chọn)
+                </Label>
+                <DatePicker
+                  value={statusReturnDate || undefined}
+                  onChange={(d) => {
+                    setStatusReturnDate(d);
+                    setStatusReturnDateError("");
+                  }}
+                  placeholder="Hôm nay"
+                  maxDate={todayInVietnam()}
+                />
+                {statusReturnDateError && (
+                  <p className="text-[length:var(--fs-sm)] text-error">{statusReturnDateError}</p>
+                )}
+                <p className="text-[length:var(--fs-sm)] text-text-secondary">
+                  Để trống = ghi ngày hôm nay. Cập nhật muộn thì chọn đúng ngày xe về, vì ngày trả đã ghi không sửa được.
+                  Chỉ đổi khi xe đã thực sự về bãi: xe hỏng còn ở công trường thì ghi sự cố Thay xe ở hợp đồng, xe về rồi mới đổi sang Trong bãi, sau đó sang Hỏng nếu cần.
+                </p>
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <Label className="text-[length:var(--fs-base)] font-medium">
                 Lý do (tùy chọn)
@@ -1660,7 +1809,7 @@ export default function VehicleDetailPage() {
             <Button
               variant="outline"
               className="border-border cursor-pointer"
-              onClick={() => setStatusOpen(false)}
+              onClick={closeStatusDialog}
               disabled={statusMutation.isPending}
             >
               Hủy
@@ -1983,7 +2132,7 @@ export default function VehicleDetailPage() {
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         title="Xóa xe này?"
-        description={`Xe ${vehicle.model} (${vehicle.serialNumber}) sẽ bị ẩn khỏi hệ thống. Kiểm tra xe không còn nằm trong hợp đồng đang hiệu lực trước khi xóa.`}
+        description={`Xe ${vehicle.model} (${vehicle.serialNumber}) sẽ bị ẩn khỏi hệ thống. Xe còn lần giao chưa trả thì không xóa được, cần gỡ hoặc đổi xe khỏi hợp đồng trước.`}
         variant="danger"
         confirmLabel="Xóa"
         loading={deleteMutation.isPending}

@@ -28,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import type { ServiceCatalogItem } from "@/types/serviceCatalog.types";
 import { ServiceFormDialog } from "./components/ServiceFormDialog";
 
@@ -204,45 +204,37 @@ export default function ServiceCatalogPage() {
             cell: ({ row }: { row: { original: ServiceCatalogItem } }) => (
               <div className="flex items-center gap-1">
                 {canUpdate && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 cursor-pointer p-0 text-text-secondary hover:bg-primary-light hover:text-primary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEdit(row.original);
-                        }}
-                      >
-                        <Pencil size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Chỉnh sửa</TooltipContent>
-                  </Tooltip>
+                  <AppTooltip content="Chỉnh sửa">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 cursor-pointer p-0 text-text-secondary hover:bg-primary-light hover:text-primary"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openEdit(row.original);
+                      }}
+                    >
+                      <Pencil size={14} />
+                    </Button>
+                  </AppTooltip>
                 )}
                 {canToggle && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className={cn(
-                          "h-8 w-8 cursor-pointer p-0 text-text-secondary",
-                          toggleButtonClass(row.original.isActive),
-                        )}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmToggle(row.original);
-                        }}
-                      >
-                        {row.original.isActive ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {row.original.isActive ? "Ẩn dịch vụ" : "Hiện dịch vụ"}
-                    </TooltipContent>
-                  </Tooltip>
+                  <AppTooltip content={row.original.isActive ? "Ẩn dịch vụ" : "Hiện dịch vụ"}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        "h-8 w-8 cursor-pointer p-0 text-text-secondary",
+                        toggleButtonClass(row.original.isActive),
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setConfirmToggle(row.original);
+                      }}
+                    >
+                      {row.original.isActive ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </Button>
+                  </AppTooltip>
                 )}
               </div>
             ),
@@ -271,11 +263,7 @@ export default function ServiceCatalogPage() {
 
   return (
     <div className="flex flex-col gap-[var(--sp-section)]">
-      <PageHeader
-        title="Danh mục dịch vụ"
-        subtitle="Quản lý các dịch vụ dùng chung cho hợp đồng"
-        actions={addButton}
-      />
+      <PageHeader title="Danh mục dịch vụ" actions={addButton} />
 
       {/* Tìm kiếm + bộ lọc (trạng thái, gán xe) — lọc phía FE trên mảng đã tải */}
       <FilterToolbar

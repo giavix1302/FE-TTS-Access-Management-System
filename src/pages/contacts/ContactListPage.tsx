@@ -77,7 +77,7 @@ export default function ContactListPage() {
 
   return (
     <div className="flex flex-col gap-3 lg:gap-4">
-      <PageHeader title="Người liên hệ" subtitle="Quản lý người liên hệ dùng chung giữa các khách hàng" />
+      <PageHeader title="Người liên hệ" />
       <FilterToolbar
         search={search}
         onSearchChange={(value) => {

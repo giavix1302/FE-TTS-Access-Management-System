@@ -1,6 +1,9 @@
 export interface LoginRequest {
-  phone: string;
+  /** SĐT hoặc email */
+  identifier: string;
   password: string;
+  /** true = refresh token 90 ngày */
+  rememberMe?: boolean;
 }
 
 export interface LoginResponse {

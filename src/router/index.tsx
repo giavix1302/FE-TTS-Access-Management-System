@@ -22,6 +22,7 @@ import RolesPermissionsPage from "@/pages/roles/RolesPermissionsPage";
 import ProfilePage from "@/pages/profile/ProfilePage";
 import AuditLogsPage from "@/pages/audit-logs/AuditLogsPage";
 import ComingSoonPage from "@/pages/coming-soon/ComingSoonPage";
+import NotFoundPage from "@/pages/not-found/NotFoundPage";
 
 export const router = createBrowserRouter([
   {
@@ -55,6 +56,7 @@ export const router = createBrowserRouter([
       { path: "audit-logs", element: <AuditLogsPage /> },
       { path: "analytics", element: <ComingSoonPage title="Thống kê" description="Trang thống kê tổng quan doanh thu, xe và hợp đồng đang được phát triển." /> },
       { path: "reports", element: <ComingSoonPage title="Xuất báo cáo" description="Tính năng xuất báo cáo Excel / PDF theo kỳ đang được phát triển." /> },
+      { path: "*", element: <NotFoundPage /> },
     ],
   },
 ]);

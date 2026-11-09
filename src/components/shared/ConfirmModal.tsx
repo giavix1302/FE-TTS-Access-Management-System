@@ -20,6 +20,8 @@ interface ConfirmModalProps {
   cancelLabel?: string
   variant?: "danger" | "primary"
   loading?: boolean
+  /** Khóa nút xác nhận, vd. điều kiện nghiệp vụ chưa đạt */
+  confirmDisabled?: boolean
   onConfirm: () => void
   customContent?: ReactNode
 }
@@ -33,6 +35,7 @@ export function ConfirmModal({
   cancelLabel = "Hủy",
   variant = "primary",
   loading = false,
+  confirmDisabled = false,
   onConfirm,
   customContent,
 }: ConfirmModalProps) {
@@ -73,7 +76,7 @@ export function ConfirmModal({
             className={`text-[15px] font-medium ${confirmHoverClass}`}
             style={confirmStyle}
             onClick={onConfirm}
-            disabled={loading}
+            disabled={loading || confirmDisabled}
           >
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {confirmLabel}

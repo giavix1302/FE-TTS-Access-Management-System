@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { CalendarIcon } from "lucide-react"
-import { format } from "date-fns"
+import { format, parseISO } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -12,6 +12,11 @@ interface DatePickerProps {
   placeholder?: string
   className?: string
   align?: "start" | "center" | "end"
+  /** yyyy-MM-dd — chặn chọn ngày trước ngày này */
+  minDate?: string
+  /** yyyy-MM-dd — chặn chọn ngày sau ngày này */
+  maxDate?: string
+  disabled?: boolean
 }
 
 export function DatePicker({
@@ -20,6 +25,9 @@ export function DatePicker({
   placeholder = "Chọn ngày",
   className,
   align = "start",
+  minDate,
+  maxDate,
+  disabled = false,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false)
   return (
@@ -27,6 +35,7 @@ export function DatePicker({
       <PopoverTrigger asChild>
         <Button
           variant="outline"
+          disabled={disabled}
           className={cn(
             "w-full justify-start text-left font-normal cursor-pointer hover:bg-white hover:text-text-primary",
             className
@@ -45,6 +54,10 @@ export function DatePicker({
           mode="single"
           className="w-full"
           selected={value ? new Date(value) : undefined}
+          disabled={[
+            ...(minDate ? [{ before: parseISO(minDate) }] : []),
+            ...(maxDate ? [{ after: parseISO(maxDate) }] : []),
+          ]}
           onSelect={(d) => {
             if (d) {
               onChange(format(d, "yyyy-MM-dd"))

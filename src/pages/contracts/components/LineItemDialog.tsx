@@ -25,7 +25,7 @@ import { createLineItem, updateLineItem } from "@/api/contracts.api";
 import { getServiceCatalog } from "@/api/service-catalog.api";
 import { getServiceErrorMessage } from "@/constants/serviceErrors";
 import { usePermission } from "@/hooks/usePermission";
-import { getApiError } from "@/utils/apiError";
+import { applyApiErrors, getApiError, isConcurrentUpdateError } from "@/utils/apiError";
 import { formatCurrency } from "@/utils/format";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { matchesSearch, sortServices } from "@/utils/serviceCatalog";
@@ -38,7 +38,7 @@ const hasAtMost2Decimals = (v: number) => Math.abs(v * 100 - Math.round(v * 100)
 
 const lineSchema = z.object({
   serviceId: z.number().optional(),
-  unit: z.string().min(1, "Vui lòng chọn đơn vị"),
+  unit: z.string({ error: "Vui lòng chọn đơn vị" }).min(1, "Vui lòng chọn đơn vị"),
   unitPrice: z.number({ error: "Bắt buộc nhập đơn giá" }).positive("Đơn giá phải lớn hơn 0"),
   quantity: z
     .number({ error: "Bắt buộc nhập số lượng" })
@@ -178,23 +178,17 @@ export function LineItemDialog({
       closeDialog();
     },
     onError: (err) => {
-      const { code, details } = getApiError(err);
+      const { code } = getApiError(err);
 
-      if (code === "VALIDATION_ERROR" && details?.length) {
-        let mapped = false;
-        details.forEach((d) => {
-          const field = d.field.charAt(0).toLowerCase() + d.field.slice(1);
-          if (field === "unit" || field === "unitPrice" || field === "quantity" || field === "duration" || field === "sortOrder" || field === "note") {
-            setError(field, { message: d.message });
-            mapped = true;
-          }
-        });
-        if (mapped) return;
-      }
+      applyApiErrors(
+        err,
+        setError,
+        ["serviceId", "unit", "unitPrice", "quantity", "duration", "sortOrder", "note"],
+        getServiceErrorMessage(err),
+      );
 
-      toast.error(getServiceErrorMessage(err));
-
-      if (code === "SERVICE_NOT_FOUND") {
+      if (isConcurrentUpdateError(err)) closeDialog();
+      else if (code === "SERVICE_NOT_FOUND") {
         // Dịch vụ vừa bị ẩn / xóa khi picker đang mở → làm mới danh mục, bỏ lựa chọn
         queryClient.invalidateQueries({ queryKey: QUERY_KEYS.serviceCatalog.all });
         setValue("serviceId", undefined);
@@ -308,9 +302,18 @@ export function LineItemDialog({
                                 setServiceSearch("");
                                 setServicePickerOpen(true);
                               }}
+                              // preventDefault: chặn PopoverTrigger toggle đóng lại ngay sau khi focus vừa mở
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setServicePickerOpen(true);
+                              }}
                               onChange={(event) => {
                                 setServiceSearch(event.target.value);
                                 setServicePickerOpen(true);
+                              }}
+                              // Enter khi đang tìm không được submit form
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") event.preventDefault();
                               }}
                               placeholder="Tìm hoặc chọn dịch vụ..."
                               className="cursor-pointer pl-9 pr-10"

@@ -4,10 +4,10 @@ import { isAxiosError } from "axios";
 import { History, ShieldOff } from "lucide-react";
 import { usePermission } from "@/hooks/usePermission";
 import { useDebounce } from "@/hooks/useDebounce";
-import { getAuditLogs } from "@/api/audit-logs.api";
+import { getAuditLogGroups } from "@/api/audit-logs.api";
 import { getUsers } from "@/api/users.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
-import { AUDIT_ENTITY_OPTIONS, groupByRequest } from "@/constants/auditLog";
+import { AUDIT_ENTITY_OPTIONS } from "@/constants/auditLog";
 import type { User } from "@/types/user.types";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { EmptyState } from "@/components/shared/EmptyState";
@@ -56,8 +56,8 @@ export default function AuditLogsPage() {
   };
 
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: [...QUERY_KEYS.auditLogs.all, { ...filters, page, pageSize }],
-    queryFn: () => getAuditLogs({ ...filters, page, page_size: pageSize }),
+    queryKey: [...QUERY_KEYS.auditLogs.all, "groups", { ...filters, page, pageSize }],
+    queryFn: () => getAuditLogGroups({ ...filters, page, page_size: pageSize }),
     enabled: canView,
     meta: { silentError: true },
   });
@@ -69,9 +69,8 @@ export default function AuditLogsPage() {
   });
   const users: User[] = usersData?.data ?? [];
 
-  const logs = data?.data ?? [];
+  const groups = data?.data ?? [];
   const meta = data?.meta;
-  const groups = groupByRequest(logs);
   const isForbidden = isError && isAxiosError(error) && error.response?.status === 403;
 
   const hasFilter = !!(entityType || entityId || userId || fromDate || toDate);
@@ -100,10 +99,7 @@ export default function AuditLogsPage() {
 
   return (
     <div className="flex flex-col gap-3 lg:gap-4">
-      <PageHeader
-        title="Nhật ký hệ thống"
-        subtitle="Lịch sử thêm / sửa / xóa dữ liệu trên toàn hệ thống"
-      />
+      <PageHeader title="Nhật ký hệ thống" />
 
       <FilterToolbar
         search={entityId}
@@ -183,6 +179,7 @@ export default function AuditLogsPage() {
               setPage(1);
             }}
             placeholder="Chọn ngày bắt đầu"
+            maxDate={toDate}
             className="w-full"
           />
         </div>
@@ -197,6 +194,7 @@ export default function AuditLogsPage() {
               setPage(1);
             }}
             placeholder="Chọn ngày kết thúc"
+            minDate={fromDate}
             className="w-full"
           />
         </div>
@@ -243,14 +241,14 @@ export default function AuditLogsPage() {
 
           <div className="divide-y divide-border">
             {groups.map((g) => (
-              <AuditLogGroupRow key={g[0].id} group={g} onSelect={setSelectedId} />
+              <AuditLogGroupRow key={g.items[0].id} group={g.items} onSelect={setSelectedId} />
             ))}
           </div>
         </div>
       )}
 
       {/* Pagination */}
-      {!isLoading && meta && logs.length > 0 && (
+      {!isLoading && meta && groups.length > 0 && (
         <Pagination
           pageIndex={page - 1}
           totalPages={meta.totalPages}

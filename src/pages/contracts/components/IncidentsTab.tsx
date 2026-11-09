@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { type ColumnDef } from '@tanstack/react-table'
 import { toast } from 'sonner'
-import { Pencil, Plus, CalendarIcon } from 'lucide-react'
+import { CheckCircle2, Clock, Pencil, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -26,19 +27,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { AppTooltip } from '@/components/shared/AppTooltip'
+import { DataTable } from '@/components/shared/DataTable'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { DatePicker } from '@/components/shared/DatePicker'
 import { getIncidents, createIncident, updateIncident } from '@/api/contracts.api'
 import { QUERY_KEYS } from '@/utils/queryKeys'
-import { formatCurrency, formatDate } from '@/utils/format'
+import { formatCurrency, formatDate, formatDateTime, toDateOnly } from '@/utils/format'
 import { getServiceErrorMessage } from '@/constants/serviceErrors'
-import type { ContractStatus, ContractVehicle, Incident, IncidentType, ChargedTo } from '@/types/contract.types'
+import { isContractOpen } from '@/constants/contractStatus'
+import { applyApiErrors, getApiError, getApiErrorMessage, isConcurrentUpdateError } from '@/utils/apiError'
+import type { ContractStatus, ContractVehicle, CreatableIncidentType, Incident, IncidentType, ChargedTo } from '@/types/contract.types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const INCIDENT_TYPE_OPTIONS: { value: IncidentType; label: string }[] = [
-  { value: 'breakdown', label: 'Hư hỏng' },
-  { value: 'replacement', label: 'Đổi xe' },
-  { value: 'repair_onsite', label: 'Sửa tại chỗ' },
+const INCIDENT_TYPE_OPTIONS: { value: CreatableIncidentType; label: string }[] = [
+  { value: 'replacement', label: 'Thay xe' },
+  { value: 'repair_onsite', label: 'Sửa tại công trường' },
 ]
 
 const INCIDENT_TYPE_CHIP: Record<IncidentType, string> = {
@@ -47,11 +51,15 @@ const INCIDENT_TYPE_CHIP: Record<IncidentType, string> = {
   repair_onsite: 'bg-info-light text-info',
 }
 
+// Giữ nhãn breakdown cho dữ liệu cũ cho đến khi BE xác nhận đã đổi xong
 const INCIDENT_TYPE_LABELS: Record<IncidentType, string> = {
   breakdown: 'Hư hỏng',
-  replacement: 'Đổi xe',
-  repair_onsite: 'Sửa tại chỗ',
+  replacement: 'Thay xe',
+  repair_onsite: 'Sửa tại công trường',
 }
+
+// BE chỉ nhận sự cố trên lần giao đã xuất bãi và chưa trả
+const canReportIncident = (cv: ContractVehicle) => !!cv.deployDate && !cv.returnDate
 
 const CHARGED_TO_OPTIONS: { value: ChargedTo; label: string }[] = [
   { value: 'company', label: 'Công ty chịu' },
@@ -59,11 +67,14 @@ const CHARGED_TO_OPTIONS: { value: ChargedTo; label: string }[] = [
 ]
 
 // ─── IncidentDialog ───────────────────────────────────────────────────────────
+// Ô số để trống = null. Không dùng kèm valueAsNumber: RHF ưu tiên nó, bỏ qua setValueAs → ô trống thành NaN, Zod chặn
+const emptyToNull = (v: unknown) => (v === '' || v == null ? null : Number(v))
+
 const incidentCreateSchema = z.object({
-  contractVehicleId: z.number({ error: 'Bắt buộc' }).min(1, 'Bắt buộc'),
-  incidentDate: z.string().min(1, 'Bắt buộc'),
-  incidentType: z.enum(['breakdown', 'replacement', 'repair_onsite']),
-  description: z.string().min(1, 'Bắt buộc').max(1000),
+  contractVehicleId: z.number({ error: 'Bắt buộc chọn xe' }).min(1, 'Bắt buộc chọn xe'),
+  incidentDate: z.string({ error: 'Bắt buộc chọn ngày sự cố' }).min(1, 'Bắt buộc chọn ngày sự cố'),
+  incidentType: z.enum(['replacement', 'repair_onsite'], { error: 'Bắt buộc chọn loại sự cố' }),
+  description: z.string({ error: 'Bắt buộc nhập mô tả' }).min(1, 'Bắt buộc nhập mô tả').max(1000),
   downtimeDays: z.number().nullable().optional(),
   costAmount: z.number().nullable().optional(),
   chargedTo: z.enum(['customer', 'company']).nullable().optional(),
@@ -71,7 +82,7 @@ const incidentCreateSchema = z.object({
 })
 
 const incidentEditSchema = z.object({
-  description: z.string().min(1, 'Bắt buộc').max(1000),
+  description: z.string({ error: 'Bắt buộc nhập mô tả' }).min(1, 'Bắt buộc nhập mô tả').max(1000),
   downtimeDays: z.number().nullable().optional(),
   costAmount: z.number().nullable().optional(),
   chargedTo: z.enum(['customer', 'company']).nullable().optional(),
@@ -106,16 +117,27 @@ function IncidentDialog({
   // Edit form
   const editForm = useForm<IncidentEditForm>({
     resolver: zodResolver(incidentEditSchema),
-    defaultValues: isEdit
-      ? {
-          description: editItem.description,
-          downtimeDays: editItem.downtimeDays,
-          costAmount: editItem.costAmount,
-          chargedTo: editItem.chargedTo,
-          resolvedAt: editItem.resolvedAt ?? null,
-        }
-      : {},
   })
+
+  // Dialog không unmount giữa các lần mở → nạp lại giá trị đang sửa, nhất là resolvedAt:
+  // PUT luôn ghi đè resolvedAt, thiếu là mất đánh dấu đã xử lý
+  const resetEditForm = editForm.reset
+  const resetCreateForm = createForm.reset
+  useEffect(() => {
+    if (!open) return
+    // Ghi nhận mới: dialog không unmount nên giá trị lần trước (xe, mô tả, loại, chi phí) còn nguyên → xóa sạch mỗi lần mở
+    if (!editItem) {
+      resetCreateForm({ chargedTo: null, resolvedAt: null })
+      return
+    }
+    resetEditForm({
+      description: editItem.description,
+      downtimeDays: editItem.downtimeDays,
+      costAmount: editItem.costAmount,
+      chargedTo: editItem.chargedTo,
+      resolvedAt: editItem.resolvedAt ?? null,
+    })
+  }, [open, editItem, resetEditForm, resetCreateForm])
 
   const mutation = useMutation({
     mutationFn: (body: IncidentCreateForm | IncidentEditForm) => {
@@ -128,13 +150,40 @@ function IncidentDialog({
       }
       return createIncident(contractId, body as IncidentCreateForm)
     },
-    onSuccess: () => {
+    onSuccess: (_, body) => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
       queryClient.invalidateQueries({ queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'incidents'] })
-      toast.success(isEdit ? 'Đã cập nhật sự cố' : 'Đã ghi nhận sự cố')
+      const isReplacement = !isEdit && (body as IncidentCreateForm).incidentType === 'replacement'
+      toast.success(isEdit ? 'Đã cập nhật sự cố' : 'Đã ghi nhận sự cố', {
+        ...(isReplacement ? { description: 'Vào mục Dịch vụ & xe, bấm Gán xe thay thế ở xe này để gán xe mới.' } : {}),
+      })
       onOpenChange(false)
     },
-    onError: (error) => toast.error(getServiceErrorMessage(error)),
+    onError: (error) => {
+      // HĐ bị đóng giữa chừng (tạo + sửa sự cố đều chặn): toast message BE, đóng form, tải lại HĐ để ẩn nút
+      if (getApiError(error).code === 'CONTRACT_NOT_ACTIVE') {
+        toast.error(getApiErrorMessage(error))
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.all })
+        onOpenChange(false)
+        return
+      }
+      const fallback = getServiceErrorMessage(error)
+      if (isEdit) applyApiErrors(error, editForm.setError, ['description'], fallback)
+      else {
+        applyApiErrors(
+          error,
+          createForm.setError,
+          ['contractVehicleId', 'incidentDate', 'incidentType', 'description'],
+          fallback,
+        )
+      }
+      const { code } = getApiError(error)
+      // Danh sách xe / sự cố trên màn hình đã cũ → đồng bộ lại để chọn xe khác
+      if (code === 'VEHICLE_ALREADY_RETURNED' || code === 'VEHICLE_NOT_DEPLOYED' || code === 'REPLACEMENT_INCIDENT_EXISTS') {
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contracts.detail(contractId) })
+      }
+      if (isConcurrentUpdateError(error)) onOpenChange(false)
+    },
   })
 
   const handleCreate = createForm.handleSubmit((d) => mutation.mutate(d))
@@ -159,7 +208,7 @@ function IncidentDialog({
                 </div>
                 <div>
                   <p className="text-xs text-text-secondary">Ngày sự cố</p>
-                  <p className="font-medium text-text-primary">{formatDate(editItem.incidentDate)}</p>
+                  <p className="font-medium text-text-primary">{formatDate(toDateOnly(editItem.incidentDate))}</p>
                 </div>
                 <div>
                   <p className="text-xs text-text-secondary">Loại sự cố</p>
@@ -177,11 +226,17 @@ function IncidentDialog({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label>Số ngày dừng hoạt động</Label>
-                  <Input type="number" step="0.1" min={0} {...editForm.register('downtimeDays', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                  <Input type="number" step="0.1" min={0} {...editForm.register('downtimeDays', { setValueAs: emptyToNull })} />
+                  {editForm.formState.errors.downtimeDays && (
+                    <p className="text-xs text-error">{editForm.formState.errors.downtimeDays.message}</p>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label>Chi phí (₫)</Label>
-                  <Input type="number" min={0} {...editForm.register('costAmount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                  <Input type="number" min={0} {...editForm.register('costAmount', { setValueAs: emptyToNull })} />
+                  {editForm.formState.errors.costAmount && (
+                    <p className="text-xs text-error">{editForm.formState.errors.costAmount.message}</p>
+                  )}
                 </div>
               </div>
               <div className="space-y-1">
@@ -238,7 +293,7 @@ function IncidentDialog({
                     <Select value={field.value?.toString() ?? ''} onValueChange={(v) => field.onChange(Number(v))}>
                       <SelectTrigger className="cursor-pointer"><SelectValue placeholder="Chọn xe" /></SelectTrigger>
                       <SelectContent>
-                        {contractVehicles.filter((cv) => !!cv.deployDate).map((cv) => (
+                        {contractVehicles.filter(canReportIncident).map((cv) => (
                           <SelectItem key={cv.id} value={cv.id.toString()}>{cv.vehicle.model} · {cv.vehicle.serialNumber}</SelectItem>
                         ))}
                       </SelectContent>
@@ -290,11 +345,17 @@ function IncidentDialog({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <Label>Số ngày dừng hoạt động</Label>
-                  <Input type="number" step="0.1" min={0} {...createForm.register('downtimeDays', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                  <Input type="number" step="0.1" min={0} {...createForm.register('downtimeDays', { setValueAs: emptyToNull })} />
+                  {createForm.formState.errors.downtimeDays && (
+                    <p className="text-xs text-error">{createForm.formState.errors.downtimeDays.message}</p>
+                  )}
                 </div>
                 <div className="space-y-1">
                   <Label>Chi phí (₫)</Label>
-                  <Input type="number" min={0} {...createForm.register('costAmount', { valueAsNumber: true, setValueAs: (v) => v === '' ? null : Number(v) })} />
+                  <Input type="number" min={0} {...createForm.register('costAmount', { setValueAs: emptyToNull })} />
+                  {createForm.formState.errors.costAmount && (
+                    <p className="text-xs text-error">{createForm.formState.errors.costAmount.message}</p>
+                  )}
                 </div>
               </div>
               <div className="space-y-1">
@@ -338,6 +399,71 @@ function IncidentDialog({
 }
 
 // ─── IncidentsTab ─────────────────────────────────────────────────────────────
+const BADGE = 'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium'
+
+const vehicleLabel = (vehicle: { model: string; serialNumber: string }) =>
+  `${vehicle.model} · ${vehicle.serialNumber}`
+
+function IncidentTypeBadge({ type }: { type: IncidentType }) {
+  return <span className={`${BADGE} ${INCIDENT_TYPE_CHIP[type]}`}>{INCIDENT_TYPE_LABELS[type]}</span>
+}
+
+function IncidentStatusBadge({ resolvedAt }: { resolvedAt?: string }) {
+  return resolvedAt ? (
+    <span className={`${BADGE} bg-success-light text-success`}>
+      <CheckCircle2 size={12} />
+      Đã xử lý {formatDate(toDateOnly(resolvedAt))}
+    </span>
+  ) : (
+    <span className={`${BADGE} bg-warning-light text-warning`}>
+      <Clock size={12} />
+      Chưa xử lý
+    </span>
+  )
+}
+
+const INCIDENT_COLUMNS: ColumnDef<Incident>[] = [
+  {
+    id: 'vehicle',
+    header: 'Xe',
+    cell: ({ row }) => <span className="font-medium">{vehicleLabel(row.original.contractVehicle.vehicle)}</span>,
+  },
+  {
+    id: 'type',
+    header: 'Loại',
+    cell: ({ row }) => <IncidentTypeBadge type={row.original.incidentType} />,
+  },
+  {
+    id: 'date',
+    header: 'Ngày sự cố',
+    cell: ({ row }) => formatDate(toDateOnly(row.original.incidentDate)),
+  },
+  {
+    id: 'description',
+    header: 'Mô tả',
+    cell: ({ row }) => <span className="block max-w-[320px] truncate">{row.original.description}</span>,
+  },
+  {
+    id: 'cost',
+    header: 'Chi phí',
+    cell: ({ row }) => (row.original.costAmount != null ? formatCurrency(row.original.costAmount) : '—'),
+  },
+  {
+    id: 'status',
+    header: 'Trạng thái',
+    cell: ({ row }) => <IncidentStatusBadge resolvedAt={row.original.resolvedAt} />,
+  },
+]
+
+function IncidentMeta({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-text-secondary">{label}</dt>
+      <dd className="mt-0.5 text-sm text-text-primary">{children}</dd>
+    </div>
+  )
+}
+
 interface IncidentsTabProps {
   contractId: number
   contractStatus: ContractStatus
@@ -348,35 +474,36 @@ interface IncidentsTabProps {
 export function IncidentsTab({ contractId, contractStatus, contractVehicles, canEdit }: IncidentsTabProps) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Incident | undefined>()
+  const [detailItem, setDetailItem] = useState<Incident | undefined>()
 
   const { data, isLoading } = useQuery({
     queryKey: [...QUERY_KEYS.contracts.detail(contractId), 'incidents'],
     queryFn: () => getIncidents(contractId),
   })
   const incidents: Incident[] = data?.data ?? []
-  const deployedVehicles = contractVehicles.filter((vehicle) => !!vehicle.deployDate)
+  const reportableVehicles = contractVehicles.filter(canReportIncident)
 
   const openAdd = () => { setEditingItem(undefined); setDialogOpen(true) }
   const openEdit = (item: Incident) => { setEditingItem(item); setDialogOpen(true) }
 
   return (
-    <div className="mt-4">
-      <div className="flex items-center justify-between mb-4">
-        <span className="font-medium text-text-primary">Sự cố</span>
-        {canEdit && contractStatus === 'active' && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={openAdd}
-            disabled={deployedVehicles.length === 0}
-            title={deployedVehicles.length === 0 ? 'Chỉ ghi sự cố cho xe đã xuất bãi' : undefined}
-            className="cursor-pointer"
-          >
-            <Plus size={14} />
-            Ghi nhận sự cố
-          </Button>
-        )}
-      </div>
+    <div className="mt-4 space-y-3 rounded-lg border border-border bg-bg-card p-5">
+      {canEdit && isContractOpen(contractStatus) && (
+        <div className="flex items-center justify-end">
+          <AppTooltip content={reportableVehicles.length === 0 ? 'Chỉ ghi sự cố cho xe đã xuất bãi và chưa trả' : undefined}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={openAdd}
+              disabled={reportableVehicles.length === 0}
+              className="cursor-pointer"
+            >
+              <Plus size={14} />
+              Ghi nhận sự cố
+            </Button>
+          </AppTooltip>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -385,70 +512,97 @@ export function IncidentsTab({ contractId, contractStatus, contractVehicles, can
       ) : !incidents || incidents.length === 0 ? (
         <EmptyState description="Chưa có sự cố nào" />
       ) : (
-        incidents.map((item) => (
-          <div key={item.id} className="bg-bg-card rounded-lg border border-border p-4 flex gap-4 mb-3">
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-text-primary text-sm">
-                {item.contractVehicle.vehicle.model} · {item.contractVehicle.vehicle.serialNumber}
-              </p>
-              <div className="flex flex-wrap gap-1.5 mt-2">
-                <span className={`text-xs px-2.5 py-1 rounded-full ${INCIDENT_TYPE_CHIP[item.incidentType]}`}>
-                  {INCIDENT_TYPE_LABELS[item.incidentType]}
-                </span>
-                <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
-                  <CalendarIcon size={10} />
-                  {formatDate(item.incidentDate)}
-                </span>
-                {item.downtimeDays != null && (
-                  <span className="bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-full">
-                    {item.downtimeDays} ngày
-                  </span>
-                )}
-                {item.costAmount != null && (
-                  <span className="bg-gray-100 text-gray-600 text-xs px-2.5 py-1 rounded-full">
-                    {formatCurrency(item.costAmount)}
-                  </span>
-                )}
-                {item.chargedTo === 'company' && (
-                  <span className="bg-error-light text-error text-xs px-2.5 py-1 rounded-full">Công ty chịu</span>
-                )}
-                {item.chargedTo === 'customer' && (
-                  <span className="bg-accent-light text-accent text-xs px-2.5 py-1 rounded-full">Khách hàng chịu</span>
-                )}
-                {item.resolvedAt ? (
-                  <span className="bg-success-light text-success text-xs px-2.5 py-1 rounded-full">
-                    ✅ Đã xử lý: {formatDate(item.resolvedAt)}
-                  </span>
-                ) : (
-                  <span className="bg-warning-light text-warning text-xs px-2.5 py-1 rounded-full">
-                    ⏳ Chưa xử lý
-                  </span>
-                )}
+        <>
+          <div className="hidden sm:block">
+            <DataTable columns={INCIDENT_COLUMNS} data={incidents} onRowClick={setDetailItem} noWrap />
+          </div>
+          <div className="flex flex-col gap-3 sm:hidden">
+            {incidents.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setDetailItem(item)}
+                className="w-full cursor-pointer rounded-lg border border-border bg-bg-card p-4 text-left"
+              >
+                <p className="font-medium text-text-primary">{vehicleLabel(item.contractVehicle.vehicle)}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <IncidentTypeBadge type={item.incidentType} />
+                  <IncidentStatusBadge resolvedAt={item.resolvedAt} />
+                </div>
+                <p className="mt-2 truncate text-sm text-text-secondary">{item.description}</p>
+                <p className="mt-1 text-xs text-text-secondary">{formatDate(toDateOnly(item.incidentDate))}</p>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <MobileSheetDialog open={!!detailItem} onOpenChange={(v) => !v && setDetailItem(undefined)}>
+        {detailItem && (
+          <MobileSheetContent mobileVariant="sheet" className="sm:max-w-lg">
+            <MobileSheetHeader>
+              <MobileSheetTitle>Chi tiết sự cố</MobileSheetTitle>
+            </MobileSheetHeader>
+            <MobileSheetBody>
+              <div>
+                <p className="font-medium text-text-primary">{vehicleLabel(detailItem.contractVehicle.vehicle)}</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <IncidentTypeBadge type={detailItem.incidentType} />
+                  <IncidentStatusBadge resolvedAt={detailItem.resolvedAt} />
+                </div>
               </div>
-              {item.description && (
-                <p className="text-sm text-text-secondary mt-2">{item.description}</p>
-              )}
-              {item.replacementContractVehicle && (
-                <p className="text-sm text-text-secondary mt-1">
-                  Xe thay thế: {item.replacementContractVehicle.vehicle.model} · {item.replacementContractVehicle.vehicle.serialNumber}
-                </p>
-              )}
-            </div>
-            {canEdit && (
-              <div className="flex flex-col gap-1 flex-none">
+              <div>
+                <p className="text-xs text-text-secondary">Mô tả</p>
+                <p className="mt-0.5 whitespace-pre-line break-words text-sm text-text-primary">{detailItem.description}</p>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-border pt-4">
+                <IncidentMeta label="Ngày sự cố">{formatDate(toDateOnly(detailItem.incidentDate))}</IncidentMeta>
+                <IncidentMeta label="Số ngày dừng">
+                  {detailItem.downtimeDays != null ? `${detailItem.downtimeDays} ngày` : '—'}
+                </IncidentMeta>
+                <IncidentMeta label="Chi phí">
+                  {detailItem.costAmount != null ? formatCurrency(detailItem.costAmount) : '—'}
+                </IncidentMeta>
+                <IncidentMeta label="Bên chịu chi phí">
+                  {CHARGED_TO_OPTIONS.find((o) => o.value === detailItem.chargedTo)?.label ?? '—'}
+                </IncidentMeta>
+                {detailItem.replacementContractVehicle && (
+                  <IncidentMeta label="Xe thay thế">
+                    {vehicleLabel(detailItem.replacementContractVehicle.vehicle)}
+                  </IncidentMeta>
+                )}
+                <IncidentMeta label="Ghi nhận lúc">{formatDateTime(detailItem.createdAt)}</IncidentMeta>
+                {detailItem.createdBy && (
+                  <IncidentMeta label="Người ghi nhận">{detailItem.createdBy.fullName}</IncidentMeta>
+                )}
+              </dl>
+            </MobileSheetBody>
+            <MobileSheetFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDetailItem(undefined)}
+                className="cursor-pointer"
+              >
+                Đóng
+              </Button>
+              {canEdit && isContractOpen(contractStatus) && (
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => openEdit(item)}
-                  className="cursor-pointer h-8 w-8 p-0"
+                  type="button"
+                  onClick={() => {
+                    openEdit(detailItem)
+                    setDetailItem(undefined)
+                  }}
+                  className="cursor-pointer"
                 >
                   <Pencil size={14} />
+                  Sửa
                 </Button>
-              </div>
-            )}
-          </div>
-        ))
-      )}
+              )}
+            </MobileSheetFooter>
+          </MobileSheetContent>
+        )}
+      </MobileSheetDialog>
 
       <IncidentDialog
         open={dialogOpen}

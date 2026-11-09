@@ -12,7 +12,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import {
   Dialog,
   DialogContent,
@@ -301,15 +301,17 @@ export function FileCard({
 
   return (
     <>
-      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-[#E2E8F0] bg-white hover:bg-[#F4F6F8] transition-colors">
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg border border-[#E2E8F0] bg-white">
         {/* S1 — File type icon */}
         <FileTypeIcon type={fileType} />
 
         {/* S2 — File info */}
         <div className="flex-1 min-w-0">
-          <p className="text-[length:var(--fs-sm)] font-medium text-[#1A202C] truncate leading-snug">
-            {fileName}
-          </p>
+          <AppTooltip content={fileName} onlyWhenTruncated>
+            <p className="text-[length:var(--fs-sm)] font-medium text-[#1A202C] truncate leading-snug">
+              {fileName}
+            </p>
+          </AppTooltip>
           <p className="text-[length:var(--fs-xs,11px)] text-[#718096] mt-0.5 truncate">
             {metaParts.join(" | ")}
           </p>
@@ -318,36 +320,30 @@ export function FileCard({
         {/* S3 — Actions */}
         <div className="flex items-center gap-1 shrink-0">
           {canPreview && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  disabled={fetchingUrl}
-                  className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={openPreview}
-                >
-                  {fetchingUrl ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Xem trước</TooltipContent>
-            </Tooltip>
-          )}
-          <Tooltip>
-            <TooltipTrigger asChild>
+            <AppTooltip content="Xem trước">
               <button
                 type="button"
-                className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors"
-                onClick={handleDownload}
+                disabled={fetchingUrl}
+                className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={openPreview}
               >
-                <Download className="w-4 h-4" />
+                {fetchingUrl ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
               </button>
-            </TooltipTrigger>
-            <TooltipContent>Tải về</TooltipContent>
-          </Tooltip>
+            </AppTooltip>
+          )}
+          <AppTooltip content="Tải về">
+            <button
+              type="button"
+              className="p-1.5 rounded-md text-[#718096] hover:bg-[#E8F0FB] hover:text-[#1A5FAB] cursor-pointer transition-colors"
+              onClick={handleDownload}
+            >
+              <Download className="w-4 h-4" />
+            </button>
+          </AppTooltip>
           {onReplace && (
             <>
               <input
@@ -361,37 +357,31 @@ export function FileCard({
                   e.target.value = "";
                 }}
               />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={isReplacing}
-                    className="p-1.5 rounded-md text-[#718096] hover:bg-[#FFF8E1] hover:text-[#E67E22] cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    {isReplacing
-                      ? <Loader2 className="w-4 h-4 animate-spin" />
-                      : <RefreshCw className="w-4 h-4" />
-                    }
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>Thay thế file</TooltipContent>
-              </Tooltip>
+              <AppTooltip content="Thay thế file">
+                <button
+                  type="button"
+                  disabled={isReplacing}
+                  className="p-1.5 rounded-md text-[#718096] hover:bg-[#FFF8E1] hover:text-[#E67E22] cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {isReplacing
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <RefreshCw className="w-4 h-4" />
+                  }
+                </button>
+              </AppTooltip>
             </>
           )}
           {onDelete && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="p-1.5 rounded-md text-[#718096] hover:bg-[#FDECEA] hover:text-[#E74C3C] cursor-pointer transition-colors"
-                  onClick={onDelete}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Xóa</TooltipContent>
-            </Tooltip>
+            <AppTooltip content="Xóa">
+              <button
+                type="button"
+                className="p-1.5 rounded-md text-[#718096] hover:bg-[#FDECEA] hover:text-[#E74C3C] cursor-pointer transition-colors"
+                onClick={onDelete}
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </AppTooltip>
           )}
         </div>
       </div>

@@ -6,8 +6,10 @@ import { updateUser, uploadAvatar } from "@/api/users.api";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import { applyApiErrors, getApiError } from "@/utils/apiError";
 import { Camera, Eye, EyeOff, KeyRound, User } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,7 +38,7 @@ const ROLE_COLOR: Record<string, string> = {
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 const infoSchema = z.object({
-  full_name: z.string().min(1, "Bắt buộc").max(150),
+  full_name: z.string({ error: "Bắt buộc nhập họ tên" }).min(1, "Bắt buộc nhập họ tên").max(150),
   email: z
     .string()
     .email("Email không hợp lệ")
@@ -47,9 +49,9 @@ type InfoForm = z.infer<typeof infoSchema>;
 
 const passwordSchema = z
   .object({
-    old_password: z.string().min(1, "Bắt buộc"),
-    new_password: z.string().min(8, "Tối thiểu 8 ký tự"),
-    confirm_password: z.string().min(1, "Bắt buộc"),
+    old_password: z.string({ error: "Bắt buộc nhập mật khẩu hiện tại" }).min(1, "Bắt buộc nhập mật khẩu hiện tại"),
+    new_password: z.string({ error: "Bắt buộc nhập mật khẩu mới" }).min(8, "Tối thiểu 8 ký tự"),
+    confirm_password: z.string({ error: "Bắt buộc nhập lại mật khẩu mới" }).min(1, "Bắt buộc nhập lại mật khẩu mới"),
   })
   .refine((d) => d.new_password === d.confirm_password, {
     message: "Mật khẩu xác nhận không khớp",
@@ -95,12 +97,14 @@ export default function ProfilePage() {
   const [isEditingInfo, setIsEditingInfo] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarError, setAvatarError] = useState("");
 
   // ── Info form ──
   const {
     register,
     handleSubmit,
     reset,
+    setError,
     formState: { errors, isDirty },
   } = useForm<InfoForm>({
     resolver: zodResolver(infoSchema),
@@ -114,6 +118,7 @@ export default function ProfilePage() {
     register: regPwd,
     handleSubmit: handlePwd,
     reset: resetPwd,
+    setError: setPwdError,
     formState: { errors: pwdErrors },
   } = useForm<PasswordForm>({ resolver: zodResolver(passwordSchema) });
 
@@ -137,7 +142,17 @@ export default function ProfilePage() {
       setAvatarFile(null);
       setAvatarPreview(null);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    // Lỗi avatar (field = file) hiện ngay dưới ảnh, không thuộc form thông tin
+    onError: (err: unknown) => {
+      applyApiErrors(
+        err,
+        (name: string, error) => {
+          if (name === "file") setAvatarError(error.message);
+          else setError(name as keyof InfoForm, error);
+        },
+        { fullName: "full_name", email: "email", file: "file" },
+      );
+    },
   });
 
   // Mutation: change password
@@ -149,12 +164,13 @@ export default function ProfilePage() {
       resetPwd();
     },
     onError: (err: unknown) => {
-      const code = (err as { response?: { data?: { error?: { code?: string } } } })
-        ?.response?.data?.error?.code;
-      if (code === "UNAUTHORIZED") {
-        toast.error("Mật khẩu hiện tại không đúng");
+      if (getApiError(err).code === "UNAUTHORIZED") {
+        setPwdError("old_password", { type: "server", message: "Mật khẩu hiện tại không đúng" });
       } else {
-        toast.error("Có lỗi xảy ra");
+        applyApiErrors(err, setPwdError, {
+          currentPassword: "old_password",
+          newPassword: "new_password",
+        });
       }
     },
   });
@@ -171,6 +187,7 @@ export default function ProfilePage() {
       toast.error("Ảnh không được vượt quá 2MB");
       return;
     }
+    setAvatarError("");
     setAvatarFile(file);
     setAvatarPreview(URL.createObjectURL(file));
     if (!isEditingInfo) setIsEditingInfo(true);
@@ -203,14 +220,16 @@ export default function ProfilePage() {
                   {user ? generateInitials(user.fullName) : "?"}
                 </AvatarFallback>
               </Avatar>
-              <button
-                type="button"
-                onClick={() => avatarInputRef.current?.click()}
-                title="Đổi ảnh đại diện"
-                className="absolute -bottom-1 -right-1 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-[#1A5FAB] text-white shadow hover:bg-[#15499A]"
-              >
-                <Camera size={13} />
-              </button>
+              <AppTooltip content="Đổi ảnh đại diện">
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  aria-label="Đổi ảnh đại diện"
+                  className="absolute -bottom-1 -right-1 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-[#1A5FAB] text-white shadow hover:bg-[#15499A]"
+                >
+                  <Camera size={13} />
+                </button>
+              </AppTooltip>
               <input
                 ref={avatarInputRef}
                 type="file"
@@ -226,6 +245,9 @@ export default function ProfilePage() {
               <p className="mt-0.5 text-[length:var(--fs-body)] text-[#718096]">
                 {user?.phone}
               </p>
+              {avatarError && (
+                <p className="mt-0.5 text-[length:var(--fs-sm)] text-error">{avatarError}</p>
+              )}
               <div className="mt-1.5 flex flex-wrap gap-1.5">
                 {user?.roles.map((r) => (
                   <Badge

@@ -1,4 +1,20 @@
+import { formatCurrency } from "@/utils/format";
 import type { ContractVehicle, LineItem } from "@/types/contract.types";
+
+// Diễn giải lineTotal = unitPrice × quantity × (duration ?? 1). `unit` là đơn vị của đơn giá:
+// có duration thì unit đi với thời gian, còn quantity là số xe (dòng thuê xe) hoặc số lần.
+// VD: "8.000.000 ₫/Tháng × 2 xe × 1 Tháng", "1.600.000 ₫/Chuyến × 2 Chuyến"
+export function formatLineCalculation(line: LineItem): string {
+  const price = `${formatCurrency(line.unitPrice)}/${line.unit}`;
+  if (line.service.allowVehicle) {
+    const time = line.duration != null ? ` × ${line.duration} ${line.unit}` : "";
+    return `${price} × ${line.quantity} xe${time}`;
+  }
+  if (line.duration != null) {
+    return `${price} × ${line.quantity} lần × ${line.duration} ${line.unit}`;
+  }
+  return `${price} × ${line.quantity} ${line.unit}`;
+}
 
 // View model FE tự dựng: nối lineItems[] và vehicles[] (BE trả phẳng, tách rời) qua lineItemId
 export interface LineView extends LineItem {
@@ -17,6 +33,24 @@ export function buildLineViews(lines: LineItem[], cvs: ContractVehicle[]): LineV
       const currentDeployments = deployments.filter((v) => !v.returnDate);
       return { ...li, deployments, current: currentDeployments[0], currentDeployments };
     });
+}
+
+// Trạng thái thay xe của một dòng. Lần giao chiếm chỗ khi chưa được thay, và chưa trả hoặc đã có sự cố
+// replacement (giữ chỗ cho xe sắp thay). Xe thay thế nhận lại đúng chỗ của xe bị thay.
+export function getLineSlots(deployments: ContractVehicle[], replacementIncidentCvIds: Set<number>) {
+  const replacedIds = new Set(
+    deployments.map((d) => d.replacesContractVehicleId).filter((id): id is number => id != null),
+  );
+  const occupied = deployments.filter(
+    (d) => !replacedIds.has(d.id) && (!d.returnDate || replacementIncidentCvIds.has(d.id)),
+  ).length;
+  // Gán xe thay thế được: đã xuất bãi, có sự cố replacement, chưa được thay (không cần xe cũ đã trả)
+  const awaitingIds = new Set(
+    deployments
+      .filter((d) => !!d.deployDate && replacementIncidentCvIds.has(d.id) && !replacedIds.has(d.id))
+      .map((d) => d.id),
+  );
+  return { occupied, replacedIds, awaitingIds };
 }
 
 // lineItems của HĐ gồm cả dòng gốc lẫn dòng phụ lục → tách theo addendumId (không có = dòng gốc)

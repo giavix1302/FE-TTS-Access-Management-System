@@ -1,4 +1,4 @@
-import type { AuditAction, AuditLogListItem } from "@/types/auditLog.types";
+import type { AuditAction } from "@/types/auditLog.types";
 import { CONTRACT_STATUS_CONFIG } from "@/constants/contractStatus";
 import { VEHICLE_STATUS_CONFIG } from "@/constants/vehicleStatus";
 import { VEHICLE_TYPE_LABELS } from "@/constants/vehicleType";
@@ -226,6 +226,9 @@ export const AUDIT_FIELD_LABELS: Record<string, Record<string, string>> = {
     is_deleted: "Đã xóa",
     deleted_at: "Xóa lúc",
     note: "Ghi chú",
+    owner_name: "Người sở hữu",
+    purchase_date: "Ngày mua",
+    purchase_price: "Giá mua",
   },
   users: {
     password_hash: "Mật khẩu",
@@ -278,6 +281,7 @@ const MONEY_COLUMNS = new Set([
   "amount",
   "cost_amount",
   "deposit_amount",
+  "purchase_price",
 ]);
 
 // Giá trị enum lưu thô trong DB → map nhãn theo module tương ứng
@@ -297,7 +301,7 @@ const ENUM_LABELS: Record<string, Record<string, Record<string, string>>> = {
     gender: { male: "Nam", female: "Nữ", other: "Khác" },
   },
   contract_incidents: {
-    incident_type: { breakdown: "Hư hỏng", replacement: "Đổi xe", repair_onsite: "Sửa tại chỗ" },
+    incident_type: { breakdown: "Hư hỏng", replacement: "Thay xe", repair_onsite: "Sửa tại công trường" },
     charged_to: { company: "Công ty chịu", customer: "Khách hàng chịu" },
   },
   contract_addendums: {
@@ -377,19 +381,5 @@ export function getAuditMaskedText(entityType: string, column: string, action: A
   const masked = MASKED_AUDIT_COLUMNS[entityType]?.[column];
   if (!masked) return null;
   return action === "insert" ? masked.insert : masked.other;
-}
-
-// Các dòng liền nhau cùng requestId = 1 thao tác trên UI
-export function groupByRequest(logs: AuditLogListItem[]): AuditLogListItem[][] {
-  const groups: AuditLogListItem[][] = [];
-  for (const log of logs) {
-    const last = groups[groups.length - 1];
-    if (last && log.requestId && last[0].requestId === log.requestId) {
-      last.push(log);
-    } else {
-      groups.push([log]);
-    }
-  }
-  return groups;
 }
 

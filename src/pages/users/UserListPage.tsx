@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import { applyApiErrors, getApiErrorMessage } from "@/utils/apiError";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
 import { Plus, Pencil, ShieldOff, ShieldCheck, KeyRound, Copy, Check } from "lucide-react";
 import { QUERY_KEYS } from "@/utils/queryKeys";
@@ -31,11 +32,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -157,13 +154,13 @@ function UserAvatar({ user, size = "sm" }: { user: User; size?: "sm" | "md" | "l
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 const createSchema = z.object({
-  full_name: z.string().min(1, "Bắt buộc"),
+  full_name: z.string({ error: "Bắt buộc nhập họ tên" }).min(1, "Bắt buộc nhập họ tên"),
   phone: z
-    .string()
+    .string({ error: "Bắt buộc nhập số điện thoại" })
     .regex(/^0\d{9}$/, "Phải là 10 số, bắt đầu bằng 0"),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
-  password: z.string().min(8, "Tối thiểu 8 ký tự"),
-  confirm_password: z.string().min(1, "Bắt buộc"),
+  password: z.string({ error: "Bắt buộc nhập mật khẩu" }).min(8, "Tối thiểu 8 ký tự"),
+  confirm_password: z.string({ error: "Bắt buộc nhập lại mật khẩu" }).min(1, "Bắt buộc nhập lại mật khẩu"),
   role: z.enum(["admin", "manager", "accountant", "staff"], {
     error: "Bắt buộc chọn vai trò",
   }),
@@ -173,7 +170,7 @@ const createSchema = z.object({
 });
 
 const editSchema = z.object({
-  full_name: z.string().min(1, "Bắt buộc"),
+  full_name: z.string({ error: "Bắt buộc nhập họ tên" }).min(1, "Bắt buộc nhập họ tên"),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
   role: z.enum(["admin", "manager", "accountant", "staff"], {
     error: "Bắt buộc chọn vai trò",
@@ -213,6 +210,7 @@ function CreateUserDialog({
     reset,
     setValue,
     watch,
+    setError,
     formState: { errors },
   } = useForm<CreateForm>({
     resolver: zodResolver(createSchema),
@@ -236,10 +234,13 @@ function CreateUserDialog({
       handleClose();
     },
     onError: (err: unknown) => {
-      const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
-      if (code === "PHONE_ALREADY_EXISTS") toast.error("Số điện thoại đã được sử dụng");
-      else if (code === "EMAIL_ALREADY_EXISTS") toast.error("Email đã được sử dụng");
-      else toast.error("Có lỗi xảy ra");
+      applyApiErrors(err, setError, {
+        fullName: "full_name",
+        phone: "phone",
+        email: "email",
+        password: "password",
+        roleIds: "role",
+      });
     },
   });
 
@@ -411,6 +412,7 @@ function EditUserDialog({
     reset,
     setValue,
     watch,
+    setError,
     formState: { errors },
   } = useForm<EditForm>({
     resolver: zodResolver(editSchema),
@@ -444,7 +446,9 @@ function EditUserDialog({
       toast.success("Cập nhật thành công");
       handleClose();
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err: unknown) => {
+      applyApiErrors(err, setError, { fullName: "full_name", email: "email", roleIds: "role" });
+    },
   });
 
   function handleClose() {
@@ -598,7 +602,7 @@ function ResetPasswordDialog({
     onSuccess: (res) => {
       setTempPassword(res.data?.temporaryPassword ?? null);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err: unknown) => toast.error(getApiErrorMessage(err)),
   });
 
   function handleClose() {
@@ -706,7 +710,7 @@ export default function UserListPage() {
       toast.success(u.isActive ? "Đã vô hiệu hóa tài khoản" : "Đã kích hoạt tài khoản");
       setToggleUser(null);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err: unknown) => toast.error(getApiErrorMessage(err)),
   });
 
   // ─── Columns ───────────────────────────────────────────────────────────────
@@ -770,54 +774,45 @@ export default function UserListPage() {
         if (!isAdmin) return null;
         return (
           <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="cursor-pointer text-text-secondary hover:text-primary hover:bg-primary-light h-8 w-8 p-0"
-                  onClick={(e) => { e.stopPropagation(); setEditUser(u); }}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Chỉnh sửa</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="cursor-pointer text-text-secondary hover:text-warning hover:bg-[#FEF3C7] h-8 w-8 p-0"
-                  onClick={(e) => { e.stopPropagation(); setResetUser(u); }}
-                >
-                  <KeyRound className="h-3.5 w-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Reset mật khẩu</TooltipContent>
-            </Tooltip>
+            <AppTooltip content="Chỉnh sửa">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="cursor-pointer text-text-secondary hover:text-primary hover:bg-primary-light h-8 w-8 p-0"
+                onClick={(e) => { e.stopPropagation(); setEditUser(u); }}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </AppTooltip>
+            <AppTooltip content="Reset mật khẩu">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="cursor-pointer text-text-secondary hover:text-warning hover:bg-[#FEF3C7] h-8 w-8 p-0"
+                onClick={(e) => { e.stopPropagation(); setResetUser(u); }}
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+              </Button>
+            </AppTooltip>
             {!isSelf && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`cursor-pointer h-8 w-8 p-0 ${
-                      u.isActive
-                        ? "text-text-secondary hover:text-error hover:bg-error-light"
-                        : "text-text-secondary hover:text-success hover:bg-[#DCFCE7]"
-                    }`}
-                    onClick={(e) => { e.stopPropagation(); setToggleUser(u); }}
-                  >
-                    {u.isActive ? (
-                      <ShieldOff className="h-3.5 w-3.5" />
-                    ) : (
-                      <ShieldCheck className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{u.isActive ? "Vô hiệu hóa" : "Kích hoạt"}</TooltipContent>
-              </Tooltip>
+              <AppTooltip content={u.isActive ? "Vô hiệu hóa" : "Kích hoạt"}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={`cursor-pointer h-8 w-8 p-0 ${
+                    u.isActive
+                      ? "text-text-secondary hover:text-error hover:bg-error-light"
+                      : "text-text-secondary hover:text-success hover:bg-[#DCFCE7]"
+                  }`}
+                  onClick={(e) => { e.stopPropagation(); setToggleUser(u); }}
+                >
+                  {u.isActive ? (
+                    <ShieldOff className="h-3.5 w-3.5" />
+                  ) : (
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </AppTooltip>
             )}
           </div>
         );
@@ -829,7 +824,6 @@ export default function UserListPage() {
     <div className="flex flex-col gap-3 lg:gap-4">
       <PageHeader
         title="Người dùng"
-        subtitle="Quản lý tài khoản nhân viên hệ thống"
         actions={
           isAdmin ? (
             <Button

@@ -1,6 +1,7 @@
 import axiosInstance from "./axios";
+import type { LoginRequest } from "@/types/auth.types";
 
-export const login = (body: { phone: string; password: string; remember_me?: boolean }) =>
+export const login = (body: LoginRequest) =>
   axiosInstance.post("/auth/login", body).then((r) => r.data);
 
 // Cookie refresh_token tự đính kèm nhờ withCredentials — không cần truyền tham số

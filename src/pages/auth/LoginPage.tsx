@@ -3,29 +3,36 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Phone, Lock, Eye, EyeOff, Loader2, AlertCircle, ArrowRight } from "lucide-react";
+import { User, Lock, Eye, EyeOff, Loader2, AlertCircle, ArrowRight } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { login } from "@/api/auth.api";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { getSafeRedirect } from "@/utils/loginRedirect";
+import {
+  applyApiErrors,
+  getApiError,
+  getApiErrorStatus,
+  getRetryAfterSeconds,
+} from "@/utils/apiError";
+import { consumeLoginNotice, getSafeRedirect } from "@/utils/loginRedirect";
 import { loginSchema, type LoginFormValues } from "./login.schema";
 
-// Chỉ ghi nhớ số điện thoại — KHÔNG lưu token (xem CLAUDE.md mục Auth)
-const REMEMBER_PHONE_KEY = "tts-remember-phone";
+// Chỉ ghi nhớ SĐT/email — KHÔNG lưu token (xem CLAUDE.md mục Auth).
+// Giữ key cũ để người đã ghi nhớ SĐT không phải nhập lại
+const REMEMBER_IDENTIFIER_KEY = "tts-remember-phone";
 
-function readRememberedPhone(): string {
+function readRememberedIdentifier(): string {
   try {
-    return localStorage.getItem(REMEMBER_PHONE_KEY) ?? "";
+    return localStorage.getItem(REMEMBER_IDENTIFIER_KEY) ?? "";
   } catch {
     return "";
   }
 }
 
-function writeRememberedPhone(phone: string | null) {
+function writeRememberedIdentifier(identifier: string | null) {
   try {
-    if (phone) localStorage.setItem(REMEMBER_PHONE_KEY, phone);
-    else localStorage.removeItem(REMEMBER_PHONE_KEY);
+    if (identifier) localStorage.setItem(REMEMBER_IDENTIFIER_KEY, identifier);
+    else localStorage.removeItem(REMEMBER_IDENTIFIER_KEY);
   } catch {
     // Trình duyệt chặn storage — bỏ qua
   }
@@ -53,16 +60,30 @@ function LoginCard() {
   const [searchParams] = useSearchParams();
   const redirectTo = getSafeRedirect(searchParams.get("redirect"));
 
-  const [rememberedPhone] = useState(readRememberedPhone);
-  const [rememberPhone, setRememberPhone] = useState(rememberedPhone !== "");
+  const [rememberedIdentifier] = useState(readRememberedIdentifier);
+  const [rememberIdentifier, setRememberIdentifier] = useState(rememberedIdentifier !== "");
   const [showPassword, setShowPassword] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
+  // 429: BE khóa đăng nhập, kể cả nhập đúng mật khẩu → khóa nút tới khi hết thời gian chờ
+  const [lockSeconds, setLockSeconds] = useState(0);
 
   useEffect(() => {
     if (accessToken) navigate(redirectTo, { replace: true });
   }, [accessToken, navigate, redirectTo]);
+
+  // Bị đưa về do hết phiên → báo lý do
+  useEffect(() => {
+    const notice = consumeLoginNotice();
+    if (notice) toast.warning(notice);
+  }, []);
+
+  useEffect(() => {
+    if (lockSeconds <= 0) return;
+    const id = setTimeout(() => setLockSeconds((s) => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [lockSeconds]);
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setMounted(true));
@@ -73,16 +94,17 @@ function LoginCard() {
     register,
     handleSubmit,
     setFocus,
+    setError,
     formState: { errors },
   } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { phone: rememberedPhone, password: "" },
+    defaultValues: { identifier: rememberedIdentifier, password: "" },
   });
 
-  // Đã nhớ SĐT → focus thẳng vào mật khẩu
+  // Đã nhớ tài khoản → focus thẳng vào mật khẩu
   useEffect(() => {
-    setFocus(rememberedPhone ? "password" : "phone");
-  }, [setFocus, rememberedPhone]);
+    setFocus(rememberedIdentifier ? "password" : "identifier");
+  }, [setFocus, rememberedIdentifier]);
 
   const handlePasswordKey = (e: KeyboardEvent<HTMLInputElement>) => {
     setCapsLockOn(e.getModifierState("CapsLock"));
@@ -91,9 +113,9 @@ function LoginCard() {
   const onSubmit = async (values: LoginFormValues) => {
     setIsLoading(true);
     try {
-      const res = await login({ phone: values.phone, password: values.password });
+      const res = await login({ identifier: values.identifier, password: values.password });
       if (res.success) {
-        writeRememberedPhone(rememberPhone ? values.phone : null);
+        writeRememberedIdentifier(rememberIdentifier ? values.identifier : null);
         const { accessToken, user } = res.data;
         setAuth(
           {
@@ -110,11 +132,15 @@ function LoginCard() {
         navigate(redirectTo, { replace: true });
       }
     } catch (err: unknown) {
-      const data = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data;
-      const code = data?.error?.code;
-      if (code === "UNAUTHORIZED") toast.error("Số điện thoại hoặc mật khẩu không đúng");
+      const { code, message } = getApiError(err);
+      if (code === "UNAUTHORIZED") toast.error("Số điện thoại/email hoặc mật khẩu không đúng");
       else if (code === "ACCOUNT_DISABLED") toast.error("Tài khoản đã bị vô hiệu hóa. Liên hệ admin");
-      else toast.error("Không thể kết nối server");
+      // Theo HTTP status: limiter có thể trả 429 với code khác hoặc không có envelope
+      else if (getApiErrorStatus(err) === 429 || code === "TOO_MANY_REQUESTS") {
+        toast.error(message ?? "Bạn thử quá nhiều lần, vui lòng thử lại sau");
+        setLockSeconds(getRetryAfterSeconds(err) ?? 0);
+      } else if (getApiErrorStatus(err) === undefined) toast.error("Không thể kết nối server");
+      else applyApiErrors(err, setError, ["identifier", "password"]);
     } finally {
       setIsLoading(false);
     }
@@ -141,28 +167,28 @@ function LoginCard() {
 
       {/* Form */}
       <form onSubmit={handleSubmit(onSubmit)} className="mt-9 flex flex-col gap-6" noValidate>
-        {/* Số điện thoại */}
+        {/* Số điện thoại hoặc email */}
         <div className="flex flex-col gap-2">
-          <label htmlFor="login-phone" className="text-[14px] font-medium text-[#2D3748]">
-            Số điện thoại
+          <label htmlFor="login-identifier" className="text-[14px] font-medium text-[#2D3748]">
+            Số điện thoại hoặc email
           </label>
           <div className="relative">
-            <Phone
+            <User
               size={16}
               className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#A0AEC0]"
             />
             <input
-              id="login-phone"
-              {...register("phone")}
-              type="tel"
-              inputMode="numeric"
-              placeholder="0901 234 567"
-              autoComplete="tel"
-              aria-invalid={!!errors.phone}
-              className={cn(inputClass, "pr-3", errors.phone ? "border-[#E74C3C]" : "border-[#E2E8F0]")}
+              id="login-identifier"
+              {...register("identifier")}
+              type="text"
+              placeholder="0901234567 hoặc email@congty.vn"
+              autoComplete="username"
+              autoCapitalize="none"
+              aria-invalid={!!errors.identifier}
+              className={cn(inputClass, "pr-3", errors.identifier ? "border-[#E74C3C]" : "border-[#E2E8F0]")}
             />
           </div>
-          <FieldError message={errors.phone?.message} />
+          <FieldError message={errors.identifier?.message} />
         </div>
 
         {/* Mật khẩu */}
@@ -208,20 +234,20 @@ function LoginCard() {
           <FieldError message={errors.password?.message} />
         </div>
 
-        {/* Ghi nhớ SĐT */}
+        {/* Ghi nhớ tài khoản */}
         <label className="flex w-fit items-center gap-2 text-[14px] text-[#4A5568] cursor-pointer select-none">
           <Checkbox
-            checked={rememberPhone}
-            onCheckedChange={(v) => setRememberPhone(v === true)}
+            checked={rememberIdentifier}
+            onCheckedChange={(v) => setRememberIdentifier(v === true)}
             className="border-[#A0AEC0] bg-white data-[state=checked]:border-[#1A5FAB] data-[state=checked]:bg-[#1A5FAB] cursor-pointer"
           />
-          Ghi nhớ số điện thoại
+          Ghi nhớ tài khoản
         </label>
 
         {/* Nút đăng nhập */}
         <button
           type="submit"
-          disabled={isLoading}
+          disabled={isLoading || lockSeconds > 0}
           className="group mt-1 flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#1A5FAB] text-[15px] font-semibold text-white shadow-[0_8px_20px_-6px_rgba(26,95,171,0.6)] transition-all duration-200 hover:bg-[#154D8A] hover:shadow-[0_10px_24px_-6px_rgba(26,95,171,0.7)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70 cursor-pointer"
         >
           {isLoading ? (
@@ -229,6 +255,8 @@ function LoginCard() {
               <Loader2 size={16} className="animate-spin" />
               Đang đăng nhập...
             </>
+          ) : lockSeconds > 0 ? (
+            `Thử lại sau ${Math.floor(lockSeconds / 60)}:${String(lockSeconds % 60).padStart(2, "0")}`
           ) : (
             <>
               Đăng nhập

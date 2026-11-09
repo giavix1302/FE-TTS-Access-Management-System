@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -18,16 +18,16 @@ import { FileCard } from '@/components/shared/FileCard'
 import { CurrencyInput } from '@/components/shared/CurrencyInput'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
 import { DocumentExtractButton } from '@/components/shared/DocumentExtractButton'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { AppTooltip } from '@/components/shared/AppTooltip'
 import { getInvoices, createInvoice, updateInvoice, deleteInvoice } from '@/api/contracts.api'
 import { uploadDocument } from '@/api/documents.api'
 import { getCompanySettings } from '@/api/company.api'
 import { getServiceErrorMessage } from '@/constants/serviceErrors'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
-import { getApiError } from '@/utils/apiError'
+import { applyApiErrors, getApiErrorMessage, isConcurrentUpdateError } from '@/utils/apiError'
 import { QUERY_KEYS } from '@/utils/queryKeys'
-import { formatCurrency, formatDate } from '@/utils/format'
-import type { Invoice, ContractSummary, InvoiceAutofillFields } from '@/types/contract.types'
+import { formatCurrency, formatDate, toDateOnly } from '@/utils/format'
+import type { Invoice, InvoiceAutofillFields } from '@/types/contract.types'
 
 // ─── InvoiceFileCard ──────────────────────────────────────────────────────────
 function InvoiceFileCard({
@@ -64,13 +64,13 @@ function InvoiceFileCard({
 // ─── InvoiceDialog ────────────────────────────────────────────────────────────
 // BE: invoiceSymbol bắt buộc (≤ 20), totalAmount > 0, |subtotal + taxAmount − totalAmount| ≤ 1.000đ
 const invoiceSchema = z.object({
-  invoiceSymbol: z.string().trim().min(1, 'Bắt buộc').max(20, 'Tối đa 20 ký tự'),
+  invoiceSymbol: z.string({ error: 'Bắt buộc nhập ký hiệu hóa đơn' }).trim().min(1, 'Bắt buộc nhập ký hiệu hóa đơn').max(20, 'Tối đa 20 ký tự'),
   invoiceNumber: z.string().optional(),
-  invoiceDate: z.string().min(1, 'Bắt buộc'),
-  subtotal: z.number({ error: 'Bắt buộc' }).min(0),
-  vatRatePercent: z.number({ error: 'Bắt buộc' }).min(0).max(100),
-  taxAmount: z.number({ error: 'Bắt buộc' }).min(0),
-  totalAmount: z.number({ error: 'Bắt buộc' }).positive('Phải > 0'),
+  invoiceDate: z.string({ error: 'Bắt buộc chọn ngày hóa đơn' }).min(1, 'Bắt buộc chọn ngày hóa đơn'),
+  subtotal: z.number({ error: 'Bắt buộc nhập tiền trước thuế' }).min(0),
+  vatRatePercent: z.number({ error: 'Bắt buộc nhập % VAT' }).min(0).max(100),
+  taxAmount: z.number({ error: 'Bắt buộc nhập tiền VAT' }).min(0),
+  totalAmount: z.number({ error: 'Bắt buộc nhập tổng tiền' }).positive('Phải > 0'),
   note: z.string().max(500).optional(),
 })
   .refine(
@@ -96,6 +96,8 @@ function InvoiceDialog({
   const [docFile, setDocFile] = useState<File | null>(null)
   const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null)
   const [uploading, setUploading] = useState(false)
+  // Tăng mỗi lần chọn file / đóng dialog → bỏ kết quả upload cũ về muộn (tránh gửi nhầm documentId)
+  const uploadSeq = useRef(0)
   const [extracting, setExtracting] = useState(false)
 
   const { data: companySettingsRes } = useQuery({
@@ -158,25 +160,35 @@ function InvoiceDialog({
   }, [companySettingsRes])
 
   function handleClose(v: boolean) {
-    if (!v) { reset(); setDocFile(null); setUploadedDoc(null) }
+    if (!v) {
+      reset(); setDocFile(null); setUploadedDoc(null)
+      uploadSeq.current++
+      setUploading(false)
+    }
     onOpenChange(v)
   }
 
   // Upload ngay lúc chọn file (is_temp=true) để có URL thật cho preview — thay vì blob URL cục bộ,
   // đặc biệt cần cho DOCX/XLSX vốn chỉ xem trước được qua Office Viewer (cần URL công khai truy cập được).
   async function handleFileChange(f: File | null) {
+    const seq = ++uploadSeq.current
     setDocFile(f)
     setUploadedDoc(null)
-    if (!f) return
+    if (!f) {
+      setUploading(false)
+      return
+    }
     setUploading(true)
     try {
       const doc = await uploadDocument({ file: f, doc_type: 'invoice', is_temp: true })
+      if (seq !== uploadSeq.current) return
       setUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl })
-    } catch {
-      toast.error('Tải file lên thất bại, vui lòng thử lại')
+    } catch (err) {
+      if (seq !== uploadSeq.current) return
+      toast.error(getApiErrorMessage(err, 'Tải file lên thất bại, vui lòng thử lại'))
       setDocFile(null)
     } finally {
-      setUploading(false)
+      if (seq === uploadSeq.current) setUploading(false)
     }
   }
 
@@ -199,11 +211,13 @@ function InvoiceDialog({
       handleClose(false)
     },
     onError: (err) => {
-      if (getApiError(err).code === 'AMOUNT_MISMATCH') {
-        setError('totalAmount', { message: getServiceErrorMessage(err) })
-        return
-      }
-      toast.error(getServiceErrorMessage(err))
+      applyApiErrors(
+        err,
+        setError,
+        ['invoiceSymbol', 'invoiceDate', 'subtotal', 'taxAmount', 'totalAmount'],
+        getServiceErrorMessage(err),
+      )
+      if (isConcurrentUpdateError(err)) handleClose(false)
     },
   })
 
@@ -344,11 +358,10 @@ function InvoiceDialog({
 // ─── InvoicesTab ──────────────────────────────────────────────────────────────
 interface InvoicesTabProps {
   contractId: number
-  summary: ContractSummary | undefined
   canEdit: boolean
 }
 
-export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) {
+export function InvoicesTab({ contractId, canEdit }: InvoicesTabProps) {
   const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingItem, setEditingItem] = useState<Invoice | undefined>()
@@ -374,30 +387,15 @@ export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) 
   const openEdit = (item: Invoice) => { setEditingItem(item); setDialogOpen(true) }
 
   return (
-    <div className="mt-4">
-      {/* Summary bar */}
-      {summary && (
-        <div className="flex flex-wrap gap-6 p-4 bg-primary-light rounded-lg mb-4 text-sm">
-          <span>Phải thanh toán: <b>{formatCurrency(summary.amountPayable)}</b></span>
-          <span>Đã thanh toán: <b className="text-success">{formatCurrency(summary.amountPaid)}</b></span>
-          <span>
-            Còn lại:{' '}
-            <b className={summary.amountRemaining > 0 ? 'text-error' : 'text-success'}>
-              {formatCurrency(summary.amountRemaining)}
-            </b>
-          </span>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between mb-4">
-        <span className="font-medium text-text-primary">Hóa đơn</span>
-        {canEdit && (
+    <div className="mt-4 rounded-lg border border-border bg-bg-card p-5">
+      {canEdit && (
+        <div className="flex items-center justify-end mb-4">
           <Button variant="outline" size="sm" onClick={openAdd} className="cursor-pointer">
             <Plus size={14} />
             Thêm hóa đơn
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -406,72 +404,82 @@ export function InvoicesTab({ contractId, summary, canEdit }: InvoicesTabProps) 
       ) : !invoices || invoices.length === 0 ? (
         <EmptyState description="Chưa có hóa đơn nào" />
       ) : (
-        invoices.map((item) => (
-          <div key={item.id} className="bg-bg-card rounded-lg border border-border p-4 mb-3 space-y-3">
-            {/* Row 1: info + actions */}
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  {item.invoiceSymbol ? (
-                    <span className="font-mono text-sm text-text-secondary">{item.invoiceSymbol}</span>
-                  ) : (
-                    <Badge variant="outline" className="border-warning text-warning">Chưa có ký hiệu</Badge>
-                  )}
+        <div className="space-y-3">
+          {invoices.map((item) => (
+            <div key={item.id} className="overflow-hidden rounded-lg border border-border bg-bg-card">
+              {/* Header: định danh hóa đơn + thao tác */}
+              <div className="flex items-center justify-between gap-3 border-b border-border bg-primary-light px-4 py-2.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                   {/* BE bỏ key khi null → so `!` chứ không `=== null` */}
                   {!item.invoiceNumber ? (
                     <Badge variant="outline" className="border-warning text-warning">Chưa có số HĐ</Badge>
                   ) : (
-                    <span className="font-mono font-semibold text-sm text-text-primary">{item.invoiceNumber}</span>
+                    <p className="min-w-0 break-words font-semibold text-text-primary">Hóa đơn số {item.invoiceNumber}</p>
                   )}
-                </div>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1">
-                    <CalendarIcon size={10} />
-                    {formatDate(item.invoiceDate)}
+                  {item.invoiceSymbol ? (
+                    <span className="text-sm text-text-secondary">Ký hiệu {item.invoiceSymbol}</span>
+                  ) : (
+                    <Badge variant="outline" className="border-warning text-warning">Chưa có ký hiệu</Badge>
+                  )}
+                  <span className="inline-flex items-center gap-1 text-sm text-text-secondary">
+                    <CalendarIcon size={14} />
+                    {formatDate(toDateOnly(item.invoiceDate))}
                   </span>
-                  <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                    {formatCurrency(item.totalAmount)}
-                  </span>
                 </div>
-                <p className="text-sm text-text-secondary mt-1">
-                  Subtotal: {formatCurrency(item.subtotal)} · VAT: {formatCurrency(item.taxAmount)}
-                </p>
-                {item.note && (
-                  <p className="text-sm text-text-secondary mt-1">{item.note}</p>
-                )}
-              </div>
-              {canEdit && (
-                <div className="flex items-center gap-0.5 flex-none">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(item)} className="cursor-pointer h-8 w-8 p-0">
+                {canEdit && (
+                  <div className="flex flex-none items-center gap-0.5">
+                    <AppTooltip content="Chỉnh sửa hóa đơn">
+                      <Button variant="ghost" size="sm" aria-label="Chỉnh sửa hóa đơn" onClick={() => openEdit(item)} className="cursor-pointer h-8 w-8 p-0">
                         <Pencil size={14} />
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Chỉnh sửa hóa đơn</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setDeletingId(item.id) }} className="cursor-pointer h-8 w-8 p-0 hover:bg-error hover:text-white">
+                    </AppTooltip>
+                    <AppTooltip content="Xóa hóa đơn">
+                      <Button variant="ghost" size="sm" aria-label="Xóa hóa đơn" onClick={(e) => { e.stopPropagation(); setDeletingId(item.id) }} className="cursor-pointer h-8 w-8 p-0 hover:bg-error hover:text-white">
                         <Trash2 size={14} />
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Xóa hóa đơn</TooltipContent>
-                  </Tooltip>
+                    </AppTooltip>
+                  </div>
+                )}
+              </div>
+
+              {/* Thân card chia đôi: số tiền + ghi chú | file */}
+              <div className="grid grid-cols-1 md:grid-cols-2">
+                <div className="min-w-0 p-4">
+                  <dl className="grid grid-cols-3 gap-3">
+                    <div className="min-w-0">
+                      <dt className="text-xs text-text-secondary">Trước thuế</dt>
+                      <dd className="mt-0.5 text-sm text-text-primary">{formatCurrency(item.subtotal)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-text-secondary">Thuế VAT</dt>
+                      <dd className="mt-0.5 text-sm text-text-primary">{formatCurrency(item.taxAmount)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-text-secondary">Tổng tiền</dt>
+                      <dd className="mt-0.5 text-sm font-semibold text-primary">{formatCurrency(item.totalAmount)}</dd>
+                    </div>
+                  </dl>
+                  {item.note && (
+                    <div className="mt-3 border-t border-border pt-3">
+                      <p className="text-xs text-text-secondary">Ghi chú</p>
+                      <p className="mt-0.5 whitespace-pre-line break-words text-sm text-text-primary">{item.note}</p>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                <div className="min-w-0 border-t border-border p-4 md:border-l md:border-t-0">
+                  <p className="mb-2 text-xs text-text-secondary">File hóa đơn</p>
+                  <InvoiceFileCard
+                    document={item.document}
+                    invoiceId={item.id}
+                    contractId={contractId}
+                    canEdit={canEdit}
+                  />
+                </div>
+              </div>
             </div>
-            {/* Row 2: file */}
-            <div className="pt-3 border-t border-border">
-              <InvoiceFileCard
-                document={item.document}
-                invoiceId={item.id}
-                contractId={contractId}
-                canEdit={canEdit}
-              />
-            </div>
-          </div>
-        ))
+          ))}
+        </div>
       )}
 
       <InvoiceDialog

@@ -5,7 +5,6 @@ import type {
   AddContractVehicleInput,
   Addendum,
   ChangeContractStatusInput,
-  ChangeContractStatusResult,
   ContractDetail,
   ContractListItem,
   ContractSummary,
@@ -19,6 +18,7 @@ import type {
   Incident,
   Invoice,
   LineItem,
+  UpdateAddendumInput,
   UpdateContractInput,
   UpdateContractVehicleInput,
   UpdateIncidentInput,
@@ -48,8 +48,9 @@ export const createContract = (body: CreateContractInput): Promise<ApiResponse<C
 export const updateContract = (id: number, body: UpdateContractInput) =>
   axiosInstance.put(`/contracts/${id}`, body).then((r) => r.data);
 
-export const changeContractStatus = (id: number, body: ChangeContractStatusInput): Promise<ChangeContractStatusResult | undefined> =>
-  axiosInstance.patch(`/contracts/${id}/status`, body).then((r) => r.data);
+// 204; còn xe đã xuất mà chưa trả → 409 VEHICLES_STILL_RENTING, HĐ giữ nguyên
+export const changeContractStatus = (id: number, body: ChangeContractStatusInput): Promise<void> =>
+  axiosInstance.patch(`/contracts/${id}/status`, body).then(() => undefined);
 
 // Line items
 export const getLineItems = (contractId: number): Promise<ApiResponse<LineItem[]>> =>
@@ -84,10 +85,11 @@ export const getAddendums = (contractId: number): Promise<ApiResponse<Addendum[]
 export const getAddendum = (contractId: number, addId: number): Promise<ApiResponse<Addendum>> =>
   axiosInstance.get(`/contracts/${contractId}/addendums/${addId}`).then((r) => r.data);
 
-export const createAddendum = (contractId: number, body: CreateAddendumInput) =>
+// Kèm lineItems[] (+ vehicles[] từng dòng) → lưu 1 lượt, lỗi 1 dòng thì không tạo gì. Response không có danh sách xe
+export const createAddendum = (contractId: number, body: CreateAddendumInput): Promise<ApiResponse<Addendum>> =>
   axiosInstance.post(`/contracts/${contractId}/addendums`, body).then((r) => r.data);
 
-export const updateAddendum = (contractId: number, addId: number, body: Partial<CreateAddendumInput>) =>
+export const updateAddendum = (contractId: number, addId: number, body: UpdateAddendumInput) =>
   axiosInstance.put(`/contracts/${contractId}/addendums/${addId}`, body).then((r) => r.data);
 
 export const deleteAddendum = (contractId: number, addId: number) =>

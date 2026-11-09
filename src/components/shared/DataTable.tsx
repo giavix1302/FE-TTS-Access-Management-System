@@ -29,6 +29,11 @@ interface DataTableProps<TData, TValue> {
   emptyDescription?: string
   emptyAction?: React.ReactNode
   onRowClick?: (row: TData) => void
+  /** Không xuống dòng trong ô: cột giữ đủ độ rộng theo nội dung, thiếu chỗ thì cuộn ngang */
+  noWrap?: boolean
+  /** Bật bố cục cột cố định: cột có `size` giữ đúng độ rộng, cột không có `size` nhận phần còn lại.
+   *  Bảng hẹp hơn giá trị này (px) thì cuộn ngang thay vì co cột */
+  minTableWidth?: number
 }
 
 export function DataTable<TData, TValue>({
@@ -42,6 +47,8 @@ export function DataTable<TData, TValue>({
   emptyDescription,
   emptyAction,
   onRowClick,
+  noWrap = false,
+  minTableWidth,
 }: DataTableProps<TData, TValue>) {
   const isControlled = pagination !== undefined && onPaginationChange !== undefined
 
@@ -77,7 +84,12 @@ export function DataTable<TData, TValue>({
   return (
     <div className="flex flex-col gap-4">
       <div className="overflow-hidden rounded-lg border border-border bg-white">
-        <Table>
+        <Table
+          className={[noWrap && "whitespace-nowrap", minTableWidth && "table-fixed"]
+            .filter(Boolean)
+            .join(" ") || undefined}
+          style={minTableWidth ? { minWidth: minTableWidth } : undefined}
+        >
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} className="border-b border-border bg-primary-light hover:bg-primary-light">

@@ -1,6 +1,7 @@
 import { type UseFormReturn } from "react-hook-form";
 import { z } from "zod";
-import { getApiError } from "@/utils/apiError";
+import { applyApiErrors } from "@/utils/apiError";
+import { toDateOnly, todayInVietnam } from "@/utils/format";
 import type {
   CreateVehicleBody,
   VehicleDetail,
@@ -34,17 +35,17 @@ export const makeVehicleSchema = (mode: "create" | "edit") =>
   z
     .object({
       serialNumber: z.string().trim().max(100, "Tối đa 100 ký tự").optional(),
-      model: z.string().trim().min(1, "Bắt buộc").max(100, "Tối đa 100 ký tự"),
-      manufacturer: z.string().trim().min(1, "Bắt buộc").max(100, "Tối đa 100 ký tự"),
+      model: z.string({ error: "Bắt buộc nhập model xe" }).trim().min(1, "Bắt buộc nhập model xe").max(100, "Tối đa 100 ký tự"),
+      manufacturer: z.string({ error: "Bắt buộc nhập hãng sản xuất" }).trim().min(1, "Bắt buộc nhập hãng sản xuất").max(100, "Tối đa 100 ký tự"),
       manufactureYear: z.preprocess(
         emptyToUndefined,
         z.coerce
-          .number({ error: "Bắt buộc" })
+          .number({ error: "Bắt buộc nhập năm sản xuất" })
           .int("Phải là số nguyên")
           .min(1900, "Năm không hợp lệ (từ 1900)")
           .max(maxYear, `Năm không hợp lệ (tối đa ${maxYear})`),
       ),
-      engineType: z.enum(["Fuel", "Electric"], { error: "Bắt buộc" }),
+      engineType: z.enum(["Fuel", "Electric"], { error: "Bắt buộc chọn loại động cơ" }),
       // Thêm: bắt buộc. Sửa: xe cũ có thể chưa có loại → để trống = giữ nguyên
       vehicleType: z
         .enum(["telescopic_boom", "articulating_boom", "scissor", "vertical_mast", "spider"])
@@ -56,6 +57,12 @@ export const makeVehicleSchema = (mode: "create" | "edit") =>
       liftingSpeed: optionalNumber(),
       travelingSpeed: optionalNumber(),
       note: z.string().trim().max(1000, "Tối đa 1000 ký tự").optional(),
+      ownerName: z.string().trim().max(200, "Người sở hữu tối đa 200 ký tự").optional(),
+      purchaseDate: z
+        .string()
+        .optional()
+        .refine((v) => !v || v <= todayInVietnam(), "Ngày mua không được ở tương lai"),
+      purchasePrice: z.number().min(0, "Giá mua không hợp lệ (không được âm)").optional(),
       lat: z.preprocess(
         emptyToUndefined,
         z.coerce.number({ error: "Phải là số" }).min(-90, "Từ -90 đến 90").max(90, "Từ -90 đến 90").optional(),
@@ -67,10 +74,10 @@ export const makeVehicleSchema = (mode: "create" | "edit") =>
     })
     .superRefine((v, ctx) => {
       if (mode === "create" && !v.serialNumber) {
-        ctx.addIssue({ code: "custom", path: ["serialNumber"], message: "Bắt buộc" });
+        ctx.addIssue({ code: "custom", path: ["serialNumber"], message: "Bắt buộc nhập số serial" });
       }
       if (mode === "create" && !v.vehicleType) {
-        ctx.addIssue({ code: "custom", path: ["vehicleType"], message: "Bắt buộc" });
+        ctx.addIssue({ code: "custom", path: ["vehicleType"], message: "Bắt buộc chọn loại xe" });
       }
       // lat/lng đi theo cặp
       if ((v.lat == null) !== (v.lng == null)) {
@@ -98,6 +105,9 @@ export const EMPTY_VEHICLE_FORM: VehicleFormInput = {
   liftingSpeed: "",
   travelingSpeed: "",
   note: "",
+  ownerName: "",
+  purchaseDate: "",
+  purchasePrice: undefined,
   lat: "",
   lng: "",
 };
@@ -116,12 +126,16 @@ export const vehicleToFormValues = (v: VehicleDetail): VehicleFormInput => ({
   liftingSpeed: v.liftingSpeed ?? "",
   travelingSpeed: v.travelingSpeed ?? "",
   note: v.note ?? "",
+  ownerName: v.ownerName ?? "",
+  purchaseDate: toDateOnly(v.purchaseDate) ?? "",
+  purchasePrice: v.purchasePrice ?? undefined,
   lat: "",
   lng: "",
 });
 
 // PUT ghi đè toàn bộ: field trống gửi null (= xóa giá trị). lat/lng chỉ gửi khi có đủ cặp.
-// vehicleType thì ngược lại: không gửi = giữ loại cũ (BE không cho xóa loại)
+// vehicleType thì ngược lại: không gửi = giữ loại cũ (BE không cho xóa loại).
+// Người sở hữu: "" = xóa. Ngày mua / giá mua: không gửi = giữ cũ, BE chưa có cách xóa trống
 export const toVehicleBody = (v: VehicleFormValues): VehicleUpsertBody => ({
   model: v.model,
   manufacturer: v.manufacturer,
@@ -135,37 +149,34 @@ export const toVehicleBody = (v: VehicleFormValues): VehicleUpsertBody => ({
   liftingSpeed: v.liftingSpeed ?? null,
   travelingSpeed: v.travelingSpeed ?? null,
   note: v.note || null,
+  ownerName: v.ownerName ?? "",
+  ...(v.purchaseDate ? { purchaseDate: v.purchaseDate } : {}),
+  ...(v.purchasePrice != null ? { purchasePrice: v.purchasePrice } : {}),
   ...(v.lat != null && v.lng != null ? { lat: v.lat, lng: v.lng } : {}),
 });
 
 export const toCreateVehicleBody = (v: VehicleFormValues): CreateVehicleBody => ({
-  serialNumber: (v.serialNumber ?? "").trim(),
+  // BE lưu serial cắt khoảng trắng + IN HOA, kiểm tra trùng theo dạng đó
+  serialNumber: (v.serialNumber ?? "").trim().toUpperCase(),
   ...toVehicleBody(v),
   // Schema create đã bắt buộc vehicleType
   vehicleType: v.vehicleType!,
 });
 
-const FORM_FIELDS = new Set(Object.keys(EMPTY_VEHICLE_FORM));
+// Form sửa không hiện serial / vị trí → lỗi các ô này phải ra toast
+const HIDDEN_WHEN_EDIT = ["serialNumber", "lat", "lng"];
 
-// Map lỗi BE vào ô input. Trả false nếu không map được → caller tự toast
-export function applyVehicleServerError(err: unknown, form: VehicleFormApi): boolean {
-  const { code, message, details } = getApiError(err);
-  if (code === "SERIAL_NUMBER_ALREADY_EXISTS") {
-    form.setError("serialNumber", { message: message ?? "Serial đã tồn tại" });
-    return true;
-  }
-  if (code === "VALIDATION_ERROR" && details?.length) {
-    let mapped = false;
-    details.forEach((d) => {
-      if (FORM_FIELDS.has(d.field)) {
-        form.setError(d.field as keyof VehicleFormInput, { message: d.message });
-        mapped = true;
-      }
-    });
-    return mapped;
-  }
-  return false;
-}
+// Map lỗi BE vào ô input, không map được thì toast
+export const applyVehicleServerError = (
+  err: unknown,
+  form: VehicleFormApi,
+  mode: "create" | "edit",
+) =>
+  applyApiErrors(
+    err,
+    form.setError,
+    Object.keys(EMPTY_VEHICLE_FORM).filter((f) => mode === "create" || !HIDDEN_WHEN_EDIT.includes(f)),
+  );
 
 // ─── Geolocation ─────────────────────────────────────────────────────────────
 

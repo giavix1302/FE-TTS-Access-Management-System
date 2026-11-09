@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -17,6 +17,7 @@ import { MobileTwoColDialog } from "@/components/shared/MobileTwoColDialog";
 import { updateContract } from "@/api/contracts.api";
 import { uploadDocument } from "@/api/documents.api";
 import { useReplaceDocument } from "@/hooks/useReplaceDocument";
+import { applyApiErrors, getApiErrorMessage, isConcurrentUpdateError } from "@/utils/apiError";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatCurrency, formatDate } from "@/utils/format";
 import type { ContractCustomer, ContractDetail } from "@/types/contract.types";
@@ -67,12 +68,12 @@ function CustomerInfo({ customer }: { customer: ContractCustomer }) {
 }
 
 // ─── ContractInfoDialog ────────────────────────────────────────────────────────
-// Ngày kết thúc không nhập tay: BE tính = startDate + số ngày làm lớn nhất của các xe − 1.
+// Ngày kết thúc không nhập tay: BE tính = startDate + tổng số ngày của chuỗi thay xe dài nhất − 1.
 // Ngày trừ đã chuyển sang BBNT.
 const contractInfoSchema = z.object({
-  contractNumber: z.string().trim().min(1, "Bắt buộc").max(100, "Tối đa 100 ký tự"),
-  startDate: z.string().min(1, "Bắt buộc"),
-  siteAddress: z.string().trim().min(1, "Bắt buộc").max(500, "Tối đa 500 ký tự"),
+  contractNumber: z.string({ error: "Bắt buộc nhập số hợp đồng" }).trim().min(1, "Bắt buộc nhập số hợp đồng").max(100, "Tối đa 100 ký tự"),
+  startDate: z.string({ error: "Bắt buộc chọn ngày bắt đầu" }).min(1, "Bắt buộc chọn ngày bắt đầu"),
+  siteAddress: z.string({ error: "Bắt buộc nhập địa điểm công trường" }).trim().min(1, "Bắt buộc nhập địa điểm công trường").max(500, "Tối đa 500 ký tự"),
   depositAmount: z.number().min(0, "Phải >= 0").optional(),
 });
 
@@ -93,12 +94,15 @@ function ContractInfoDialog({
   const [docFile, setDocFile] = useState<File | null>(null);
   const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Tăng mỗi lần chọn file / đóng dialog → bỏ kết quả upload cũ về muộn (tránh gửi nhầm documentId)
+  const uploadSeq = useRef(0);
 
   const {
     register,
     handleSubmit,
     control,
     reset,
+    setError,
     formState: { errors },
   } = useForm<ContractInfoForm>({
     resolver: zodResolver(contractInfoSchema),
@@ -111,25 +115,35 @@ function ContractInfoDialog({
   });
 
   function handleClose(v: boolean) {
-    if (!v) { reset(); setDocFile(null); setUploadedDoc(null) }
+    if (!v) {
+      reset(); setDocFile(null); setUploadedDoc(null);
+      uploadSeq.current++;
+      setUploading(false);
+    }
     onOpenChange(v);
   }
 
   // Upload ngay lúc chọn file (is_temp=true) để có URL thật cho preview — blob URL cục bộ
   // không xem được DOCX/XLSX vì Office Viewer cần URL công khai. BE dọn file tạm sau 3h nếu không gắn vào HĐ.
   async function handleFileChange(f: File | null) {
+    const seq = ++uploadSeq.current;
     setDocFile(f);
     setUploadedDoc(null);
-    if (!f) return;
+    if (!f) {
+      setUploading(false);
+      return;
+    }
     setUploading(true);
     try {
       const doc = await uploadDocument({ file: f, doc_type: "contract", is_temp: true });
+      if (seq !== uploadSeq.current) return;
       setUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
-    } catch {
-      toast.error("Tải file lên thất bại, vui lòng thử lại");
+    } catch (err) {
+      if (seq !== uploadSeq.current) return;
+      toast.error(getApiErrorMessage(err, "Tải file lên thất bại, vui lòng thử lại"));
       setDocFile(null);
     } finally {
-      setUploading(false);
+      if (seq === uploadSeq.current) setUploading(false);
     }
   }
 
@@ -150,7 +164,10 @@ function ContractInfoDialog({
       toast.success("Đã cập nhật thông tin hợp đồng");
       handleClose(false);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err) => {
+      applyApiErrors(err, setError, ["contractNumber", "startDate", "siteAddress", "depositAmount"]);
+      if (isConcurrentUpdateError(err)) handleClose(false);
+    },
   });
 
   return (
@@ -304,7 +321,7 @@ export function ContractTab({
               </p>
               <p className="text-xs text-text-secondary">
                 {contract.endDate
-                  ? "Ngày bắt đầu + số ngày làm lớn nhất của các xe − 1"
+                  ? "Ngày bắt đầu + tổng số ngày của chuỗi xe dài nhất − 1"
                   : "Tự tính khi có xe được nhập số ngày làm (mục Dịch vụ & xe)"}
               </p>
             </div>
@@ -357,12 +374,14 @@ export function ContractTab({
       </div>
 
       {/* Dialogs */}
-      <ContractInfoDialog
-        open={editInfoOpen}
-        onOpenChange={setEditInfoOpen}
-        contract={contract}
-        contractId={contractId}
-      />
+      {editInfoOpen && (
+        <ContractInfoDialog
+          open={editInfoOpen}
+          onOpenChange={setEditInfoOpen}
+          contract={contract}
+          contractId={contractId}
+        />
+      )}
     </div>
   );
 }

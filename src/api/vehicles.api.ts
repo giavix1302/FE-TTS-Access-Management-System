@@ -40,7 +40,8 @@ export const deleteVehicle = (id: number) =>
 
 export const changeVehicleStatus = (
   id: number,
-  body: { newStatus: VehicleStatus; reason?: string }
+  // returnDate (yyyy-MM-dd): chỉ gửi được khi xe chuyển renting → at_yard. Không gửi = hôm nay
+  body: { newStatus: VehicleStatus; reason?: string; returnDate?: string }
 ) => axiosInstance.patch(`/vehicles/${id}/status`, body).then((r) => r.data);
 
 export const getVehicleStatusLogs = (

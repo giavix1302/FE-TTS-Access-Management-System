@@ -10,7 +10,7 @@ import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { Skeleton } from "@/components/ui/skeleton";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatDateTime } from "@/utils/format";
-import { getApiError, getApiErrorMessage } from "@/utils/apiError";
+import { applyApiErrors, getApiErrorMessage } from "@/utils/apiError";
 import { toast } from "sonner";
 import { usePermission } from "@/hooks/usePermission";
 import { isValidPhone, PHONE_INPUT_PATTERN, PHONE_VALIDATION_MESSAGE } from "@/utils/phone";
@@ -39,15 +39,13 @@ export default function ContactDetailPage() {
     mutationFn: (body: { fullName: string; phone: string; email: string }) => updateContact(contactId, body),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contacts.detail(contactId) }); queryClient.invalidateQueries({ queryKey: QUERY_KEYS.contacts.all }); toast.success("Đã cập nhật người liên hệ"); setEditErrors({}); setEditing(false); },
     onError: (error: unknown) => {
-      const apiError = getApiError(error);
       const nextErrors: Record<string, string> = {};
-      apiError.details?.forEach(({ field, message }) => { nextErrors[field] = message; });
-      if (apiError.code === "CONTACT_PHONE_OR_EMAIL_EXISTS" && !apiError.details?.length) {
-        nextErrors.phone = apiError.message ?? "Số điện thoại hoặc email đã được sử dụng";
-        nextErrors.email = apiError.message ?? "Số điện thoại hoặc email đã được sử dụng";
-      }
+      applyApiErrors(
+        error,
+        (name: string, { message }) => { nextErrors[name] = message; },
+        ["fullName", "phone", "email"],
+      );
       setEditErrors(nextErrors);
-      toast.error(getApiErrorMessage(error));
     },
   });
   const deleteMutation = useMutation({

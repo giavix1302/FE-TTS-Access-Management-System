@@ -17,7 +17,7 @@ import { useNotificationStore } from "@/stores/notificationStore";
 import { generateInitials } from "@/utils/helpers";
 import { logout } from "@/api/auth.api";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 
 interface TopbarProps {
   onMobileMenuOpen: () => void;
@@ -66,41 +66,33 @@ export default function Topbar({ onMobileMenuOpen }: TopbarProps) {
     >
       {/* Bên trái: hamburger trên mobile */}
       <div className="flex items-center">
-        <button
-          onClick={onMobileMenuOpen}
-          className="rounded p-1.5 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB] lg:hidden cursor-pointer"
-          title="Mở menu"
-        >
-          <Menu size={22} />
-        </button>
+        <AppTooltip content="Mở menu" side="bottom">
+          <button
+            onClick={onMobileMenuOpen}
+            aria-label="Mở menu"
+            className="rounded p-1.5 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB] lg:hidden cursor-pointer"
+          >
+            <Menu size={22} />
+          </button>
+        </AppTooltip>
       </div>
 
       {/* Bên phải */}
       <div className="flex items-center gap-4">
         {/* Icon chuông */}
-        <TooltipProvider>
-          <Tooltip delayDuration={100}>
-            <TooltipTrigger asChild>
-              <button
-                onClick={() => navigate("/notifications")}
-                className="cursor-pointer relative rounded p-1 text-[#718096] transition-colors hover:text-[#1A5FAB]"
-              >
-                <Bell size={20} />
-                {unreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[11px] font-semibold text-white">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              className="rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
-            >
-              Thông báo
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <AppTooltip content="Thông báo" side="bottom">
+          <button
+            onClick={() => navigate("/notifications")}
+            className="cursor-pointer relative rounded p-1 text-[#718096] transition-colors hover:text-[#1A5FAB]"
+          >
+            <Bell size={20} />
+            {unreadCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#E74C3C] px-1 text-[11px] font-semibold text-white">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </button>
+        </AppTooltip>
 
         {/* Avatar + Dropdown */}
         <DropdownMenu>

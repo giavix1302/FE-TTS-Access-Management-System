@@ -17,6 +17,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import {
   getDashboardSummary,
   getDashboardCharts,
@@ -29,7 +30,11 @@ import { formatDate } from "@/utils/format";
 
 interface DashboardSummary {
   vehiclesRenting: { renting: number; total: number };
-  contractsActive: { count: number };
+  /** count không còn tính HĐ chưa bắt đầu (status not_started) — số đó nằm ở notStartedCount */
+  /** count đã BAO GỒM HĐ hết hạn — không cộng với contractsExpired.count */
+  contractsActive: { count: number; notStartedCount?: number };
+  /** Số HĐ active đã quá endDate (tập con của contractsActive.count) */
+  contractsExpired?: { count: number };
   revenueThisMonth: { amount: number; month: string };
   uninvoicedDebt: { amount: number };
 }
@@ -234,9 +239,21 @@ export default function DashboardPage() {
               <p className="text-[length:var(--fs-display)] font-bold text-text-primary leading-none">
                 {summary?.contractsActive.count ?? 0}
               </p>
-              <span className="inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium bg-success-light text-success">
-                Đang hiệu lực
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium bg-primary-light text-primary">
+                  Đang hiệu lực
+                </span>
+                {(summary?.contractsExpired?.count ?? 0) > 0 && (
+                  <span className="inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium bg-error-light text-error">
+                    {summary?.contractsExpired?.count} quá hạn
+                  </span>
+                )}
+                {(summary?.contractsActive.notStartedCount ?? 0) > 0 && (
+                  <span className="inline-flex w-fit items-center rounded-full px-2 py-0.5 text-[length:var(--fs-sm)] font-medium bg-gray-100 text-gray-600">
+                    {summary?.contractsActive.notStartedCount} chưa bắt đầu
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Card 3 — Doanh thu tháng này */}
@@ -505,12 +522,11 @@ export default function DashboardPage() {
                       onClick={() => navigate(`/contracts/${contract.id}`)}
                     >
                       <td className="px-3 py-2 max-w-[120px]">
-                        <p
-                          className="font-medium text-primary truncate"
-                          title={contract.contractNumber ?? undefined}
-                        >
-                          {contract.contractNumber ?? "—"}
-                        </p>
+                        <AppTooltip content={contract.contractNumber} onlyWhenTruncated>
+                          <p className="font-medium text-primary truncate">
+                            {contract.contractNumber ?? "—"}
+                          </p>
+                        </AppTooltip>
                         {/* Hiện tên KH inline trên mobile thay vì cột riêng */}
                         <p className="sm:hidden text-[length:var(--fs-sm)] text-text-secondary truncate mt-0.5">
                           {contract.customer.displayName}

@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getContractHistory } from "@/api/audit-logs.api";
+import { getContractHistoryGroups } from "@/api/audit-logs.api";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/shared/EmptyState";
 import { Pagination } from "@/components/shared/Pagination";
-import { groupByRequest } from "@/constants/auditLog";
 import { AuditLogGroupRow } from "@/pages/audit-logs/components/AuditLogGroupRow";
 import { AuditLogDetailDialog } from "@/pages/audit-logs/components/AuditLogDetailDialog";
 import { QUERY_KEYS } from "@/utils/queryKeys";
@@ -16,10 +15,10 @@ export function ContractHistoryTab({ contractId }: { contractId: number }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const { data, isLoading } = useQuery({
     queryKey: QUERY_KEYS.contracts.history(contractId, pageIndex + 1),
-    queryFn: () => getContractHistory(contractId, { page: pageIndex + 1, page_size: PAGE_SIZE }),
+    queryFn: () => getContractHistoryGroups(contractId, { page: pageIndex + 1, page_size: PAGE_SIZE }),
   });
 
-  const groups = groupByRequest(data?.data ?? []);
+  const groups = data?.data ?? [];
 
   return (
     <div className="mt-4 overflow-hidden rounded-lg border border-border bg-bg-card">
@@ -33,7 +32,7 @@ export function ContractHistoryTab({ contractId }: { contractId: number }) {
       ) : (
         <div className="divide-y divide-border">
           {groups.map((group) => (
-            <AuditLogGroupRow key={group[0].id} group={group} onSelect={setSelectedId} />
+            <AuditLogGroupRow key={group.items[0].id} group={group.items} onSelect={setSelectedId} />
           ))}
         </div>
       )}

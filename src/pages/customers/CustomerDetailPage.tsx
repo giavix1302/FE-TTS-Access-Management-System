@@ -47,6 +47,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { DataTable } from "@/components/shared/DataTable";
 import { DatePicker } from "@/components/shared/DatePicker";
@@ -62,7 +63,12 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useDebounce } from "@/hooks/useDebounce";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatDate, formatDateTime, formatCurrency } from "@/utils/format";
-import { getApiError, getApiErrorMessage } from "@/utils/apiError";
+import {
+  applyApiErrors,
+  getApiError,
+  getApiErrorMessage,
+  isConcurrentUpdateError,
+} from "@/utils/apiError";
 import {
   getCustomerTypeBadge,
   getCustomerActiveBadge,
@@ -80,10 +86,10 @@ import { isValidPhone, PHONE_INPUT_PATTERN, PHONE_VALIDATION_MESSAGE } from "@/u
 
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 const individualEditSchema = z.object({
-  fullName: z.string().trim().min(1, "Bắt buộc").max(200),
-  phone: z.string().refine((value) => isValidPhone(value, true), PHONE_VALIDATION_MESSAGE),
+  fullName: z.string({ error: "Bắt buộc nhập họ tên" }).trim().min(1, "Bắt buộc nhập họ tên").max(200),
+  phone: z.string({ error: "Bắt buộc nhập số điện thoại" }).refine((value) => isValidPhone(value, true), PHONE_VALIDATION_MESSAGE),
   email: z.string().email("Không hợp lệ").max(200).or(z.literal("")).optional(),
-  nationalId: z.string().regex(/^\d{12}$/, "Phải là 12 số"),
+  nationalId: z.string({ error: "Bắt buộc nhập số CCCD" }).regex(/^\d{12}$/, "Phải là 12 số"),
   nationalIdIssueDate: z.string().max(20).optional(),
   nationalIdIssuePlace: z.string().max(300).optional(),
   dateOfBirth: z.string().max(20).optional(),
@@ -94,13 +100,13 @@ const individualEditSchema = z.object({
 });
 
 const businessEditSchema = z.object({
-  internationalName: z.string().trim().min(1, "Bắt buộc").max(300),
+  internationalName: z.string({ error: "Bắt buộc nhập tên công ty" }).trim().min(1, "Bắt buộc nhập tên công ty").max(300),
   shortName: z
-    .string()
-    .min(1, "Bắt buộc")
+    .string({ error: "Bắt buộc nhập tên viết tắt" })
+    .min(1, "Bắt buộc nhập tên viết tắt")
     .max(50)
     .regex(/^[A-Z0-9]+$/, "Chỉ chữ in hoa A–Z và số 0–9"),
-  taxCode: z.string().regex(/^\d{10}(\d{3})?$/, "Phải là 10 hoặc 13 số"),
+  taxCode: z.string({ error: "Bắt buộc nhập mã số thuế" }).regex(/^\d{10}(\d{3})?$/, "Phải là 10 hoặc 13 số"),
   taxAddress: z.string().max(500).optional(),
   officeAddress: z.string().max(500).optional(),
   representative: z.string().max(200).optional(),
@@ -111,7 +117,7 @@ const businessEditSchema = z.object({
 
 const contactSchema = z
   .object({
-    fullName: z.string().trim().min(1, "Bắt buộc").max(200, "Tối đa 200 ký tự"),
+    fullName: z.string({ error: "Bắt buộc nhập họ tên" }).trim().min(1, "Bắt buộc nhập họ tên").max(200, "Tối đa 200 ký tự"),
     phone: z.string().refine((value) => isValidPhone(value, false), PHONE_VALIDATION_MESSAGE),
     email: z.string().email("Email không hợp lệ").max(200).or(z.literal("")),
     title: z.string().max(100, "Tối đa 100 ký tự"),
@@ -212,34 +218,8 @@ function IndividualEditDialog({
       onOpenChange(false);
     },
     onError: (error: unknown) => {
-      const apiError = getApiError(error);
-      apiError.details?.forEach(({ field, message }) =>
-        setError(field as keyof IndividualEditForm, {
-          type: "server",
-          message,
-        }),
-      );
-      if (apiError.code === "CCCD_ALREADY_EXISTS") {
-        setError("nationalId", {
-          type: "server",
-          message: apiError.message ?? "CCCD đã tồn tại",
-        });
-      }
-      if (apiError.code === "PHONE_ALREADY_EXISTS") {
-        setError("phone", {
-          type: "server",
-          message: apiError.message ?? "Số điện thoại đã được sử dụng",
-        });
-      }
-      if (
-        apiError.code === "CONTACT_PHONE_OR_EMAIL_EXISTS" &&
-        !apiError.details?.length
-      ) {
-        const message = apiError.message ?? "Số điện thoại hoặc email đã được sử dụng";
-        setError("phone", { type: "server", message });
-        setError("email", { type: "server", message });
-      }
-      toast.error(getApiErrorMessage(error));
+      applyApiErrors(error, setError, ["fullName", "phone", "email", "nationalId"]);
+      if (isConcurrentUpdateError(error)) onOpenChange(false);
     },
   });
 
@@ -483,35 +463,14 @@ function BusinessEditDialog({
       onOpenChange(false);
     },
     onError: (error: unknown) => {
-      const apiError = getApiError(error);
-      apiError.details?.forEach(({ field, message }) =>
-        setError(field as keyof BusinessEditForm, { type: "server", message }),
-      );
-      const duplicateField = {
-        TAX_CODE_ALREADY_EXISTS: "taxCode",
-        SHORT_NAME_ALREADY_EXISTS: "shortName",
-      }[apiError.code ?? ""] as keyof BusinessEditForm | undefined;
-      if (duplicateField) {
-        setError(duplicateField, {
-          type: "server",
-          message: apiError.message ?? "Giá trị đã tồn tại",
-        });
-      }
-      if (apiError.code === "PHONE_ALREADY_EXISTS") {
-        setError("phone", {
-          type: "server",
-          message: apiError.message ?? "Số điện thoại đã được sử dụng",
-        });
-      }
-      if (
-        apiError.code === "CONTACT_PHONE_OR_EMAIL_EXISTS" &&
-        !apiError.details?.length
-      ) {
-        const message = apiError.message ?? "Số điện thoại hoặc email đã được sử dụng";
-        setError("phone", { type: "server", message });
-        setError("email", { type: "server", message });
-      }
-      toast.error(getApiErrorMessage(error));
+      applyApiErrors(error, setError, [
+        "internationalName",
+        "shortName",
+        "taxCode",
+        "phone",
+        "email",
+      ]);
+      if (isConcurrentUpdateError(error)) onOpenChange(false);
     },
   });
 
@@ -762,18 +721,7 @@ function ContactDialog({
       const apiError = getApiError(error);
       const duplicateContactId = apiError.details?.find((detail) => detail.contactId)?.contactId;
       setConflictContactId(duplicateContactId);
-      apiError.details?.forEach(({ field, message }) =>
-        setError(field as keyof ContactForm, { type: "server", message }),
-      );
-      if (
-        apiError.code === "CONTACT_PHONE_OR_EMAIL_EXISTS" &&
-        !apiError.details?.length
-      ) {
-        const message = apiError.message ?? "Số điện thoại hoặc email đã được sử dụng";
-        setError("phone", { type: "server", message });
-        setError("email", { type: "server", message });
-      }
-      toast.error(getApiErrorMessage(error));
+      applyApiErrors(error, setError, ["fullName", "phone", "email", "title"]);
     },
   });
 
@@ -1114,7 +1062,7 @@ export default function CustomerDetailPage() {
         );
         if (canViewContracts) setActiveTab("contracts");
       } else {
-        toast.error("Có lỗi xảy ra");
+        toast.error(getApiErrorMessage(error));
       }
     },
   });
@@ -1604,29 +1552,31 @@ export default function CustomerDetailPage() {
                               Đặt chính
                             </Button>
                           )}
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8 cursor-pointer border-border"
-                            title="Sửa người liên hệ"
-                            aria-label={`Sửa người liên hệ ${contact.fullName}`}
-                            onClick={() => {
-                              setEditingContact(contact);
-                              setContactOpen(true);
-                            }}
-                          >
-                            <Pencil size={14} />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8 cursor-pointer border-error text-error hover:bg-error hover:text-white"
-                            title="Gỡ người liên hệ"
-                            aria-label={`Gỡ người liên hệ ${contact.fullName}`}
-                            onClick={() => setDeleteContactTarget(contact)}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
+                          <AppTooltip content="Sửa người liên hệ">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 cursor-pointer border-border"
+                              aria-label={`Sửa người liên hệ ${contact.fullName}`}
+                              onClick={() => {
+                                setEditingContact(contact);
+                                setContactOpen(true);
+                              }}
+                            >
+                              <Pencil size={14} />
+                            </Button>
+                          </AppTooltip>
+                          <AppTooltip content="Gỡ người liên hệ">
+                            <Button
+                              variant="outline"
+                              size="icon"
+                              className="h-8 w-8 cursor-pointer border-error text-error hover:bg-error hover:text-white"
+                              aria-label={`Gỡ người liên hệ ${contact.fullName}`}
+                              onClick={() => setDeleteContactTarget(contact)}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </AppTooltip>
                         </div>
                       )}
                     </div>
@@ -1703,14 +1653,14 @@ export default function CustomerDetailPage() {
       </Tabs>
 
       {/* ── Edit dialogs ───────────────────────────────────────────────────── */}
-      {isIndividual && ind && (
+      {editOpen && isIndividual && ind && (
         <IndividualEditDialog
           open={editOpen}
           onOpenChange={setEditOpen}
           customer={ind}
         />
       )}
-      {isBusiness && biz && (
+      {editOpen && isBusiness && biz && (
         <BusinessEditDialog
           open={editOpen}
           onOpenChange={setEditOpen}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { getApiErrorMessage } from "@/utils/apiError";
 import { ChevronLeft, Shield, AlertTriangle } from "lucide-react";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -79,7 +80,7 @@ function PermissionEditor({ roleDetail, allPermissions, onSaved }: PermissionEdi
       setShowConfirm(false);
       onSaved();
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err) => toast.error(getApiErrorMessage(err)),
   });
 
   const toggle = (id: number) => {

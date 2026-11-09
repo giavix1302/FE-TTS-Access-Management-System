@@ -1,6 +1,6 @@
 export type CustomerType = "individual" | "business";
 export type CustomerGender = "male" | "female" | "other";
-export type CustomerContractStatus = "active" | "completed" | "cancelled";
+export type CustomerContractStatus = "not_started" | "active" | "completed" | "cancelled";
 
 // ─── List item (GET /customers) ───────────────────────────────────────────────
 export interface CustomerListItem {

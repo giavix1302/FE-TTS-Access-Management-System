@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
 import { useForm } from "react-hook-form";
@@ -9,9 +9,9 @@ import { Plus, Truck, MapPin, RefreshCw } from "lucide-react";
 import { getVehicles, createVehicle } from "@/api/vehicles.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatDateTime } from "@/utils/format";
-import { getApiErrorMessage } from "@/utils/apiError";
 import { useDebounce } from "@/hooks/useDebounce";
 import { usePermission } from "@/hooks/usePermission";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { DataTable } from "@/components/shared/DataTable";
 import { Pagination } from "@/components/shared/Pagination";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -37,9 +37,10 @@ import {
   VEHICLE_STATUS_OPTIONS,
   getVehicleStatusBadge,
 } from "@/constants/vehicleStatus";
-import { VEHICLE_TYPE_OPTIONS, getVehicleTypeLabel } from "@/constants/vehicleType";
+import { VEHICLE_TYPE_OPTIONS } from "@/constants/vehicleType";
 import type { VehicleListItem, VehicleStatus, VehicleType } from "@/types/vehicle.types";
 import { VehicleFormFields } from "@/pages/vehicles/components/VehicleForm";
+import { VehicleTypeChip } from "@/pages/vehicles/components/VehicleTypeChip";
 import {
   EMPTY_VEHICLE_FORM,
   applyVehicleServerError,
@@ -59,16 +60,39 @@ const toHeightParam = (v: string) => {
 function LocationLink({ v }: { v: VehicleListItem }) {
   if (v.lat == null || v.lng == null) return <span className="text-text-secondary">—</span>;
   return (
-    <a
-      href={`https://www.google.com/maps?q=${v.lat},${v.lng}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      onClick={(e) => e.stopPropagation()}
-      title={v.locationUpdatedAt ? `Cập nhật: ${formatDateTime(v.locationUpdatedAt)}` : undefined}
-      className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[length:var(--fs-sm)] text-primary hover:bg-primary-light cursor-pointer"
-    >
-      <MapPin className="h-3.5 w-3.5" /> Bản đồ
-    </a>
+    <AppTooltip content={v.locationUpdatedAt ? `Cập nhật: ${formatDateTime(v.locationUpdatedAt)}` : undefined}>
+      <a
+        href={`https://www.google.com/maps?q=${v.lat},${v.lng}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[length:var(--fs-sm)] text-primary hover:bg-primary-light cursor-pointer"
+      >
+        <MapPin className="h-3.5 w-3.5" /> Bản đồ
+      </a>
+    </AppTooltip>
+  );
+}
+
+function CurrentContractInfo({ contract }: { contract: NonNullable<VehicleListItem["currentContract"]> }) {
+  const details = [contract.customerName, contract.siteAddress].filter(Boolean).join(" · ");
+  return (
+    <div className="min-w-0 max-w-[260px]">
+      <AppTooltip content={contract.contractNumber} onlyWhenTruncated>
+        <Link
+          to={`/contracts/${contract.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="block truncate text-[length:var(--fs-base)] font-medium text-primary hover:underline cursor-pointer"
+        >
+          {contract.contractNumber || "Chưa có số HĐ"}
+        </Link>
+      </AppTooltip>
+      {details && (
+        <AppTooltip content={details} onlyWhenTruncated>
+          <p className="truncate text-[length:var(--fs-sm)] text-text-secondary">{details}</p>
+        </AppTooltip>
+      )}
+    </div>
   );
 }
 
@@ -80,6 +104,8 @@ export default function VehicleListPage() {
   const { hasPermission } = usePermission();
 
   const canCreate = hasPermission("vehicles.create");
+  // Thiếu quyền này BE không trả currentContract → ẩn cột thay vì hiện "—" như xe đang rảnh
+  const canViewContracts = hasPermission("contracts.view");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<VehicleStatus | "">("");
@@ -95,6 +121,9 @@ export default function VehicleListPage() {
   const debouncedSearch = useDebounce(search, 300);
   const minWorkHeight = toHeightParam(useDebounce(minHeight, 300));
   const maxWorkHeight = toHeightParam(useDebounce(maxHeight, 300));
+  // BE trả 400 khi max < min → không gửi max sai, báo ngay ở ô nhập
+  const heightRangeInvalid =
+    minWorkHeight !== undefined && maxWorkHeight !== undefined && maxWorkHeight < minWorkHeight;
   const page = pagination.pageIndex + 1;
   const resetPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
 
@@ -105,7 +134,7 @@ export default function VehicleListPage() {
     status: statusFilter || undefined,
     vehicle_type: typeFilter || undefined,
     min_work_height: minWorkHeight,
-    max_work_height: maxWorkHeight,
+    max_work_height: heightRangeInvalid ? undefined : maxWorkHeight,
     page,
     page_size: pagination.pageSize,
   };
@@ -147,7 +176,7 @@ export default function VehicleListPage() {
       if (res?.data?.id) navigate(`/vehicles/${res.data.id}`);
     },
     onError: (err: unknown) => {
-      if (!applyVehicleServerError(err, form)) toast.error(getApiErrorMessage(err));
+      applyVehicleServerError(err, form, "create");
     },
   });
 
@@ -165,18 +194,16 @@ export default function VehicleListPage() {
       size: 280,
       cell: ({ row }) => (
         <div className="min-w-0 max-w-full">
-          <p
-            className="truncate font-semibold text-text-primary"
-            title={row.original.model}
-          >
-            {row.original.model}
-          </p>
-          <p
-            className="truncate text-[length:var(--fs-sm)] text-text-secondary"
-            title={row.original.serialNumber}
-          >
-            {row.original.serialNumber}
-          </p>
+          <AppTooltip content={row.original.model} onlyWhenTruncated>
+            <p className="truncate font-semibold text-text-primary">
+              {row.original.model}
+            </p>
+          </AppTooltip>
+          <AppTooltip content={row.original.serialNumber} onlyWhenTruncated>
+            <p className="truncate text-[length:var(--fs-sm)] text-text-secondary">
+              {row.original.serialNumber}
+            </p>
+          </AppTooltip>
         </div>
       ),
     },
@@ -195,9 +222,7 @@ export default function VehicleListPage() {
     {
       id: "vehicle_type",
       header: "Loại xe",
-      cell: ({ row }) => (
-        <span className="text-text-primary">{getVehicleTypeLabel(row.original.vehicleType)}</span>
-      ),
+      cell: ({ row }) => <VehicleTypeChip type={row.original.vehicleType} />,
     },
     {
       id: "engine_type",
@@ -227,11 +252,6 @@ export default function VehicleListPage() {
       ),
     },
     {
-      id: "location",
-      header: "Vị trí",
-      cell: ({ row }) => <LocationLink v={row.original} />,
-    },
-    {
       id: "status",
       header: "Trạng thái",
       cell: ({ row }) => {
@@ -245,17 +265,31 @@ export default function VehicleListPage() {
         );
       },
     },
+    ...(canViewContracts
+      ? [
+          {
+            id: "current_contract",
+            header: "Hợp đồng",
+            size: 260,
+            cell: ({ row }) =>
+              row.original.currentContract ? (
+                <CurrentContractInfo contract={row.original.currentContract} />
+              ) : (
+                <span className="text-text-secondary">—</span>
+              ),
+          } satisfies ColumnDef<VehicleListItem>,
+        ]
+      : []),
     {
       id: "updated_at",
       header: "Cập nhật lần cuối",
       size: 170,
       cell: ({ row }) => (
-        <span
-          className="whitespace-nowrap text-[length:var(--fs-sm)] text-text-secondary"
-          title="Thời điểm cập nhật thông tin xe gần nhất"
-        >
-          {formatDateTime(row.original.updatedAt)}
-        </span>
+        <AppTooltip content="Thời điểm cập nhật thông tin xe gần nhất">
+          <span className="whitespace-nowrap text-[length:var(--fs-sm)] text-text-secondary">
+            {formatDateTime(row.original.updatedAt)}
+          </span>
+        </AppTooltip>
       ),
     },
   ];
@@ -267,7 +301,6 @@ export default function VehicleListPage() {
     <div className="flex flex-col gap-3 lg:gap-4">
       <PageHeader
         title="Quản lý xe nâng"
-        subtitle="Danh sách toàn bộ xe nâng người"
         actions={
           canCreate ? (
             <Button
@@ -382,6 +415,11 @@ export default function VehicleListPage() {
             }}
             className="border-border"
           />
+          {heightRangeInvalid && (
+            <p className="text-[length:var(--fs-sm)] text-error">
+              Phải lớn hơn hoặc bằng chiều cao tối thiểu
+            </p>
+          )}
         </div>
       </FilterToolbar>
 
@@ -397,6 +435,7 @@ export default function VehicleListPage() {
             pageCount={meta?.totalPages ?? 1}
             onPaginationChange={setPagination}
             onRowClick={(row) => navigate(`/vehicles/${row.id}`)}
+            noWrap
             emptyTitle={isError ? "Không tải được danh sách xe" : "Không tìm thấy xe nào"}
             emptyDescription={
               isError ? "Đã có lỗi khi tải dữ liệu, vui lòng thử lại" : "Thử thay đổi bộ lọc hoặc thêm xe mới"
@@ -492,11 +531,7 @@ export default function VehicleListPage() {
                     <span className="text-[length:var(--fs-sm)] text-text-secondary">
                       {v.manufacturer} · {v.manufactureYear}
                     </span>
-                    {v.vehicleType && (
-                      <span className="inline-flex items-center rounded-full bg-bg-page px-2 py-0.5 text-[10px] font-medium text-text-secondary">
-                        {getVehicleTypeLabel(v.vehicleType)}
-                      </span>
-                    )}
+                    {v.vehicleType && <VehicleTypeChip type={v.vehicleType} size="sm" />}
                     <span
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${isElectric ? "bg-primary-light text-primary" : "bg-warning-light text-warning"}`}
                     >
@@ -507,6 +542,11 @@ export default function VehicleListPage() {
                     </span>
                     {v.lat != null && v.lng != null && <LocationLink v={v} />}
                   </div>
+                  {v.currentContract && (
+                    <div className="mt-1.5">
+                      <CurrentContractInfo contract={v.currentContract} />
+                    </div>
+                  )}
                 </div>
               </div>
             );

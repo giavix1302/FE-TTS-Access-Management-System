@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -11,17 +11,18 @@ import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Label } from '@/components/ui/label'
 import { ConfirmModal } from '@/components/shared/ConfirmModal'
+import { AppTooltip } from '@/components/shared/AppTooltip'
 import { EmptyState } from '@/components/shared/EmptyState'
 import { FileCard } from '@/components/shared/FileCard'
 import { CurrencyInput } from '@/components/shared/CurrencyInput'
 import { MobileTwoColDialog } from '@/components/shared/MobileTwoColDialog'
 import { DocumentExtractButton } from '@/components/shared/DocumentExtractButton'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getAcceptanceRecords, createAcceptanceRecord, updateAcceptanceRecord, deleteAcceptanceRecord } from '@/api/contracts.api'
 import { uploadDocument } from '@/api/documents.api'
 import { getCompanySettings } from '@/api/company.api'
 import { getServiceErrorMessage } from '@/constants/serviceErrors'
 import { useReplaceDocument } from '@/hooks/useReplaceDocument'
+import { applyApiErrors, getApiErrorMessage, isConcurrentUpdateError } from '@/utils/apiError'
 import { QUERY_KEYS } from '@/utils/queryKeys'
 import { formatCurrency, formatDateTime } from '@/utils/format'
 import type { AcceptanceRecord, AcceptanceAutofillFields } from '@/types/contract.types'
@@ -61,11 +62,11 @@ function AcceptanceFileCard({
 // ─── AcceptanceDialog ─────────────────────────────────────────────────────────
 // Ngày trừ chuyển từ HĐ sang BBNT; không còn ngày lập / ngày thực tế
 const acceptanceSchema = z.object({
-  recordNumber: z.string().min(1, 'Bắt buộc'),
-  subtotal: z.number({ error: 'Bắt buộc' }).min(0),
-  vatRatePercent: z.number({ error: 'Bắt buộc' }).min(0).max(100),
-  taxAmount: z.number({ error: 'Bắt buộc' }).min(0),
-  totalAmount: z.number({ error: 'Bắt buộc' }).min(0),
+  recordNumber: z.string({ error: 'Bắt buộc nhập số biên bản' }).min(1, 'Bắt buộc nhập số biên bản'),
+  subtotal: z.number({ error: 'Bắt buộc nhập tiền trước thuế' }).min(0),
+  vatRatePercent: z.number({ error: 'Bắt buộc nhập % VAT' }).min(0).max(100),
+  taxAmount: z.number({ error: 'Bắt buộc nhập tiền VAT' }).min(0),
+  totalAmount: z.number({ error: 'Bắt buộc nhập tổng tiền' }).min(0),
   depositAmount: z.number().min(0, 'Phải >= 0').optional(),
   excludedDays: z.number().int('Phải là số nguyên').min(0, 'Phải >= 0').optional(),
   excludedReason: z.string().trim().max(500, 'Tối đa 500 ký tự').optional(),
@@ -93,6 +94,8 @@ function AcceptanceDialog({
   const [docFile, setDocFile] = useState<File | null>(null)
   const [uploadedDoc, setUploadedDoc] = useState<{ id: number; fileName: string; sasUrl: string } | null>(null)
   const [uploading, setUploading] = useState(false)
+  // Tăng mỗi lần chọn file / đóng dialog → bỏ kết quả upload cũ về muộn (tránh gửi nhầm documentId)
+  const uploadSeq = useRef(0)
   const [extracting, setExtracting] = useState(false)
 
   const { data: companySettingsRes } = useQuery({
@@ -118,7 +121,7 @@ function AcceptanceDialog({
     }
   }
 
-  const { register, handleSubmit, control, watch, setValue, reset, formState: { errors } } = useForm<AcceptanceForm>({
+  const { register, handleSubmit, control, watch, setValue, setError, reset, formState: { errors } } = useForm<AcceptanceForm>({
     resolver: zodResolver(acceptanceSchema),
     defaultValues: buildDefaultValues(),
   })
@@ -155,25 +158,35 @@ function AcceptanceDialog({
   }, [companySettingsRes])
 
   function handleClose(v: boolean) {
-    if (!v) { reset(); setDocFile(null); setUploadedDoc(null) }
+    if (!v) {
+      reset(); setDocFile(null); setUploadedDoc(null)
+      uploadSeq.current++
+      setUploading(false)
+    }
     onOpenChange(v)
   }
 
   // Upload ngay lúc chọn file (is_temp=true) để có URL thật cho preview — thay vì blob URL cục bộ,
   // đặc biệt cần cho DOCX/XLSX vốn chỉ xem trước được qua Office Viewer (cần URL công khai truy cập được).
   async function handleFileChange(f: File | null) {
+    const seq = ++uploadSeq.current
     setDocFile(f)
     setUploadedDoc(null)
-    if (!f) return
+    if (!f) {
+      setUploading(false)
+      return
+    }
     setUploading(true)
     try {
       const doc = await uploadDocument({ file: f, doc_type: 'acceptance', is_temp: true })
+      if (seq !== uploadSeq.current) return
       setUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl })
-    } catch {
-      toast.error('Tải file lên thất bại, vui lòng thử lại')
+    } catch (err) {
+      if (seq !== uploadSeq.current) return
+      toast.error(getApiErrorMessage(err, 'Tải file lên thất bại, vui lòng thử lại'))
       setDocFile(null)
     } finally {
-      setUploading(false)
+      if (seq === uploadSeq.current) setUploading(false)
     }
   }
 
@@ -202,7 +215,15 @@ function AcceptanceDialog({
       toast.success(isEdit ? 'Đã cập nhật biên bản' : 'Đã thêm biên bản')
       handleClose(false)
     },
-    onError: (err) => toast.error(getServiceErrorMessage(err)),
+    onError: (err) => {
+      applyApiErrors(
+        err,
+        setError,
+        ['recordNumber', 'subtotal', 'taxAmount', 'totalAmount', 'depositAmount', 'excludedDays', 'excludedReason'],
+        getServiceErrorMessage(err),
+      )
+      if (isConcurrentUpdateError(err)) handleClose(false)
+    },
   })
 
   return (
@@ -373,23 +394,22 @@ export function AcceptanceTab({ contractId, canEdit }: AcceptanceTabProps) {
       toast.success('Đã xóa biên bản')
       setDeletingId(null)
     },
-    onError: () => toast.error('Có lỗi xảy ra'),
+    onError: (err) => toast.error(getServiceErrorMessage(err)),
   })
 
   const openAdd = () => { setEditingItem(undefined); setDialogOpen(true) }
   const openEdit = (item: AcceptanceRecord) => { setEditingItem(item); setDialogOpen(true) }
 
   return (
-    <div className="mt-4">
-      <div className="flex items-center justify-between mb-4">
-        <span className="font-medium text-text-primary">Biên bản nghiệm thu</span>
-        {canEdit && (
+    <div className="mt-4 rounded-lg border border-border bg-bg-card p-5">
+      {canEdit && (
+        <div className="flex items-center justify-end mb-4">
           <Button variant="outline" size="sm" onClick={openAdd} className="cursor-pointer">
             <Plus size={14} />
             Thêm biên bản
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">
@@ -398,73 +418,82 @@ export function AcceptanceTab({ contractId, canEdit }: AcceptanceTabProps) {
       ) : !records || records.length === 0 ? (
         <EmptyState description="Chưa có biên bản nghiệm thu nào" />
       ) : (
-        records.map((item) => (
-          <div key={item.id} className="bg-bg-card rounded-lg border border-border p-4 mb-3 space-y-3">
-            {/* Row 1: info + actions */}
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="font-mono font-semibold text-sm text-text-primary">{item.recordNumber}</p>
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  <span
-                    className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full flex items-center gap-1"
-                    title="Ngày tạo"
-                  >
-                    <CalendarIcon size={10} />
-                    {formatDateTime(item.createdAt)}
-                  </span>
-                  <span className="bg-primary-light text-primary text-xs px-2.5 py-1 rounded-full">
-                    {formatCurrency(item.totalAmount)}
-                  </span>
-                  {item.depositAmount > 0 && (
-                    <span className="bg-success-light text-success text-xs px-2.5 py-1 rounded-full">
-                      Đã cọc {formatCurrency(item.depositAmount)}
+        <div className="space-y-3">
+          {records.map((item) => (
+            <div key={item.id} className="overflow-hidden rounded-lg border border-border bg-bg-card">
+              {/* Header: định danh biên bản + thao tác */}
+              <div className="flex items-center justify-between gap-3 border-b border-border bg-primary-light px-4 py-2.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="min-w-0 break-words font-semibold text-text-primary">Biên bản số {item.recordNumber}</p>
+                  <AppTooltip content="Ngày tạo">
+                    <span className="inline-flex items-center gap-1 text-sm text-text-secondary">
+                      <CalendarIcon size={14} />
+                      {formatDateTime(item.createdAt)}
                     </span>
-                  )}
-                  {item.excludedDays > 0 && (
-                    <span className="bg-warning-light text-warning text-xs px-2.5 py-1 rounded-full">
-                      Trừ {item.excludedDays} ngày
-                    </span>
-                  )}
+                  </AppTooltip>
                 </div>
-                <p className="text-sm text-text-secondary mt-1">
-                  Subtotal: {formatCurrency(item.subtotal)} · VAT: {formatCurrency(item.taxAmount)}
-                </p>
-                {item.excludedReason && (
-                  <p className="text-sm text-text-secondary mt-1">Lý do trừ ngày: {item.excludedReason}</p>
-                )}
-              </div>
-              {canEdit && (
-                <div className="flex items-center gap-0.5 flex-none">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(item)} className="cursor-pointer h-8 w-8 p-0">
+                {canEdit && (
+                  <div className="flex flex-none items-center gap-0.5">
+                    <AppTooltip content="Chỉnh sửa biên bản">
+                      <Button variant="ghost" size="sm" aria-label="Chỉnh sửa biên bản" onClick={() => openEdit(item)} className="cursor-pointer h-8 w-8 p-0">
                         <Pencil size={14} />
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Chỉnh sửa biên bản</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setDeletingId(item.id) }} className="cursor-pointer h-8 w-8 p-0 hover:bg-error hover:text-white">
+                    </AppTooltip>
+                    <AppTooltip content="Xóa biên bản">
+                      <Button variant="ghost" size="sm" aria-label="Xóa biên bản" onClick={(e) => { e.stopPropagation(); setDeletingId(item.id) }} className="cursor-pointer h-8 w-8 p-0 hover:bg-error hover:text-white">
                         <Trash2 size={14} />
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Xóa biên bản</TooltipContent>
-                  </Tooltip>
+                    </AppTooltip>
+                  </div>
+                )}
+              </div>
+
+              {/* Thân card chia đôi: số tiền + ngày trừ | file */}
+              <div className="grid grid-cols-1 md:grid-cols-2">
+                <div className="min-w-0 p-4">
+                  <dl className="grid grid-cols-3 gap-3">
+                    <div className="min-w-0">
+                      <dt className="text-xs text-text-secondary">Trước thuế</dt>
+                      <dd className="mt-0.5 text-sm text-text-primary">{formatCurrency(item.subtotal)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-text-secondary">Thuế VAT</dt>
+                      <dd className="mt-0.5 text-sm text-text-primary">{formatCurrency(item.taxAmount)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-text-secondary">Tổng tiền</dt>
+                      <dd className="mt-0.5 text-sm font-semibold text-primary">{formatCurrency(item.totalAmount)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-text-secondary">Đã cọc</dt>
+                      <dd className="mt-0.5 text-sm text-text-primary">{formatCurrency(item.depositAmount)}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-xs text-text-secondary">Số ngày trừ</dt>
+                      <dd className="mt-0.5 text-sm text-text-primary">{item.excludedDays}</dd>
+                    </div>
+                  </dl>
+                  {item.excludedReason && (
+                    <div className="mt-3 border-t border-border pt-3">
+                      <p className="text-xs text-text-secondary">Lý do trừ ngày</p>
+                      <p className="mt-0.5 whitespace-pre-line break-words text-sm text-text-primary">{item.excludedReason}</p>
+                    </div>
+                  )}
                 </div>
-              )}
+
+                <div className="min-w-0 border-t border-border p-4 md:border-l md:border-t-0">
+                  <p className="mb-2 text-xs text-text-secondary">File biên bản</p>
+                  <AcceptanceFileCard
+                    document={item.document}
+                    recordId={item.id}
+                    contractId={contractId}
+                    canEdit={canEdit}
+                  />
+                </div>
+              </div>
             </div>
-            {/* Row 2: file */}
-            <div className="pt-3 border-t border-border">
-              <AcceptanceFileCard
-                document={item.document}
-                recordId={item.id}
-                contractId={contractId}
-                canEdit={canEdit}
-              />
-            </div>
-          </div>
-        ))
+          ))}
+        </div>
       )}
 
       <AcceptanceDialog

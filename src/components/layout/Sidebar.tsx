@@ -17,12 +17,7 @@ import {
   Contact,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { useAuthStore } from "@/stores/authStore";
 
 interface NavItem {
@@ -163,20 +158,14 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
     if (!collapsed) return <span key={item.to}>{linkContent}</span>;
 
     return (
-      <Tooltip key={item.to} delayDuration={100}>
-        <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
-        <TooltipContent
-          side="right"
-          className="flex items-center gap-2 rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
-        >
-          {item.label}
-        </TooltipContent>
-      </Tooltip>
+      <AppTooltip key={item.to} content={item.label} side="right">
+        {linkContent}
+      </AppTooltip>
     );
   };
 
   return (
-    <TooltipProvider>
+    <>
       {/* Backdrop overlay — chỉ hiện trên mobile khi drawer mở */}
       {mobileOpen && (
         <div
@@ -210,40 +199,24 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
                 TTS-AWPMS
               </span>
               {/* Nút thu nhỏ — chỉ hiện trên desktop */}
-              <Tooltip delayDuration={100}>
-                <TooltipTrigger asChild>
-                  <button
-                    onClick={onToggle}
-                    className="ml-1 hidden shrink-0 cursor-pointer items-center justify-center rounded-md p-2 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#5A5A66] lg:flex"
-                  >
-                    <ChevronLeft size={20} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent
-                  side="right"
-                  className="rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
-                >
-                  Thu nhỏ
-                </TooltipContent>
-              </Tooltip>
-            </>
-          ) : (
-            <Tooltip delayDuration={100}>
-              <TooltipTrigger asChild>
+              <AppTooltip content="Thu nhỏ" side="right">
                 <button
                   onClick={onToggle}
-                  className="mx-auto flex cursor-pointer items-center justify-center rounded-md p-2 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB]"
+                  className="ml-1 hidden shrink-0 cursor-pointer items-center justify-center rounded-md p-2 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#5A5A66] lg:flex"
                 >
-                  <ChevronRight size={20} />
+                  <ChevronLeft size={20} />
                 </button>
-              </TooltipTrigger>
-              <TooltipContent
-                side="right"
-                className="rounded-lg border-0 bg-[#5A5A66] px-3 py-2 text-[length:var(--fs-body)] font-medium text-white shadow-lg"
+              </AppTooltip>
+            </>
+          ) : (
+            <AppTooltip content="Mở rộng" side="right">
+              <button
+                onClick={onToggle}
+                className="mx-auto flex cursor-pointer items-center justify-center rounded-md p-2 text-[#718096] transition-colors hover:bg-[#F4F6F8] hover:text-[#1A5FAB]"
               >
-                Mở rộng
-              </TooltipContent>
-            </Tooltip>
+                <ChevronRight size={20} />
+              </button>
+            </AppTooltip>
           )}
         </div>
 
@@ -260,6 +233,6 @@ export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose
 
       </aside>
 
-    </TooltipProvider>
+    </>
   );
 }

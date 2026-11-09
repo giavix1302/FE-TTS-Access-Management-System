@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { getApiErrorMessage } from "@/utils/apiError";
 import {
   ShieldAlert,
   Wrench,
@@ -253,7 +254,7 @@ export default function NotificationsPage() {
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.all });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notifications.unreadCount });
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err) => toast.error(getApiErrorMessage(err)),
   });
 
   // Mark all as read
@@ -265,7 +266,7 @@ export default function NotificationsPage() {
       setUnreadCount(0);
       toast.success("Đã đánh dấu tất cả là đã đọc");
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err) => toast.error(getApiErrorMessage(err)),
   });
 
   const notifications = data?.data ?? [];

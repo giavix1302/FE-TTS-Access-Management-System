@@ -17,6 +17,17 @@ export interface PageMeta {
   totalPages: number;
 }
 
+// Hợp đồng của lần giao chưa trả. Không có field này KHÔNG có nghĩa là xe rảnh:
+// người dùng thiếu quyền contracts.view cũng không nhận được.
+export interface VehicleCurrentContract {
+  id: number;
+  contractNumber?: string | null;
+  // Dữ liệu cũ có thể là completed / cancelled
+  status: "not_started" | "active" | "completed" | "cancelled";
+  siteAddress?: string | null;
+  customerName?: string | null;
+}
+
 // GET /vehicles — item danh sách
 export interface VehicleListItem {
   id: number;
@@ -35,6 +46,7 @@ export interface VehicleListItem {
   lat?: number | null;
   lng?: number | null;
   locationUpdatedAt?: string | null;
+  currentContract?: VehicleCurrentContract | null;
 }
 
 export interface VehicleListResponse {
@@ -62,6 +74,10 @@ export interface VehicleDetail extends VehicleListItem {
   travelingSpeed?: number | null;
   note?: string | null;
   qrCode: string;
+  /** Text tự do, không phải id khách hàng */
+  ownerName?: string | null;
+  purchaseDate?: string | null; // yyyy-MM-dd
+  purchasePrice?: number | null;
 }
 
 // POST /vehicles — PUT dùng cùng body trừ serialNumber
@@ -82,6 +98,10 @@ export interface VehicleUpsertBody {
   // Đi theo cặp. PUT không gửi → BE giữ vị trí cũ
   lat?: number;
   lng?: number;
+  // PUT không gửi / null = giữ giá trị cũ. ownerName "" = xóa; purchaseDate / purchasePrice chưa xóa trống được
+  ownerName?: string;
+  purchaseDate?: string;
+  purchasePrice?: number;
 }
 
 export interface CreateVehicleBody extends VehicleUpsertBody {

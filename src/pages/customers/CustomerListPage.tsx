@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
 import { type ColumnDef, type PaginationState } from "@tanstack/react-table";
-import { Plus, Building2, User } from "lucide-react";
+import { Plus, Building2, RefreshCw, User } from "lucide-react";
 import {
   getCustomers,
   createIndividualCustomer,
@@ -14,7 +14,7 @@ import {
 } from "@/api/customers.api";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { formatDateTime } from "@/utils/format";
-import { getApiError, getApiErrorMessage } from "@/utils/apiError";
+import { applyApiErrors } from "@/utils/apiError";
 import { useDebounce } from "@/hooks/useDebounce";
 import { usePermission } from "@/hooks/usePermission";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -58,9 +58,9 @@ import { isValidPhone, PHONE_INPUT_PATTERN, PHONE_VALIDATION_MESSAGE } from "@/u
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 const individualSchema = z.object({
   type: z.literal("individual"),
-  fullName: z.string().trim().min(1, "Bắt buộc").max(200, "Tối đa 200 ký tự"),
-  phone: z.string().refine((value) => isValidPhone(value, true), PHONE_VALIDATION_MESSAGE),
-  nationalId: z.string().regex(/^\d{12}$/, "Phải là 12 số"),
+  fullName: z.string({ error: "Bắt buộc nhập họ tên" }).trim().min(1, "Bắt buộc nhập họ tên").max(200, "Tối đa 200 ký tự"),
+  phone: z.string({ error: "Bắt buộc nhập số điện thoại" }).refine((value) => isValidPhone(value, true), PHONE_VALIDATION_MESSAGE),
+  nationalId: z.string({ error: "Bắt buộc nhập số CCCD" }).regex(/^\d{12}$/, "Phải là 12 số"),
   email: z.string().email("Email không hợp lệ").max(200).or(z.literal("")).optional(),
   dateOfBirth: z.string().max(20).optional(),
   gender: z.enum(["male", "female", "other"]).optional(),
@@ -73,14 +73,14 @@ const individualSchema = z.object({
 
 const businessSchema = z.object({
   type: z.literal("business"),
-  internationalName: z.string().trim().min(1, "Bắt buộc").max(300, "Tối đa 300 ký tự"),
+  internationalName: z.string({ error: "Bắt buộc nhập tên công ty" }).trim().min(1, "Bắt buộc nhập tên công ty").max(300, "Tối đa 300 ký tự"),
   shortName: z
-    .string()
-    .min(1, "Bắt buộc")
+    .string({ error: "Bắt buộc nhập tên viết tắt" })
+    .min(1, "Bắt buộc nhập tên viết tắt")
     .max(50, "Tối đa 50 ký tự")
     .regex(/^[A-Z0-9]+$/, "Chỉ chữ in hoa A–Z và số 0–9, không dấu cách"),
   taxCode: z
-    .string()
+    .string({ error: "Bắt buộc nhập mã số thuế" })
     .regex(/^\d{10}(\d{3})?$/, "Phải là 10 hoặc 13 số"),
   taxAddress: z.string().max(500).optional(),
   officeAddress: z.string().max(500).optional(),
@@ -451,43 +451,17 @@ function CreateCustomerDialog({
       handleClose();
     },
     onError: (error: unknown) => {
-      const apiError = getApiError(error);
-      const targetForm = activeType === "individual" ? individualForm : businessForm;
-      apiError.details?.forEach(({ field, message }) => {
-        targetForm.setError(field as never, { type: "server", message });
-      });
-
-      const duplicateField = {
-        CCCD_ALREADY_EXISTS: "nationalId",
-        TAX_CODE_ALREADY_EXISTS: "taxCode",
-        SHORT_NAME_ALREADY_EXISTS: "shortName",
-      }[apiError.code ?? ""];
-      if (duplicateField) {
-        targetForm.setError(duplicateField as never, {
-          type: "server",
-          message: apiError.message ?? "Giá trị đã tồn tại",
-        });
+      if (activeType === "individual") {
+        applyApiErrors(error, individualForm.setError, ["fullName", "phone", "email", "nationalId"]);
+      } else {
+        applyApiErrors(error, businessForm.setError, [
+          "internationalName",
+          "shortName",
+          "taxCode",
+          "phone",
+          "email",
+        ]);
       }
-      if (apiError.code === "PHONE_ALREADY_EXISTS") {
-        targetForm.setError("phone" as never, {
-          type: "server",
-          message: apiError.message ?? "Số điện thoại đã được sử dụng",
-        });
-      }
-      if (
-        apiError.code === "CONTACT_PHONE_OR_EMAIL_EXISTS" &&
-        !apiError.details?.length
-      ) {
-        targetForm.setError("phone" as never, {
-          type: "server",
-          message: apiError.message ?? "Số điện thoại hoặc email đã được sử dụng",
-        });
-        targetForm.setError("email" as never, {
-          type: "server",
-          message: apiError.message ?? "Số điện thoại hoặc email đã được sử dụng",
-        });
-      }
-      toast.error(getApiErrorMessage(error));
     },
   });
 
@@ -624,7 +598,7 @@ export default function CustomerListPage() {
   const debouncedSearch = useDebounce(search, 400);
   const page = pagination.pageIndex + 1;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: [
       ...QUERY_KEYS.customers.all,
       { search: debouncedSearch, typeFilter, activeFilter, page, pageSize: pagination.pageSize },
@@ -646,6 +620,20 @@ export default function CustomerListPage() {
 
   const customers = data?.data ?? [];
   const meta = data?.meta;
+
+  // Lỗi tải (toast đã báo ở QueryCache) — không hiện nhầm thành "không có khách hàng"
+  const retryButton = (
+    <Button
+      size="sm"
+      variant="outline"
+      className="cursor-pointer"
+      disabled={isFetching}
+      onClick={() => refetch()}
+    >
+      <RefreshCw className={`h-4 w-4 mr-1 ${isFetching ? "animate-spin" : ""}`} />
+      Thử lại
+    </Button>
+  );
 
   const resetPage = () => setPagination((p) => ({ ...p, pageIndex: 0 }));
 
@@ -748,7 +736,6 @@ export default function CustomerListPage() {
     <div className="flex flex-col gap-3 lg:gap-4">
       <PageHeader
         title="Khách hàng"
-        subtitle="Danh sách khách hàng của công ty"
         actions={
           canEdit ? (
             <Button
@@ -831,10 +818,13 @@ export default function CustomerListPage() {
           pageCount={meta?.totalPages ?? 1}
           onPaginationChange={setPagination}
           onRowClick={(row) => navigate(`/customers/${row.id}`)}
-          emptyTitle="Không tìm thấy khách hàng nào"
-          emptyDescription="Thử thay đổi bộ lọc hoặc thêm khách hàng mới"
+          noWrap
+          emptyTitle={isError ? "Không tải được danh sách khách hàng" : "Không tìm thấy khách hàng nào"}
+          emptyDescription={
+            isError ? "Đã có lỗi khi tải dữ liệu, vui lòng thử lại" : "Thử thay đổi bộ lọc hoặc thêm khách hàng mới"
+          }
           emptyAction={
-            canEdit ? (
+            isError ? retryButton : canEdit ? (
               <Button
                 size="sm"
                 className="cursor-pointer bg-primary text-white hover:bg-primary-dark"
@@ -857,9 +847,9 @@ export default function CustomerListPage() {
         ) : customers.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-border bg-bg-card py-16">
             <p className="text-[length:var(--fs-base)] text-text-secondary">
-              Không tìm thấy khách hàng nào
+              {isError ? "Không tải được danh sách khách hàng" : "Không tìm thấy khách hàng nào"}
             </p>
-            {canEdit && (
+            {isError ? retryButton : canEdit && (
               <Button
                 size="sm"
                 className="cursor-pointer bg-primary text-white hover:bg-primary-dark mt-1"

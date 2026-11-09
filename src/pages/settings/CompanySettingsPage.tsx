@@ -4,6 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
+import { getApiErrorMessage } from "@/utils/apiError";
 import {
   Building2,
   Pencil,
@@ -24,6 +25,7 @@ import {
   updateBankAccount,
 } from "@/api/company.api";
 import { uploadDocument } from "@/api/documents.api";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { FileUpload } from "@/components/shared/FileUpload";
@@ -86,8 +88,8 @@ interface CompanySettingsResponse {
 // ─── Zod schemas ──────────────────────────────────────────────────────────────
 
 const companySchema = z.object({
-  fullName: z.string().min(1, "Bắt buộc").max(300),
-  taxCode: z.string().min(1, "Bắt buộc").max(20),
+  fullName: z.string({ error: "Bắt buộc nhập tên công ty" }).min(1, "Bắt buộc nhập tên công ty").max(300),
+  taxCode: z.string({ error: "Bắt buộc nhập mã số thuế" }).min(1, "Bắt buộc nhập mã số thuế").max(20),
   address: z.string().max(500).optional(),
   phone: z.string().max(20).optional(),
   email: z.string().email("Email không hợp lệ").or(z.literal("")).optional(),
@@ -98,9 +100,9 @@ const companySchema = z.object({
 type CompanyForm = z.infer<typeof companySchema>;
 
 const bankSchema = z.object({
-  bankAccountNumber: z.string().min(6, "Tối thiểu 6 ký tự").max(50),
-  bankAccountName: z.string().min(1, "Bắt buộc").max(200),
-  bankName: z.string().min(1, "Bắt buộc").max(200),
+  bankAccountNumber: z.string({ error: "Bắt buộc nhập số tài khoản" }).min(6, "Tối thiểu 6 ký tự").max(50),
+  bankAccountName: z.string({ error: "Bắt buộc nhập tên chủ tài khoản" }).min(1, "Bắt buộc nhập tên chủ tài khoản").max(200),
+  bankName: z.string({ error: "Bắt buộc nhập tên ngân hàng" }).min(1, "Bắt buộc nhập tên ngân hàng").max(200),
   bankBranch: z.string().max(300).optional(),
   isDefault: z.boolean().optional(),
 });
@@ -306,32 +308,38 @@ function BankAccountCard({
 
         {canEdit && (
           <div className="flex shrink-0 items-center gap-1">
-            <button
-              type="button"
-              onClick={onEdit}
-              title="Chỉnh sửa"
-              className="cursor-pointer rounded p-1.5 text-[#718096] hover:bg-[#F4F6F8] hover:text-[#1A5FAB]"
-            >
-              <Pencil size={15} />
-            </button>
-            {!account.isDefault && (
+            <AppTooltip content="Chỉnh sửa">
               <button
                 type="button"
-                onClick={onSetDefault}
-                title="Đặt làm mặc định"
-                className="cursor-pointer rounded p-1.5 text-[#718096] hover:bg-[#F4F6F8] hover:text-amber-500"
+                onClick={onEdit}
+                aria-label="Chỉnh sửa"
+                className="cursor-pointer rounded p-1.5 text-[#718096] hover:bg-[#F4F6F8] hover:text-[#1A5FAB]"
               >
-                <Star size={15} />
+                <Pencil size={15} />
               </button>
+            </AppTooltip>
+            {!account.isDefault && (
+              <AppTooltip content="Đặt làm mặc định">
+                <button
+                  type="button"
+                  onClick={onSetDefault}
+                  aria-label="Đặt làm mặc định"
+                  className="cursor-pointer rounded p-1.5 text-[#718096] hover:bg-[#F4F6F8] hover:text-amber-500"
+                >
+                  <Star size={15} />
+                </button>
+              </AppTooltip>
             )}
-            <button
-              type="button"
-              onClick={onDeactivate}
-              title="Ẩn tài khoản"
-              className="cursor-pointer rounded p-1.5 text-[#718096] hover:bg-red-50 hover:text-red-500"
-            >
-              <EyeOff size={15} />
-            </button>
+            <AppTooltip content="Ẩn tài khoản">
+              <button
+                type="button"
+                onClick={onDeactivate}
+                aria-label="Ẩn tài khoản"
+                className="cursor-pointer rounded p-1.5 text-[#718096] hover:bg-red-50 hover:text-red-500"
+              >
+                <EyeOff size={15} />
+              </button>
+            </AppTooltip>
           </div>
         )}
       </div>
@@ -401,7 +409,7 @@ export default function CompanySettingsPage() {
       setIsEditingInfo(false);
       setLogoFile(null);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err) => toast.error(getApiErrorMessage(err)),
   });
 
   // Bank: create / update
@@ -416,7 +424,7 @@ export default function CompanySettingsPage() {
       setBankDialogOpen(false);
       setEditingBank(null);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err) => toast.error(getApiErrorMessage(err)),
   });
 
   // Bank: set default
@@ -427,7 +435,7 @@ export default function CompanySettingsPage() {
       toast.success("Đã đặt tài khoản mặc định");
       setDefaultTarget(null);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err) => toast.error(getApiErrorMessage(err)),
   });
 
   // Bank: deactivate
@@ -438,7 +446,7 @@ export default function CompanySettingsPage() {
       toast.success("Đã ẩn tài khoản");
       setDeactivateTarget(null);
     },
-    onError: () => toast.error("Có lỗi xảy ra"),
+    onError: (err) => toast.error(getApiErrorMessage(err)),
   });
 
   const bankAccounts = settings?.bankAccounts ?? [];

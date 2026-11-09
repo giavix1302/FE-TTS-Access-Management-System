@@ -42,6 +42,23 @@ export interface AuditLogsResponse {
   };
 }
 
+// Các endpoint /groups. Dòng không có requestId (job nền, seed) tự thành nhóm 1 dòng, requestId = null
+// → React key dùng items[0].id, không dùng requestId
+export interface AuditLogGroup {
+  requestId: string | null;
+  occurredAt: string;
+  userId: number | null;
+  userName: string | null;
+  count: number;
+  items: AuditLogListItem[];
+}
+
+export interface AuditLogGroupsResponse {
+  success: boolean;
+  data: AuditLogGroup[];
+  meta: AuditLogsResponse["meta"];
+}
+
 export interface AuditLogParams {
   entityType?: string;
   entityId?: string;

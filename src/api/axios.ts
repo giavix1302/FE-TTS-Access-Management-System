@@ -1,5 +1,6 @@
 import axios from "axios";
-import { buildLoginUrl } from "@/utils/loginRedirect";
+import { getApiError, getApiErrorStatus } from "@/utils/apiError";
+import { buildLoginUrl, setLoginNotice } from "@/utils/loginRedirect";
 import { useAuthStore } from "@/stores/authStore";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5062/api/v1";
@@ -32,6 +33,13 @@ function processQueue(error: unknown, token: string | null) {
   failedQueue = [];
 }
 
+// Hết phiên → về login, trang login hiện message của BE ("Phiên đăng nhập đã hết hạn…")
+function redirectToLogin(error: unknown) {
+  setLoginNotice(getApiError(error).message);
+  useAuthStore.getState().clearAuth();
+  window.location.href = buildLoginUrl();
+}
+
 // Response interceptor — 401 → gọi POST /auth/refresh (cookie tự đính kèm)
 axiosInstance.interceptors.response.use(
   (response) => response,
@@ -49,8 +57,7 @@ axiosInstance.interceptors.response.use(
 
     // Chính /auth/refresh bị 401 → cookie hết hạn, logout hẳn
     if (url.includes("/auth/refresh")) {
-      useAuthStore.getState().clearAuth();
-      window.location.href = buildLoginUrl();
+      redirectToLogin(error);
       return Promise.reject(error);
     }
 
@@ -84,13 +91,12 @@ axiosInstance.interceptors.response.use(
       }
 
       processQueue(error, null);
-      useAuthStore.getState().clearAuth();
-      window.location.href = buildLoginUrl();
+      redirectToLogin(error);
       return Promise.reject(error);
     } catch (refreshError) {
       processQueue(refreshError, null);
-      useAuthStore.getState().clearAuth();
-      window.location.href = buildLoginUrl();
+      // 429: phiên vẫn còn, chỉ bị giới hạn tần suất → không đăng xuất, trả lỗi để màn hình báo thời gian chờ
+      if (getApiErrorStatus(refreshError) !== 429) redirectToLogin(refreshError);
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;

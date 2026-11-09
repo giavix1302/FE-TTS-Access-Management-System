@@ -5,6 +5,7 @@ export const VEHICLE_STATUS_LABELS: Record<string, string> = {
 };
 
 export const CONTRACT_STATUS_LABELS: Record<string, string> = {
+  not_started: "Chưa bắt đầu",
   active: "Đang thực hiện",
   completed: "Hoàn thành",
   cancelled: "Đã hủy",
@@ -17,8 +18,8 @@ export const ENGINE_TYPE_LABELS: Record<string, string> = {
 
 export const INCIDENT_TYPE_LABELS: Record<string, string> = {
   breakdown: "Hư hỏng",
-  replacement: "Đổi xe",
-  repair_onsite: "Sửa tại chỗ",
+  replacement: "Thay xe",
+  repair_onsite: "Sửa tại công trường",
 };
 
 export const CUSTOMER_TYPE_LABELS: Record<string, string> = {

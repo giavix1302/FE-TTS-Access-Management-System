@@ -13,7 +13,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CurrencyInput } from "@/components/shared/CurrencyInput";
+import { DatePicker } from "@/components/shared/DatePicker";
 import { VEHICLE_TYPE_OPTIONS } from "@/constants/vehicleType";
+import { todayInVietnam } from "@/utils/format";
 import {
   getCurrentPosition,
   type VehicleFormApi,
@@ -193,6 +196,45 @@ export function VehicleFormFields({
             step="any"
             placeholder="VD: 3.2"
             className="border-border"
+          />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <Field label="Người sở hữu" error={errors.ownerName?.message}>
+          <Input
+            {...register("ownerName")}
+            maxLength={200}
+            placeholder="VD: Công ty TTS"
+            className="border-border"
+          />
+        </Field>
+        <Field label="Ngày mua" error={errors.purchaseDate?.message}>
+          <Controller
+            control={control}
+            name="purchaseDate"
+            render={({ field }) => (
+              <DatePicker
+                value={field.value}
+                onChange={field.onChange}
+                maxDate={todayInVietnam()}
+                className="border-border"
+              />
+            )}
+          />
+        </Field>
+        <Field label="Giá mua (₫)" error={errors.purchasePrice?.message}>
+          <Controller
+            control={control}
+            name="purchasePrice"
+            render={({ field }) => (
+              <CurrencyInput
+                value={field.value}
+                onChange={field.onChange}
+                placeholder="VD: 850.000.000"
+                className="border-border"
+              />
+            )}
           />
         </Field>
       </div>

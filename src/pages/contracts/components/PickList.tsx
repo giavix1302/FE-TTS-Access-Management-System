@@ -1,4 +1,5 @@
 import { Check } from "lucide-react";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { cn } from "@/lib/utils";
 
 export interface PickOption {
@@ -67,14 +68,17 @@ export function PickList({ options, value, onChange, loading, emptyText, variant
                   : "hover:bg-bg-page",
             )}
           >
-            <span className="min-w-0 flex-1">
-              <span title={o.primary} className={cn("truncate font-medium text-text-primary", variant === "cards" ? "block" : "inline")}>
-                {o.primary}
-              </span>
+            <span className={cn("min-w-0 flex-1", variant === "simple" && "flex items-baseline")}>
+              <AppTooltip content={o.primary} onlyWhenTruncated>
+                <span className={cn("truncate font-medium text-text-primary", variant === "cards" ? "block" : "min-w-0")}>
+                  {o.primary}
+                </span>
+              </AppTooltip>
               {o.secondary && (
                 <span className={cn(
                   "truncate text-text-secondary",
-                  variant === "cards" ? "mt-0.5 block text-[length:var(--fs-sm)]" : "ml-1 inline",
+                  // simple: tên dài bị cắt "..." nhưng vẫn giữ phần phụ (serial / đơn vị) trên cùng hàng
+                  variant === "cards" ? "mt-0.5 block text-[length:var(--fs-sm)]" : "ml-1 max-w-[50%] shrink-0",
                   selected && "text-primary",
                 )}>
                   {variant === "simple" ? `· ${o.secondary}` : o.secondary}

@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { getApiErrorMessage } from "@/utils/apiError";
 import { replaceDocument } from "@/api/documents.api";
 import type { EntityType } from "@/api/documents.api";
 
@@ -30,6 +31,6 @@ export function useReplaceDocument({
       );
       toast.success("Đã thay thế file thành công");
     },
-    onError: () => toast.error("Thay thế file thất bại"),
+    onError: (err) => toast.error(getApiErrorMessage(err, "Thay thế file thất bại")),
   });
 }

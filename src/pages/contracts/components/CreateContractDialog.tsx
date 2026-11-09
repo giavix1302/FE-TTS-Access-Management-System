@@ -10,24 +10,15 @@ import {
   Plus,
   Building2,
   User,
-  X,
   Sparkles,
   FileText,
   ChevronDown,
   CheckCircle2,
-  Trash2,
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -38,7 +29,6 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { FileUpload } from "@/components/shared/FileUpload";
 import { DatePicker } from "@/components/shared/DatePicker";
-import { CurrencyInput } from "@/components/shared/CurrencyInput";
 import {
   MobileSheetDialog,
   MobileSheetContent,
@@ -56,16 +46,32 @@ import {
   createIndividualCustomer,
   createBusinessCustomer,
 } from "@/api/customers.api";
-import { getVehicles } from "@/api/vehicles.api";
-import { getServiceCatalog } from "@/api/service-catalog.api";
 import { getServiceErrorMessage } from "@/constants/serviceErrors";
 import { usePermission } from "@/hooks/usePermission";
 import { QUERY_KEYS } from "@/utils/queryKeys";
 import { cn } from "@/lib/utils";
-import { formatCurrency } from "@/utils/format";
-import { getApiError } from "@/utils/apiError";
+import { applyApiErrors, getApiError, getApiErrorMessage } from "@/utils/apiError";
+import { CurrencyInput } from "@/components/shared/CurrencyInput";
 import { isValidPhone, normalizePhone, PHONE_INPUT_PATTERN, PHONE_VALIDATION_MESSAGE } from "@/utils/phone";
 import type { ContractAutofillFields, ExtractedCustomerFields } from "@/types/contract.types";
+import { DraftLineItems } from "./DraftLineItems";
+import {
+  applyLineItemApiErrors,
+  buildLineItemsPayload,
+  draftsFromExtract,
+  validateLineDrafts,
+  type LineErrors,
+  type LineItemDraft,
+} from "@/utils/draftLineItems";
+
+// Lỗi BE của POST /contracts: field camelCase → ô form; lineItems[i].… gắn vào đúng dòng (xem applyLineItemApiErrors)
+const CONTRACT_ERROR_FIELDS: Readonly<Record<string, string>> = {
+  customerId: "customer_id",
+  startDate: "start_date",
+  siteAddress: "site_address",
+  contractNumber: "contract_number",
+  depositAmount: "deposit_amount",
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface CustomerOption {
@@ -77,58 +83,17 @@ interface CustomerOption {
   isActive?: boolean;
 }
 
-interface ServiceOption {
-  id: number;
-  name: string;
-  units: string[];
-  isActive: boolean;
-  allowVehicle: boolean;
-}
-
-interface VehicleOption {
-  id: number;
-  model: string;
-  serialNumber: string;
-  status: string;
-}
-
-interface LineItemDraft {
-  _key: string; // local unique key
-  service_id: number | null;
-  service_name: string;
-  unit: string;
-  // Dịch vụ cho phép gán xe (allowVehicle) — chỉ dòng này mới chọn được xe ở bước 4
-  allow_vehicle: boolean;
-  unit_price: number | undefined;
-  quantity: number | undefined;
-  duration: number | undefined;
-  // Dòng thuê xe chọn tối đa quantity xe; AI không tự chọn xe.
-  vehicles: VehicleDraft[];
-  // Ghi chú dòng (BE `note`, ≤ 500) — BE không có field description riêng cho dòng
-  note: string;
-}
-
-interface VehicleDraft {
-  vehicle_id: number;
-  deploy_date: string;
-  work_days: number;
-  note: string;
-}
-
 // ─── Schema ───────────────────────────────────────────────────────────────────
 const contractSchema = z.object({
   customer_id: z.number({ error: "Bắt buộc chọn khách hàng" }),
   contract_number: z.string().trim().max(100, "Tối đa 100 ký tự").optional(),
-  start_date: z.string().min(1, "Bắt buộc"),
+  start_date: z.string({ error: "Bắt buộc chọn ngày bắt đầu" }).min(1, "Bắt buộc chọn ngày bắt đầu"),
   // Không còn số ngày kế hoạch: ngày kết thúc BE tự tính từ số ngày làm của xe
   deposit_amount: z.number().min(0, "Phải >= 0").optional(),
-  site_address: z.string().trim().min(1, "Bắt buộc").max(500, "Tối đa 500 ký tự"),
+  site_address: z.string({ error: "Bắt buộc nhập địa điểm công trường" }).trim().min(1, "Bắt buộc nhập địa điểm công trường").max(500, "Tối đa 500 ký tự"),
 });
 
 type ContractForm = z.infer<typeof contractSchema>;
-
-const MOCK_DOC_URL =
-  "https://giavixblob1302.blob.core.windows.net/documents/H%E1%BB%A2P%20%C4%90%E1%BB%92NG%20THU%C3%8A%20XE%20TTS-DOTHANH.docx";
 
 // ─── File Preview ─────────────────────────────────────────────────────────────
 // Xem trước bằng sasUrl của file đã upload tạm (is_temp) — không dùng blob URL cục bộ
@@ -137,38 +102,11 @@ function FilePreviewPanel({
   file,
   sasUrl,
   uploading,
-  mockUrl,
 }: {
   file: File | null;
   sasUrl: string | null;
   uploading: boolean;
-  mockUrl: string | null;
 }) {
-  // Mock URL preview — dùng Office Online Viewer
-  if (mockUrl) {
-    const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(mockUrl)}`;
-    return (
-      <div className="flex flex-col h-full">
-        <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border-b border-amber-200 rounded-t-lg">
-          <FileText className="h-4 w-4 text-amber-600 shrink-0" />
-          <p className="text-xs font-medium text-amber-700 truncate flex-1">
-            HỢP ĐỒNG THUÊ XE TTS-DOTHANH.docx
-          </p>
-          <span className="text-xs bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded font-medium shrink-0">
-            Mock
-          </span>
-        </div>
-        <div className="flex-1 bg-gray-100 rounded-b-lg overflow-hidden">
-          <iframe
-            src={viewerUrl}
-            className="w-full h-full border-0"
-            title="Document preview"
-          />
-        </div>
-      </div>
-    );
-  }
-
   if (!file) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 text-text-secondary">
@@ -274,21 +212,21 @@ function CreateCustomerModal({
   function validate(): boolean {
     const e: Record<string, string> = {};
     if (type === "business") {
-      if (!internationalName.trim()) e.internationalName = "Bắt buộc";
-      if (!shortName.trim()) e.shortName = "Bắt buộc";
+      if (!internationalName.trim()) e.internationalName = "Bắt buộc nhập tên công ty";
+      if (!shortName.trim()) e.shortName = "Bắt buộc nhập tên viết tắt";
       else if (!/^[A-Z0-9]+$/.test(shortName))
         e.shortName = "Chỉ chữ in hoa A-Z và số 0-9";
-      if (!taxCode.trim()) e.taxCode = "Bắt buộc";
+      if (!taxCode.trim()) e.taxCode = "Bắt buộc nhập mã số thuế";
       else if (!/^\d{10}(\d{3})?$/.test(taxCode))
         e.taxCode = "Phải là 10 hoặc 13 số";
       if (!isValidPhone(bizPhone, false)) {
         e.bizPhone = PHONE_VALIDATION_MESSAGE;
       }
     } else {
-      if (!fullName.trim()) e.fullName = "Bắt buộc";
-      if (!phone.trim()) e.phone = "Bắt buộc";
+      if (!fullName.trim()) e.fullName = "Bắt buộc nhập họ tên";
+      if (!phone.trim()) e.phone = "Bắt buộc nhập số điện thoại";
       else if (!isValidPhone(phone, true)) e.phone = PHONE_VALIDATION_MESSAGE;
-      if (!cccd.trim()) e.cccd = "Bắt buộc";
+      if (!cccd.trim()) e.cccd = "Bắt buộc nhập số CCCD";
       else if (!/^\d{12}$/.test(cccd)) e.cccd = "Phải là 12 số";
     }
     setErrors(e);
@@ -325,25 +263,19 @@ function CreateCustomerModal({
       onCreated(res.data.id);
     },
     onError: (error) => {
-      const apiError = getApiError(error);
-      const serverErrors: Record<string, string> = {};
-      apiError.details?.forEach((detail) => {
-        const field = detail.field.charAt(0).toLowerCase() + detail.field.slice(1);
-        if (field === "phone") serverErrors[type === "business" ? "bizPhone" : "phone"] = detail.message;
-        else if (field === "taxCode") serverErrors.taxCode = detail.message;
-        else if (field === "shortName") serverErrors.shortName = detail.message;
-        else if (field === "internationalName") serverErrors.internationalName = detail.message;
-        else if (field === "fullName") serverErrors.fullName = detail.message;
-        else if (field === "nationalId" || field === "cccd") serverErrors.cccd = detail.message;
-      });
-      if (Object.keys(serverErrors).length > 0) setErrors((current) => ({ ...current, ...serverErrors }));
-      if (apiError.code === "PHONE_ALREADY_EXISTS") {
-        setErrors((current) => ({
-          ...current,
-          [type === "business" ? "bizPhone" : "phone"]: apiError.message ?? "Số điện thoại đã được sử dụng",
-        }));
-      }
-      toast.error(apiError.message ?? "Có lỗi xảy ra, vui lòng thử lại");
+      applyApiErrors(
+        error,
+        (name: string, { message }) => setErrors((current) => ({ ...current, [name]: message })),
+        {
+          phone: type === "business" ? "bizPhone" : "phone",
+          taxCode: "taxCode",
+          shortName: "shortName",
+          internationalName: "internationalName",
+          fullName: "fullName",
+          nationalId: "cccd",
+        },
+        "Có lỗi xảy ra, vui lòng thử lại",
+      );
     },
   });
 
@@ -820,28 +752,18 @@ export function CreateContractDialog({
   const [uploading, setUploading] = useState(false);
   // Tăng mỗi lần chọn file / đóng dialog → bỏ kết quả upload cũ về muộn (tránh gửi nhầm documentId)
   const uploadSeq = useRef(0);
-  const [mockUrl, setMockUrl] = useState<string | null>(null);
   const [showCreateCustomer, setShowCreateCustomer] = useState(false);
   const [extractedCustomer, setExtractedCustomer] = useState<ExtractedCustomerFields | undefined>();
   const [lineItems, setLineItems] = useState<LineItemDraft[]>([]);
+  // Lỗi BE theo dòng: _key của dòng → { "unit" | "vehicles[0].vehicleId"… → message }
+  const [lineErrors, setLineErrors] = useState<LineErrors>({});
   const [extracting, setExtracting] = useState(false);
   const [extractUnavailable, setExtractUnavailable] = useState(false);
   const [extractWarnings, setExtractWarnings] = useState<string[]>([]);
   const [fileTotals, setFileTotals] = useState<ContractAutofillFields["fileTotals"] | null>(null);
 
-  // Query service catalog — chỉ dùng active services cho dropdown.
-  // Thiếu service_catalog.view thì GET /service-catalog trả 403 → không gọi, ẩn nút thêm dịch vụ
   const { hasPermission } = usePermission();
-  const canViewCatalog = hasPermission("service_catalog.view");
   const canExtract = hasPermission("extract.use");
-  const { data: serviceCatalogRes } = useQuery({
-    queryKey: QUERY_KEYS.serviceCatalog.all,
-    queryFn: getServiceCatalog,
-    enabled: canViewCatalog,
-    staleTime: 5 * 60 * 1000,
-  });
-  const activeServices: ServiceOption[] = (serviceCatalogRes?.data ?? []).filter((s: ServiceOption) => s.isActive);
-  const catalogEmpty = canViewCatalog && !!serviceCatalogRes && activeServices.length === 0;
 
   // Query customers (active) cho picker
   const { data: customersRes } = useQuery({
@@ -852,24 +774,7 @@ export function CreateContractDialog({
   });
   const customerOptions: CustomerOption[] = customersRes?.data ?? [];
 
-  // Query vehicles at_yard cho dropdown gán xe
-  const { data: vehiclesRes } = useQuery({
-    queryKey: [...QUERY_KEYS.vehicles.all, { status: "at_yard", forContract: true }],
-    queryFn: () => getVehicles({ status: "at_yard", page_size: 100 }),
-    enabled: open,
-    staleTime: 60 * 1000,
-  });
-  const vehicleOptions: VehicleOption[] = vehiclesRes?.data ?? [];
-
-  const hasPreview = !!file || !!mockUrl;
-  const draftTotal = lineItems.reduce(
-    (s, li) => s + (li.unit_price ?? 0) * (li.quantity ?? 0) * (li.duration ?? 1),
-    0,
-  );
-
-  function patchLine(key: string, patch: Partial<LineItemDraft>) {
-    setLineItems((prev) => prev.map((li) => (li._key === key ? { ...li, ...patch } : li)));
-  }
+  const hasPreview = !!file;
 
   const {
     register,
@@ -877,6 +782,7 @@ export function CreateContractDialog({
     control,
     reset,
     setValue,
+    setError,
     formState: { errors },
   } = useForm<ContractForm>({
     resolver: zodResolver(contractSchema),
@@ -889,8 +795,8 @@ export function CreateContractDialog({
     setUploadedDoc(null);
     uploadSeq.current++;
     setUploading(false);
-    setMockUrl(null);
     setLineItems([]);
+    setLineErrors({});
     setExtractWarnings([]);
     setFileTotals(null);
     setExtracting(false);
@@ -917,9 +823,9 @@ export function CreateContractDialog({
       const doc = await uploadDocument({ file: f, doc_type: "contract", is_temp: true });
       if (seq !== uploadSeq.current) return;
       setUploadedDoc({ id: doc.id, fileName: doc.fileName, sasUrl: doc.sasUrl });
-    } catch {
+    } catch (err) {
       if (seq !== uploadSeq.current) return;
-      toast.error("Tải file lên thất bại, vui lòng thử lại");
+      toast.error(getApiErrorMessage(err, "Tải file lên thất bại, vui lòng thử lại"));
       setFile(null);
     } finally {
       if (seq === uploadSeq.current) setUploading(false);
@@ -943,23 +849,14 @@ export function CreateContractDialog({
         setExtractedCustomer(fields.customer.extracted);
         setShowCreateCustomer(true);
       }
-      if (lineItems.length === 0 || window.confirm("AI sẽ thay toàn bộ các dòng dịch vụ hiện tại. Tiếp tục?")) {
-        setLineItems(
-          fields.lineItems.map((item) => ({
-              _key: crypto.randomUUID(),
-              service_id: item.serviceId,
-              service_name: item.serviceName,
-              unit: item.unit,
-              allow_vehicle: item.allowVehicle,
-              unit_price: item.unitPrice,
-              quantity: item.quantity,
-              duration: item.duration,
-              vehicles: [],
-              note: item.note ?? "",
-          })),
-        );
+      const replaceLines =
+        lineItems.length === 0 || window.confirm("AI sẽ thay toàn bộ các dòng dịch vụ hiện tại. Tiếp tục?");
+      if (replaceLines) {
+        setLineItems(draftsFromExtract(fields.lineItems));
+        setLineErrors({});
       }
-      setFileTotals(fields.fileTotals);
+      // Giữ dòng cũ thì tổng trong file không còn khớp với dòng sẽ gửi → không hiện
+      setFileTotals(replaceLines ? fields.fileTotals : null);
       setExtractWarnings(response.data.extraction.warnings ?? []);
       toast.success("Đã điền dữ liệu đọc từ hợp đồng");
     } catch (err) {
@@ -983,8 +880,8 @@ export function CreateContractDialog({
   const [mobileTab, setMobileTab] = useState<"document" | "form">("document");
 
   useEffect(() => {
-    if (file || mockUrl) setMobileTab("form");
-  }, [file, mockUrl]);
+    if (file) setMobileTab("form");
+  }, [file]);
 
   useEffect(() => {
     if (!open) setMobileTab("document");
@@ -999,25 +896,7 @@ export function CreateContractDialog({
         ...(data.contract_number?.trim() ? { contractNumber: data.contract_number.trim() } : {}),
         ...(data.deposit_amount ? { depositAmount: data.deposit_amount } : {}),
         ...(uploadedDoc?.id ? { documentId: uploadedDoc.id } : {}),
-        lineItems: lineItems.map((li, index) => ({
-            serviceId: li.service_id!,
-            unitPrice: li.unit_price!,
-            quantity: li.quantity!,
-            unit: li.unit,
-            ...(li.duration != null ? { duration: li.duration } : {}),
-            sortOrder: index,
-            ...(li.note.trim() ? { note: li.note.trim() } : {}),
-            ...(li.allow_vehicle && li.vehicles.length > 0
-              ? {
-                  vehicles: li.vehicles.map((vehicle) => ({
-                    vehicleId: vehicle.vehicle_id,
-                    ...(vehicle.deploy_date ? { deployDate: vehicle.deploy_date } : {}),
-                    workDays: vehicle.work_days,
-                    ...(vehicle.note.trim() ? { note: vehicle.note.trim() } : {}),
-                  })),
-                }
-              : {}),
-          })),
+        lineItems: buildLineItemsPayload(lineItems),
       }),
     onSuccess: (res) => {
       queryClient.invalidateQueries({
@@ -1029,33 +908,28 @@ export function CreateContractDialog({
       const id = res?.data?.id;
       if (id) navigate(`/contracts/${id}`);
     },
-    onError: (err) => toast.error(getApiError(err).message ?? getServiceErrorMessage(err)),
+    // Map theo code + field, không theo HTTP (trùng số HĐ có thể về 400 hoặc 409) — dialog giữ nguyên để bấm Lưu lại
+    onError: (err) => {
+      const { lineErrors: nextLineErrors, mapped } = applyLineItemApiErrors(
+        err,
+        lineItems,
+        (name, error) => setError(name as keyof ContractForm, error),
+        CONTRACT_ERROR_FIELDS,
+        queryClient,
+      );
+      setLineErrors(nextLineErrors);
+      // Form dài, ô đỏ có thể nằm ngoài màn hình
+      if (mapped) toast.error("Vui lòng kiểm tra các ô báo đỏ");
+    },
   });
 
   const formContent = (
     <form
       id="create-contract-form"
       onSubmit={handleSubmit((d) => {
-        // Dòng chưa chọn dịch vụ sẽ bị bỏ qua khi gửi → chặn để không mất dữ liệu âm thầm
-        if (lineItems.some((li) => li.service_id === null)) {
-          toast.error("Vui lòng chọn dịch vụ cho mọi dòng hoặc xóa dòng trống");
-          return;
-        }
-        // BE: unitPrice > 0, quantity > 0
-        if (lineItems.some((li) => !((li.unit_price ?? 0) > 0) || !((li.quantity ?? 0) > 0))) {
-          toast.error("Đơn giá và số lượng của dòng dịch vụ phải lớn hơn 0");
-          return;
-        }
-        if (lineItems.some((li) => li.allow_vehicle && !Number.isInteger(li.quantity))) {
-          toast.error("Số lượng của dòng thuê xe phải là số nguyên");
-          return;
-        }
-        if (lineItems.some((li) => li.vehicles.length > (li.quantity ?? 0))) {
-          toast.error("Số xe được chọn không được vượt quá số lượng của dòng");
-          return;
-        }
-        if (lineItems.some((li) => li.vehicles.some((vehicle) => !Number.isInteger(vehicle.work_days) || vehicle.work_days < 0 || vehicle.work_days > 3650))) {
-          toast.error("Số ngày làm của xe phải là số nguyên từ 0 đến 3650");
+        const lineError = validateLineDrafts(lineItems);
+        if (lineError) {
+          toast.error(lineError);
           return;
         }
         mutation.mutate(d);
@@ -1186,292 +1060,16 @@ export function CreateContractDialog({
                 )}
               </div>
 
-              {/* ── Dịch vụ & xe ── mỗi dòng dịch vụ kèm xe của nó (giống tab "Dịch vụ & xe") */}
-              <div className="space-y-3 border-t border-border pt-4 pb-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-medium uppercase tracking-wide">
-                    Dịch vụ & xe
-                  </p>
-                  {canViewCatalog && !catalogEmpty && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setLineItems((prev) => [
-                          ...prev,
-                          {
-                            _key: crypto.randomUUID(),
-                            service_id: null,
-                            service_name: "",
-                            unit: "",
-                            allow_vehicle: false,
-                            unit_price: undefined,
-                            quantity: 1,
-                            duration: undefined,
-                            vehicles: [],
-                            note: "",
-                          },
-                        ])
-                      }
-                      className="h-7 text-xs gap-1.5 cursor-pointer hover:bg-primary-light hover:text-primary"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> Thêm dịch vụ
-                    </Button>
-                  )}
-                </div>
-
-                {lineItems.length === 0 ? (
-                  <p className="text-sm text-text-secondary py-4 px-3 text-center border border-dashed border-border rounded-lg">
-                    {!canViewCatalog
-                      ? "Bạn không có quyền xem danh mục dịch vụ. Hãy nhờ quản lý bổ sung dịch vụ sau khi tạo hợp đồng."
-                      : catalogEmpty
-                        ? "Danh mục chưa có dịch vụ nào đang hoạt động. Thêm dịch vụ ở mục Danh mục dịch vụ trước."
-                        : "Chưa có dịch vụ nào"}
-                  </p>
-                ) : (
-                  <div className="space-y-3">
-                    {lineItems.map((item, index) => {
-                      const selectedService = activeServices.find((service) => service.id === item.service_id);
-                      // Một xe chỉ nằm ở 1 dòng chưa trả (BE 409 VEHICLE_ALREADY_IN_CONTRACT) → ẩn xe đã chọn ở dòng khác
-                      const takenVehicleIds = lineItems
-                        .filter((li) => li._key !== item._key)
-                        .flatMap((li) => li.vehicles.map((vehicle) => vehicle.vehicle_id));
-                      const lineVehicleOptions = vehicleOptions.filter(
-                        (mv) => !takenVehicleIds.includes(mv.id),
-                      );
-                      return (
-                        <div
-                          key={item._key}
-                          className="rounded-lg border border-border bg-bg-card overflow-hidden"
-                        >
-                          {/* Header dòng: số thứ tự + xóa */}
-                          <div className="flex items-center justify-between border-b border-border bg-bg-page px-3 py-2">
-                            <p className="text-sm font-medium text-text-primary">
-                              Dịch vụ {index + 1}
-                            </p>
-                            <button
-                              type="button"
-                              aria-label="Xóa dòng dịch vụ"
-                              onClick={() =>
-                                setLineItems((prev) => prev.filter((li) => li._key !== item._key))
-                              }
-                              className="rounded p-1 text-text-secondary hover:bg-error hover:text-white cursor-pointer"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
-
-                          <div className="space-y-3 p-3">
-                            <div className="space-y-1.5">
-                              <Label className="text-sm">
-                                Dịch vụ <span className="text-error">*</span>
-                              </Label>
-                              <Select
-                                value={item.service_id ? String(item.service_id) : ""}
-                                onValueChange={(v) => {
-                                  const svc = activeServices.find((s) => s.id === Number(v));
-                                  if (!svc) return;
-                                  patchLine(item._key, {
-                                    service_id: svc.id,
-                                    service_name: svc.name,
-                                    unit: svc.units[0] ?? "",
-                                    allow_vehicle: svc.allowVehicle,
-                                    // Dịch vụ không cho gán xe → bỏ xe đã chọn (BE 400 LINE_ITEM_VEHICLE_NOT_ALLOWED)
-                                    ...(svc.allowVehicle ? {} : { vehicles: [] }),
-                                  });
-                                }}
-                              >
-                                <SelectTrigger className="w-full cursor-pointer border-border">
-                                  <SelectValue placeholder="Chọn dịch vụ" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {activeServices.map((s) => (
-                                    <SelectItem key={s.id} value={String(s.id)}>
-                                      {s.name} ({s.units.join(", ")})
-                                      {s.allowVehicle && (
-                                        <span className="ml-1.5 rounded-full bg-primary-light px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                                          Có xe
-                                        </span>
-                                      )}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1.5">
-                                <Label className="text-sm">Đơn vị <span className="text-error">*</span></Label>
-                                <Select value={item.unit} onValueChange={(unit) => patchLine(item._key, { unit })}>
-                                  <SelectTrigger><SelectValue placeholder="Chọn đơn vị" /></SelectTrigger>
-                                  <SelectContent>
-                                    {(selectedService?.units ?? (item.unit ? [item.unit] : [])).map((unit) => (
-                                      <SelectItem key={unit} value={unit}>{unit}</SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-sm">Thời gian</Label>
-                                <Input
-                                  type="number"
-                                  step="any"
-                                  min="0"
-                                  placeholder="Không áp dụng"
-                                  value={item.duration ?? ""}
-                                  onChange={(e) => patchLine(item._key, { duration: e.target.value === "" ? undefined : Number(e.target.value) })}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                              <div className="space-y-1.5">
-                                <Label className="text-sm">
-                                  Số lượng{item.unit ? ` (${item.unit})` : ""} <span className="text-error">*</span>
-                                </Label>
-                                <Input
-                                  type="number"
-                                  step="any"
-                                  min="0"
-                                  inputMode="decimal"
-                                  value={item.quantity ?? ""}
-                                  onChange={(e) =>
-                                    patchLine(item._key, {
-                                      quantity: e.target.value === "" ? undefined : Number(e.target.value),
-                                    })
-                                  }
-                                />
-                              </div>
-                              <div className="space-y-1.5">
-                                <Label className="text-sm">
-                                  Đơn giá (₫) <span className="text-error">*</span>
-                                </Label>
-                                <CurrencyInput
-                                  value={item.unit_price}
-                                  onChange={(v) => patchLine(item._key, { unit_price: v })}
-                                  placeholder="0"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="space-y-1.5">
-                              <Label className="text-sm">Ghi chú</Label>
-                              <Textarea
-                                rows={2}
-                                maxLength={500}
-                                placeholder="Mô tả thêm cho dòng dịch vụ (không bắt buộc)"
-                                className="resize-none"
-                                value={item.note}
-                                onChange={(e) => patchLine(item._key, { note: e.target.value })}
-                              />
-                            </div>
-
-
-                            {/* Xe của dòng — có thể chọn tối đa quantity xe */}
-                            {item.allow_vehicle && (
-                              <div className="space-y-3 rounded-md bg-bg-page p-3">
-                                <div className="space-y-1.5">
-                                  <Label className="text-sm">Xe ({item.vehicles.length}/{item.quantity ?? 0})</Label>
-                                  {item.vehicles.length > 0 && (
-                                    <div className="space-y-2">
-                                      {item.vehicles.map((vehicleDraft) => {
-                                        const vehicle = vehicleOptions.find((option) => option.id === vehicleDraft.vehicle_id);
-                                        return (
-                                          <div key={vehicleDraft.vehicle_id} className="space-y-2 rounded-md border border-border bg-bg-card p-2">
-                                            <div className="flex items-center justify-between text-xs font-medium text-text-primary">
-                                              <span>{vehicle?.model ?? "Xe"} · {vehicle?.serialNumber ?? `#${vehicleDraft.vehicle_id}`}</span>
-                                              <button type="button" className="cursor-pointer text-text-secondary hover:text-error" onClick={() => patchLine(item._key, { vehicles: item.vehicles.filter((entry) => entry.vehicle_id !== vehicleDraft.vehicle_id) })}>
-                                                <X size={14} />
-                                              </button>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-2">
-                                              <DatePicker
-                                                value={vehicleDraft.deploy_date}
-                                                onChange={(date) => patchLine(item._key, {
-                                                  vehicles: item.vehicles.map((entry) => entry.vehicle_id === vehicleDraft.vehicle_id ? { ...entry, deploy_date: date } : entry),
-                                                })}
-                                                placeholder="Ngày xuất bãi"
-                                              />
-                                              <Input
-                                                type="number"
-                                                min={0}
-                                                max={3650}
-                                                step={1}
-                                                value={vehicleDraft.work_days}
-                                                onChange={(event) => patchLine(item._key, {
-                                                  vehicles: item.vehicles.map((entry) => entry.vehicle_id === vehicleDraft.vehicle_id ? { ...entry, work_days: Number(event.target.value) } : entry),
-                                                })}
-                                                placeholder="Số ngày làm"
-                                              />
-                                            </div>
-                                            <Input
-                                              value={vehicleDraft.note}
-                                              maxLength={500}
-                                              onChange={(event) => patchLine(item._key, {
-                                                vehicles: item.vehicles.map((entry) => entry.vehicle_id === vehicleDraft.vehicle_id ? { ...entry, note: event.target.value } : entry),
-                                              })}
-                                              placeholder="Ghi chú giao xe"
-                                            />
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                  <Select
-                                    value=""
-                                    onValueChange={(v) => patchLine(item._key, {
-                                      vehicles: [...item.vehicles, { vehicle_id: Number(v), deploy_date: "", work_days: 0, note: "" }],
-                                    })}
-                                    disabled={item.vehicles.length >= (item.quantity ?? 0)}
-                                  >
-                                    <SelectTrigger className="w-full cursor-pointer border-border bg-bg-card">
-                                      <SelectValue placeholder="Chọn thêm xe" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {lineVehicleOptions.filter((mv) => !item.vehicles.some((entry) => entry.vehicle_id === mv.id)).map((mv) => (
-                                        <SelectItem key={mv.id} value={String(mv.id)}>
-                                          {mv.model}
-                                          <span className="text-text-secondary"> · {mv.serialNumber}</span>
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Footer dòng: thành tiền */}
-                          <div className="flex items-center justify-between border-t border-border px-3 py-2 text-sm">
-                            <span className="text-text-secondary">Thành tiền</span>
-                            <span className="font-medium text-text-primary">
-                              {formatCurrency((item.unit_price ?? 0) * (item.quantity ?? 0) * (item.duration ?? 1))}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {/* Tạm tính trước VAT — tổng chính thức (kèm VAT công ty) do BE tính sau khi tạo */}
-                    <div className="flex items-center justify-between rounded-lg bg-primary-light px-3 py-2.5">
-                      <span className="text-sm font-medium text-text-primary">Tổng cộng</span>
-                      <span className="text-base font-semibold text-primary">{formatCurrency(draftTotal)}</span>
-                    </div>
-                    {fileTotals && (
-                      <div className="rounded-lg border border-border bg-bg-page px-3 py-2 text-xs text-text-secondary">
-                        <p className="font-medium text-text-primary">Tổng trong file (để đối chiếu)</p>
-                        <div className="mt-1 grid grid-cols-2 gap-1">
-                          {fileTotals.subtotal != null && <span>Trước thuế: {formatCurrency(fileTotals.subtotal)}</span>}
-                          {fileTotals.vatRate != null && <span>VAT: {fileTotals.vatRate}%</span>}
-                          {fileTotals.taxAmount != null && <span>Tiền thuế: {formatCurrency(fileTotals.taxAmount)}</span>}
-                          {fileTotals.totalAmount != null && <span>Tổng: {formatCurrency(fileTotals.totalAmount)}</span>}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* ── Dịch vụ & xe ── mỗi dòng dịch vụ kèm xe của nó (dùng chung với form Thêm phụ lục) */}
+              <DraftLineItems
+                lineItems={lineItems}
+                setLineItems={setLineItems}
+                lineErrors={lineErrors}
+                setLineErrors={setLineErrors}
+                fileTotals={fileTotals}
+                enabled={open}
+                emptyHint="Chưa có dịch vụ nào"
+              />
     </form>
   );
 
@@ -1498,13 +1096,6 @@ export function CreateContractDialog({
       </div>
       <div className="w-full max-w-md space-y-2">
         <FileUpload value={file} onChange={handleFileChange} label="Kéo thả hoặc nhấp để chọn file hợp đồng" />
-        <button
-          type="button"
-          onClick={() => setMockUrl(MOCK_DOC_URL)}
-          className="w-full text-xs text-amber-600 border border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 rounded-md py-1.5 transition-colors cursor-pointer"
-        >
-          [Dev] Dùng file mock để xem preview
-        </button>
       </div>
       <p className="text-xs text-text-secondary">PDF, DOCX, XLSX, JPEG, PNG — tối đa 20MB</p>
     </div>
@@ -1540,7 +1131,7 @@ export function CreateContractDialog({
                   ? "text-primary border-b-2 border-primary cursor-pointer"
                   : "text-text-disabled cursor-not-allowed",
               )}
-              disabled={!file && !mockUrl}
+              disabled={!file}
             >
               Thông tin
             </button>
@@ -1550,16 +1141,7 @@ export function CreateContractDialog({
             {mobileTab === "document" ? (
               <div className="flex flex-col gap-4 p-4">
                 <FileUpload value={file} onChange={handleFileChange} label="Kéo thả hoặc nhấp để chọn file hợp đồng" />
-                {!file && (
-                  <button
-                    type="button"
-                    onClick={() => setMockUrl(MOCK_DOC_URL)}
-                    className="w-full text-xs text-amber-600 border border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 rounded-md py-1.5 transition-colors cursor-pointer"
-                  >
-                    [Dev] Dùng file mock để xem preview
-                  </button>
-                )}
-                {(file || mockUrl) && <FilePreviewPanel file={file} sasUrl={uploadedDoc?.sasUrl ?? null} uploading={uploading} mockUrl={mockUrl} />}
+                {file && <FilePreviewPanel file={file} sasUrl={uploadedDoc?.sasUrl ?? null} uploading={uploading} />}
               </div>
             ) : (
               <>
@@ -1633,7 +1215,7 @@ export function CreateContractDialog({
               hasPreview ? "pt-4 pl-4" : "p-8",
             )}
           >
-            {!hasPreview ? uploadPanel : <FilePreviewPanel file={file} sasUrl={uploadedDoc?.sasUrl ?? null} uploading={uploading} mockUrl={mockUrl} />}
+            {!hasPreview ? uploadPanel : <FilePreviewPanel file={file} sasUrl={uploadedDoc?.sasUrl ?? null} uploading={uploading} />}
           </div>
         </div>
       </DialogContent>

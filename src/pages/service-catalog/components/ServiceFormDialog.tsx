@@ -16,6 +16,7 @@ import {
   MobileSheetBody,
   MobileSheetFooter,
 } from "@/components/shared/MobileSheet";
+import { AppTooltip } from "@/components/shared/AppTooltip";
 import { ConfirmModal } from "@/components/shared/ConfirmModal";
 import { Switch } from "@/components/shared/Switch";
 import {
@@ -38,7 +39,7 @@ import type { ServiceCatalogItem, UpdateServiceInput } from "@/types/serviceCata
 
 const serviceSchema = z.object({
   name: z
-    .string()
+    .string({ error: "Vui lòng nhập tên dịch vụ" })
     .trim()
     .min(1, "Vui lòng nhập tên dịch vụ")
     .max(SERVICE_NAME_MAX, `Tối đa ${SERVICE_NAME_MAX} ký tự`),
@@ -147,12 +148,10 @@ export function ServiceFormDialog({
   );
   const units = useMemo(() => collectUnits(services), [services]);
 
-  const exactDuplicate = duplicate?.kind === "exact" ? duplicate.item : undefined;
-  const similarDuplicate = duplicate?.kind === "similar" ? duplicate.item : undefined;
-  const hiddenExact = exactDuplicate && !exactDuplicate.isActive ? exactDuplicate : undefined;
+  const hiddenExact = duplicate && !duplicate.isActive ? duplicate : undefined;
 
-  const nameError = exactDuplicate
-    ? `Đã có dịch vụ “${exactDuplicate.name}”${exactDuplicate.isActive ? "" : " (đang bị ẩn)"}`
+  const nameError = duplicate
+    ? `Đã có dịch vụ “${duplicate.name}”${duplicate.isActive ? "" : " (đang bị ẩn)"}`
     : errors.name?.message;
 
   const refreshCatalog = () =>
@@ -161,7 +160,7 @@ export function ServiceFormDialog({
   const handleServerError = (err: unknown) => {
     const { code, message, details } = getApiError(err);
 
-    // 409 — tên trùng (so sánh đúng từng ký tự, kể cả dịch vụ đã ẩn)
+    // 409 — tên trùng (không phân biệt hoa/thường, kể cả dịch vụ đã ẩn)
     if (code === "SERVICE_NAME_EXISTS") {
       setError("name", { message: message ?? "Tên dịch vụ đã tồn tại" });
       refreshCatalog();
@@ -228,7 +227,7 @@ export function ServiceFormDialog({
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   const onSubmit = (values: ServiceForm) => {
-    if (exactDuplicate) return;
+    if (duplicate) return;
     const next = {
       name: collapseSpaces(values.name),
       units: values.units.map(collapseSpaces),
@@ -318,12 +317,6 @@ export function ServiceFormDialog({
                   )}
                 </div>
               )}
-              {!nameError && similarDuplicate && (
-                <p className="text-[length:var(--fs-sm)] text-warning">
-                  Đã có dịch vụ tương tự: “{similarDuplicate.name}”
-                  {similarDuplicate.isActive ? "" : " (đang bị ẩn)"}
-                </p>
-              )}
             </div>
 
             {/* Danh sách đơn vị; phần tử đầu là mặc định */}
@@ -381,14 +374,16 @@ export function ServiceFormDialog({
                       }}
                       className="inline-flex cursor-grab items-center gap-1 rounded-full border border-primary/30 bg-primary-light px-2.5 py-1 text-[length:var(--fs-sm)] text-primary"
                     >
-                      <button
-                        type="button"
-                        title={index === 0 ? "Đơn vị mặc định" : "Đặt làm mặc định"}
-                        onClick={() => index > 0 && setValue("units", [u, ...selectedUnits.filter((_, i) => i !== index)], { shouldValidate: true, shouldDirty: true })}
-                        className="cursor-pointer"
-                      >
-                        <Star size={13} fill={index === 0 ? "currentColor" : "none"} />
-                      </button>
+                      <AppTooltip content={index === 0 ? "Đơn vị mặc định" : "Đặt làm mặc định"}>
+                        <button
+                          type="button"
+                          aria-label={index === 0 ? "Đơn vị mặc định" : "Đặt làm mặc định"}
+                          onClick={() => index > 0 && setValue("units", [u, ...selectedUnits.filter((_, i) => i !== index)], { shouldValidate: true, shouldDirty: true })}
+                          className="cursor-pointer"
+                        >
+                          <Star size={13} fill={index === 0 ? "currentColor" : "none"} />
+                        </button>
+                      </AppTooltip>
                       {u}
                       <button
                         type="button"
@@ -468,7 +463,7 @@ export function ServiceFormDialog({
             </Button>
             <Button
               type="submit"
-              disabled={isPending || !!exactDuplicate}
+              disabled={isPending || !!duplicate}
               className="cursor-pointer"
             >
               {isPending ? "Đang lưu..." : isEdit ? "Cập nhật" : "Thêm dịch vụ"}

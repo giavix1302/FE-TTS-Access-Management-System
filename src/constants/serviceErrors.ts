@@ -10,16 +10,18 @@ const ERROR_MESSAGES: Record<string, string> = {
   LINE_ITEM_NOT_FOUND: "Không tìm thấy dòng dịch vụ",
   LINE_ITEM_HAS_VEHICLES: "Dòng dịch vụ đã có xe, không thể xóa. Hãy gỡ xe trước",
   LINE_ITEM_VEHICLE_ON_SITE:
-    "Dòng dịch vụ đã đủ số xe chưa trả theo số lượng đã khai báo",
+    "Dòng dịch vụ đã đủ số xe theo số lượng đã khai báo. Nếu có xe chờ thay, hãy dùng nút Gán xe thay thế ở xe đó",
   LINE_ITEM_QUANTITY_BELOW_VEHICLES: "Số lượng không được nhỏ hơn số xe chưa trả của dòng",
   INVALID_UNIT: "Đơn vị không thuộc danh sách đơn vị của dịch vụ",
   LINE_ITEM_VEHICLE_NOT_ALLOWED: "Dịch vụ này không còn cho phép gán xe",
   VEHICLE_NOT_FOUND: "Không tìm thấy xe",
   CONTRACT_VEHICLE_NOT_FOUND: "Không tìm thấy xe trong hợp đồng",
   INVALID_DATE_RANGE: "Ngày trả phải sau hoặc bằng ngày xuất bãi",
-  VEHICLE_ALREADY_DEPLOYED: "Xe đã xuất bãi, không thể gỡ. Muốn kết thúc hãy ghi ngày trả",
+  VEHICLE_ALREADY_DEPLOYED: "Xe đã xuất bãi, không thể gỡ. Muốn kết thúc hãy đổi trạng thái xe về Trong bãi",
   VEHICLE_HAS_INCIDENTS: "Xe đã có sự cố ghi nhận, không thể gỡ",
   VEHICLE_NOT_DEPLOYED: "Chỉ ghi sự cố cho xe đã xuất bãi",
+  VEHICLE_ALREADY_RETURNED: "Xe đã trả về bãi, không ghi được sự cố mới",
+  REPLACEMENT_INCIDENT_EXISTS: "Lần giao này đã có sự cố thay xe",
   VEHICLE_NOT_ASSIGNABLE: "Xe hiện không đủ điều kiện để gán vào hợp đồng",
   REPLACEMENT_INVALID: "Xe được thay chưa đủ điều kiện để gán xe thay thế",
   VEHICLE_ALREADY_REPLACED: "Xe cũ đã có xe thay thế",
@@ -27,6 +29,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   ADDENDUM_NOT_FOUND: "Không tìm thấy phụ lục của hợp đồng này",
   ADDENDUM_HAS_LINE_ITEMS: "Phụ lục còn dòng dịch vụ, hãy xóa các dòng trước khi xóa phụ lục",
   AMOUNT_MISMATCH: "Tiền trước thuế + VAT lệch quá 1.000₫ so với tổng tiền",
+  ADDENDUM_START_BEFORE_CONTRACT: "Ngày bắt đầu phụ lục không được trước ngày bắt đầu hợp đồng",
 };
 
 // Các mã này phụ thuộc ngữ cảnh → ưu tiên message BE
@@ -37,6 +40,8 @@ const PREFER_SERVER_MESSAGE = new Set([
   "INVALID_UNIT",
   "VEHICLE_NOT_ASSIGNABLE",
   "REPLACEMENT_INVALID",
+  // Có 2 ngữ cảnh (sửa phụ lục / sửa ngày bắt đầu HĐ) → message BE nói đúng ngày nào
+  "ADDENDUM_START_BEFORE_CONTRACT",
 ]);
 
 const STATUS_MESSAGES: Record<number, string> = {
@@ -46,8 +51,10 @@ const STATUS_MESSAGES: Record<number, string> = {
 };
 
 export function getServiceErrorMessage(err: unknown): string {
-  const { code, message } = getApiError(err);
+  const { code, message, details } = getApiError(err);
   const status = getApiErrorStatus(err);
+  // details[] nêu đúng ô sai, cụ thể hơn message chung (dùng cho chỗ chỉ có toast, không có ô để gắn lỗi)
+  if (details?.length) return details[0].message;
   if (code && PREFER_SERVER_MESSAGE.has(code) && message) return message;
   return (
     (code ? ERROR_MESSAGES[code] : undefined) ??
